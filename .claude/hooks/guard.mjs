@@ -224,24 +224,26 @@ function gitPushProblem(command) {
 // retarget, open a PR against another base, or make `gh api` write calls.
 const GH_API_BODY_FLAGS = /^(-f|-F|--field|--raw-field|--input)/;
 
-// The value of a flag given as `--name value`, `--name=value` or `-Xvalue`.
-function flagValue(args, long, short) {
-  let value;
+// Every value of a flag given as `--name value`, `--name=value` or `-Xvalue`.
+// All occurrences count: a flag that takes a value consumes the next token
+// even if it looks like a flag, so the last one cannot be trusted to win.
+function flagValues(args, long, short) {
+  const values = [];
   args.forEach((a, j) => {
-    if (a === `--${long}` || a === `-${short}`) value = args[j + 1] ?? '';
-    else if (a.startsWith(`--${long}=`)) value = a.slice(long.length + 3);
+    if (a === `--${long}` || a === `-${short}`) values.push(args[j + 1] ?? '');
+    else if (a.startsWith(`--${long}=`)) values.push(a.slice(long.length + 3));
     else if (!a.startsWith('--') && a.startsWith(`-${short}`)) {
-      value = a.slice(short.length + 1);
+      values.push(a.slice(short.length + 1).replace(/^=/, ''));
     }
   });
-  return value;
+  return values;
 }
 
 function ghApiProblem(args) {
-  const method = flagValue(args, 'method', 'X');
+  const methods = flagValues(args, 'method', 'X').map((m) => m.toUpperCase());
   const writes = args.some((a) => GH_API_BODY_FLAGS.test(a));
-  const effective = (method ?? (writes ? 'POST' : 'GET')).toUpperCase();
-  return effective === 'GET' ? null : 'gh api write calls are not allowed';
+  const ok = methods.length ? methods.every((m) => m === 'GET') : !writes;
+  return ok ? null : 'gh api write calls are not allowed';
 }
 
 // Returns why a gh call in the command is not allowed, or null.
@@ -280,17 +282,17 @@ function ghProblem(command) {
     }
     if (words[0] !== 'pr') continue;
     if (words[1] === 'merge') return 'merging is for the human';
-    const base = flagValue(args, 'base', 'B');
-    if (words[1] === 'edit' && base !== undefined) {
+    const bases = flagValues(args, 'base', 'B');
+    if (words[1] === 'edit' && bases.length) {
       return 'retargeting a PR is not allowed';
     }
     if (
       words[1] === 'review' &&
-      args.some((a) => a === '--approve' || a === '-a')
+      args.some((a) => /^--approve(=|$)/.test(a) || /^-[a-zA-Z]*a/.test(a))
     ) {
       return 'approving a PR is not allowed';
     }
-    if (words[1] === 'create' && base !== undefined && base !== 'main') {
+    if (words[1] === 'create' && bases.some((b) => b !== 'main')) {
       return 'PRs may only target main';
     }
   }

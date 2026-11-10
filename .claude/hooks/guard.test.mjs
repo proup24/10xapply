@@ -251,6 +251,12 @@ test('bash: gh merge and retarget paths are blocked', () => {
     'env GH_TOKEN=x gh pr merge 1',
     'timeout 30 gh pr merge 1',
     "gh pr edit 1 --base dev --title 'x",
+    'gh pr review 12 --approve=true',
+    'gh pr review 12 -a=true',
+    'gh pr review 12 -ab ok',
+    'gh pr create -B dev --title -Bmain',
+    'gh pr create --base dev --title --base=main',
+    'gh api -X PUT repos/o/r/pulls/1/merge --jq -XGET',
   ]) {
     assert.equal(blocked('Bash', { command }), true, command);
   }
@@ -261,6 +267,8 @@ test('bash: gh reads and PRs to main are allowed', () => {
     'gh pr create --title x --body y',
     'gh pr create --base main --title x',
     'gh pr create -B main',
+    'gh pr create -Bmain',
+    'gh api -XGET repos/o/r/pulls',
     'gh pr view 12',
     'gh pr list',
     'gh pr edit 12 --title "new title"',
