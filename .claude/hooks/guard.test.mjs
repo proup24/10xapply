@@ -228,6 +228,60 @@ test('bash: keywords and wrappers before git push', () => {
   assert.equal(blocked('Bash', { command: 'timeout 60 git status' }), false);
 });
 
+test('bash: gh merge and retarget paths are blocked', () => {
+  for (const command of [
+    'gh pr merge 12',
+    'gh pr merge --squash --auto',
+    'gh pr edit 12 --base dev',
+    'gh pr edit 12 -B dev',
+    'gh pr review 12 --approve',
+    'gh pr review 12 -a',
+    'gh pr create --base dev --title x --body y',
+    'gh pr create -B dev',
+    'gh pr create --base=dev',
+    'gh api -X PUT repos/o/r/pulls/1/merge',
+    'gh api -XPOST repos/o/r/issues/1/comments',
+    'gh api --method=PATCH repos/o/r/pulls/1',
+    'gh api --method POST repos/o/r/pulls',
+    'gh api repos/o/r/pulls -f base=main',
+    'gh api graphql -F query=@q.graphql',
+    'gh api repos/o/r/pulls/1/merge --input body.json',
+    'bash -c "gh pr merge 1"',
+    'git status && gh pr merge 1',
+    'env GH_TOKEN=x gh pr merge 1',
+    'timeout 30 gh pr merge 1',
+    "gh pr edit 1 --base dev --title 'x",
+  ]) {
+    assert.equal(blocked('Bash', { command }), true, command);
+  }
+});
+
+test('bash: gh reads and PRs to main are allowed', () => {
+  for (const command of [
+    'gh pr create --title x --body y',
+    'gh pr create --base main --title x',
+    'gh pr create -B main',
+    'gh pr view 12',
+    'gh pr list',
+    'gh pr edit 12 --title "new title"',
+    'gh pr review 12 --comment -b "looks fine"',
+    'gh api repos/o/r/pulls/1/comments',
+    'gh api -X GET repos/o/r/pulls -f state=open',
+    'gh api --method=GET repos/o/r/pulls',
+    'git commit -m "gh pr merge later"',
+  ]) {
+    assert.equal(blocked('Bash', { command }), false, command);
+  }
+});
+
+test('reasons: gh', () => {
+  const r = evaluate({
+    tool_name: 'Bash',
+    tool_input: { command: 'gh pr merge 1' },
+  });
+  assert.match(r.reason, /gh blocked/);
+});
+
 test('unrelated tools pass', () => {
   assert.equal(blocked('WebSearch', { query: '.env' }), false);
 });

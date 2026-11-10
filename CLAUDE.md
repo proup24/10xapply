@@ -48,7 +48,7 @@ See [docs/roadmap/README.md](docs/roadmap/README.md): phases, slice order and th
 ## Guardrails
 
 - `.env*` files (except `.env.example`) and the repo-root `private/` folder are off-limits. `.claude/hooks/guard.mjs` enforces this for file tools and Bash.
-- Claude may push a feature branch only as `git push -u origin <branch>` and may open its PR to `main` with `gh pr create`. Claude never pushes `main`, force-pushes or deletes remote branches; `guard.mjs` blocks every other push form, and the human merges.
+- Claude may push a feature branch only as `git push -u origin <branch>` and may open its PR to `main` with `gh pr create`. Claude never pushes `main`, force-pushes or deletes remote branches; `guard.mjs` blocks every other push form, and the human merges. `guard.mjs` also blocks `gh pr merge`, approving or retargeting PRs, PRs to anything but `main`, and `gh api` write calls.
 - Credentials go only in untracked `.env*` files; personal data (resumes, facts) only in the untracked `private/` folder. Never commit either.
 - Never commit or log LinkedIn session cookies or proxy credentials.
 - `run-reports/` holds redacted run reports (no personal facts, no cookies). It is git-ignored and Claude may read it.

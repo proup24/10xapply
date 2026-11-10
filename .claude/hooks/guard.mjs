@@ -220,6 +220,83 @@ function gitPushProblem(command) {
   return null;
 }
 
+// Claude may open PRs to main with `gh`, and read. It may not merge, approve,
+// retarget, open a PR against another base, or make `gh api` write calls.
+const GH_API_BODY_FLAGS = /^(-f|-F|--field|--raw-field|--input)/;
+
+// The value of a flag given as `--name value`, `--name=value` or `-Xvalue`.
+function flagValue(args, long, short) {
+  let value;
+  args.forEach((a, j) => {
+    if (a === `--${long}` || a === `-${short}`) value = args[j + 1] ?? '';
+    else if (a.startsWith(`--${long}=`)) value = a.slice(long.length + 3);
+    else if (!a.startsWith('--') && a.startsWith(`-${short}`)) {
+      value = a.slice(short.length + 1);
+    }
+  });
+  return value;
+}
+
+function ghApiProblem(args) {
+  const method = flagValue(args, 'method', 'X');
+  const writes = args.some((a) => GH_API_BODY_FLAGS.test(a));
+  const effective = (method ?? (writes ? 'POST' : 'GET')).toUpperCase();
+  return effective === 'GET' ? null : 'gh api write calls are not allowed';
+}
+
+// Returns why a gh call in the command is not allowed, or null.
+function ghProblem(command) {
+  const { segments, unclosed } = parse(command);
+  if (
+    unclosed &&
+    /\bgh\b[^\n;&|]*(\b(merge|api)\b|\s(--base|-B|--approve|-a)\b)/.test(
+      command,
+    )
+  ) {
+    return 'a gh call inside an unterminated quote cannot be checked';
+  }
+  for (const tokens of segments) {
+    const i = commandIndex(tokens);
+    const nested = nestedCommand(tokens, i);
+    const nestedProblem = nested && ghProblem(nested);
+    if (nestedProblem) return nestedProblem;
+    if (tokens[i] !== 'gh') continue;
+    // xargs appends stdin to the arguments, so they cannot be checked.
+    if (tokens.slice(0, i).includes('xargs')) {
+      return 'a gh call through xargs cannot be checked';
+    }
+    const args = tokens
+      .slice(i + 1)
+      .filter((t, j, all) => t !== REDIRECT && all[j - 1] !== REDIRECT);
+    // Subcommands: the first words that are not flags (or a flag's value).
+    const words = [];
+    for (let j = 0; j < args.length && words.length < 2; j++) {
+      if (args[j] === '-R' || args[j] === '--repo') j++;
+      else if (!args[j].startsWith('-')) words.push(args[j]);
+    }
+    if (words[0] === 'api') {
+      const problem = ghApiProblem(args);
+      if (problem) return problem;
+    }
+    if (words[0] !== 'pr') continue;
+    if (words[1] === 'merge') return 'merging is for the human';
+    const base = flagValue(args, 'base', 'B');
+    if (words[1] === 'edit' && base !== undefined) {
+      return 'retargeting a PR is not allowed';
+    }
+    if (
+      words[1] === 'review' &&
+      args.some((a) => a === '--approve' || a === '-a')
+    ) {
+      return 'approving a PR is not allowed';
+    }
+    if (words[1] === 'create' && base !== undefined && base !== 'main') {
+      return 'PRs may only target main';
+    }
+  }
+  return null;
+}
+
 // Returns the first secret or private token, looking inside nested shells.
 function findBlockedToken(command) {
   const { segments, unclosed } = parse(command);
@@ -247,6 +324,13 @@ export function evaluate({ tool_name, tool_input = {} }) {
       return {
         block: true,
         reason: `git push blocked: ${pushProblem}. Claude may only run \`git push -u origin <branch>\` for a branch other than main; the human does anything else.`,
+      };
+    }
+    const ghIssue = ghProblem(command);
+    if (ghIssue) {
+      return {
+        block: true,
+        reason: `gh blocked: ${ghIssue}. Claude may only open PRs to main; the human merges.`,
       };
     }
     const hit = findBlockedToken(command);
