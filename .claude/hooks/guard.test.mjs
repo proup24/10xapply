@@ -290,6 +290,78 @@ test('reasons: gh', () => {
   assert.match(r.reason, /gh blocked/);
 });
 
+const runner = {
+  runnerName: 'fake-runner',
+  safeSubcommands: ['check-session'],
+};
+const runnerBlocked = (command, opts = runner) =>
+  evaluate({ tool_name: 'Bash', tool_input: { command } }, opts).block;
+
+test('runner: real launches are blocked', () => {
+  for (const command of [
+    'pnpm nx run fake-runner:apply https://x/jobs/1',
+    'pnpm nx apply fake-runner',
+    'pnpm exec nx run fake-runner:apply',
+    'npx nx run fake-runner:apply',
+    'pnpm nx run-many -t apply',
+    'pnpm nx affected --targets=lint,apply',
+    'node apps/fake-runner/dist/main.js apply https://x/jobs/1',
+    'tsx apps/fake-runner/src/main.ts apply x',
+    'pnpm exec tsx apps/fake-runner/src/main.ts apply x',
+    'ts-node ./apps/fake-runner/src/main.ts apply x',
+    'node --dry-run apps/fake-runner/main.js apply x',
+    'node apps/fake-runner/main.js apply x --dry-run=false',
+    'bash -c "node apps/fake-runner/main.js apply x"',
+    'cd apps/fake-runner && node dist/main.js apply x',
+    "node apps/fake-runner/main.js apply 'unterminated",
+    'pnpm exec apps/fake-runner/bin.js apply x',
+  ]) {
+    assert.equal(runnerBlocked(command), true, command);
+  }
+});
+
+test('runner: dry runs, safe subcommands and development pass', () => {
+  for (const command of [
+    'pnpm nx run fake-runner:apply --dry-run',
+    'pnpm nx run fake-runner:apply -- https://x/jobs/1 --dry-run',
+    'node apps/fake-runner/dist/main.js apply https://x/jobs/1 --dry-run',
+    'node apps/fake-runner/dist/main.js --dry-run apply x',
+    'pnpm nx run fake-runner:check-session',
+    'node apps/fake-runner/dist/main.js check-session',
+    'pnpm nx test fake-runner',
+    'pnpm nx run fake-runner:build',
+    'pnpm nx lint fake-runner',
+    'pnpm nx run-many -t lint test build typecheck',
+    'git add apps/fake-runner',
+    'git diff apps/fake-runner',
+    'cat apps/fake-runner/src/main.ts',
+    'grep -r apply apps/fake-runner/src',
+    'git commit -m "fake-runner: fix apply step"',
+    'pnpm exec apps/fake-runner/bin.js apply x --dry-run',
+  ]) {
+    assert.equal(runnerBlocked(command), false, command);
+  }
+});
+
+test('runner: no name configured blocks nothing', () => {
+  assert.equal(
+    runnerBlocked('node apps/fake-runner/main.js apply x', {}),
+    false,
+  );
+  assert.equal(runnerBlocked('pnpm nx run-many -t apply', {}), false);
+});
+
+test('reasons: runner', () => {
+  const r = evaluate(
+    {
+      tool_name: 'Bash',
+      tool_input: { command: 'pnpm nx run fake-runner:apply' },
+    },
+    runner,
+  );
+  assert.match(r.reason, /Runner blocked/);
+});
+
 test('unrelated tools pass', () => {
   assert.equal(blocked('WebSearch', { query: '.env' }), false);
 });

@@ -299,6 +299,259 @@ function ghProblem(command) {
   return null;
 }
 
+// The runner applies to jobs from a user's real LinkedIn account. Claude may
+// develop it freely but may only launch it as a dry run. Slice 03 names it.
+export const RUNNER_NAME = '';
+export const RUNNER_SAFE_SUBCOMMANDS = [];
+export const DEV_TARGETS = ['build', 'test', 'lint', 'typecheck'];
+
+const NODE_RUNNERS = ['node', 'tsx', 'ts-node'];
+const PACKAGE_MANAGERS = ['pnpm', 'npx', 'npm', 'yarn'];
+// Package-manager flags whose value selects a package or folder.
+const PM_DIR_FLAGS = [
+  '-C',
+  '--dir',
+  '-F',
+  '--filter',
+  '--prefix',
+  '-w',
+  '--workspace',
+];
+const PM_EXEC = ['exec', 'dlx', 'x'];
+// Package-manager commands that never run a package script.
+const PM_BUILTINS = [
+  'install',
+  'i',
+  'add',
+  'remove',
+  'rm',
+  'list',
+  'ls',
+  'why',
+  'outdated',
+  'update',
+  'up',
+  'audit',
+  'link',
+  'unlink',
+  'prune',
+  'store',
+  'config',
+  'info',
+  'view',
+];
+// Nx commands that inspect or change the workspace without running a target.
+const NX_TOOLS = [
+  'show',
+  'graph',
+  'g',
+  'generate',
+  'list',
+  'report',
+  'reset',
+  'daemon',
+  'format',
+  'format:check',
+  'format:write',
+  'sync',
+  'sync:check',
+  'repair',
+  'migrate',
+  'add',
+  'init',
+];
+
+const basename = (t) => t.split('/').at(-1);
+const withoutRedirects = (tokens) =>
+  tokens.filter((t, j, all) => t !== REDIRECT && all[j - 1] !== REDIRECT);
+// A path through a folder named after the runner: apps/<name>/…, and also
+// Nx's build output dist/apps/<name>/….
+const runnerPath = (t, name) => t.includes('/') && segments(t).includes(name);
+const looksLikeFile = (t) => t.includes('/') || /\.[cm]?[jt]sx?$/.test(t);
+
+// True when `--dry-run` reaches the runner: it comes after the launch token
+// and before any `--` that would turn it into a plain argument. The first
+// `skip` separators belong to the launcher (Nx forwards what follows `--`).
+function dryRunAfter(args, at, skip) {
+  for (let j = at + 1; j < args.length; j++) {
+    if (args[j] === '--' && skip-- <= 0) return false;
+    if (args[j] === '--dry-run') return true;
+  }
+  return false;
+}
+
+// Every target named by -t/--target/--targets, joined, separate, or listed
+// with commas or spaces.
+function nxTargets(args) {
+  const targets = [];
+  args.forEach((a, k) => {
+    const m = /^(--targets?(?==|$)|-t)=?(.*)$/.exec(a);
+    if (!m) return;
+    if (m[2]) targets.push(...m[2].split(/[,\s]+/));
+    else {
+      for (let n = k + 1; n < args.length && !args[n].startsWith('-'); n++) {
+        targets.push(...args[n].split(/[,\s]+/));
+      }
+    }
+  });
+  return targets.filter(Boolean);
+}
+
+// The launch in an Nx call (`args` follow `nx`), or null.
+function nxLaunch(args, ctx, here) {
+  const sep = args.indexOf('--');
+  const own = sep < 0 ? args : args.slice(0, sep);
+  const words = own.filter((a) => !a.startsWith('-'));
+  const cmd = words[0];
+  if (cmd === 'run-many' || cmd === 'affected') {
+    const targets = nxTargets(own);
+    return !targets.length || targets.some((t) => !DEV_TARGETS.includes(t))
+      ? { problem: 'run-many with a non-dev target may launch the runner' }
+      : null;
+  }
+  // `nx exec` and `nx watch` run the command after `--`.
+  if ((cmd === 'exec' || cmd === 'watch') && sep >= 0) {
+    const inner = args.slice(sep + 1).join(' ');
+    return { problem: runnerProblem(inner, ctx.name, ctx.safe, here) };
+  }
+  if (!cmd || NX_TOOLS.includes(cmd)) return null;
+  const spec = own.findIndex((a) => a.startsWith(`${ctx.name}:`));
+  const projects = [
+    ...flagValues(own, 'project', 'p'),
+    ...flagValues(own, 'projects', 'p'),
+  ].flatMap((v) => v.split(','));
+  // Inside the runner's folder, Nx picks the runner when no project is named.
+  const named = here || own.includes(ctx.name) || projects.includes(ctx.name);
+  if (spec < 0 && !named) return null;
+  let at = own.indexOf(cmd);
+  let target = cmd;
+  if (spec >= 0) {
+    at = spec;
+    target = own[spec].split(':')[1];
+  } else if (cmd === 'run') {
+    // `nx run <name>` without a target cannot be checked.
+    at = words[1] ? own.indexOf(words[1]) : at;
+    target = words[1]?.includes(':') ? words[1].split(':')[1] : undefined;
+  }
+  return DEV_TARGETS.includes(target)
+    ? null
+    : { args, at, subcommand: target, skip: 1 };
+}
+
+// The launch when `args` run node, tsx or ts-node, or null. The launch token
+// is the first argument that is a runner path, or, inside the runner's
+// folder, the first non-flag argument. An argument expanded at run time
+// (`$F`) counts when the command names the runner anywhere.
+function fileLaunch(args, ctx, here) {
+  let at = args.findIndex(
+    (a, k) =>
+      k > 0 && (runnerPath(a, ctx.name) || (ctx.mentioned && a.includes('$'))),
+  );
+  if (at < 0 && here)
+    at = args.findIndex((a, k) => k > 0 && !a.startsWith('-'));
+  return at < 0 ? null : { args, at, subcommand: args[at + 1] };
+}
+
+// The runner launch in one command (args start at the command word), or null.
+// A result has the launch token's index `at` and the `subcommand`, or a
+// `problem` when the call is blocked outright.
+function findLaunch(args, ctx, here) {
+  let j = 0;
+  let manager = false;
+  let exec = false;
+  if (PACKAGE_MANAGERS.includes(basename(args[0] ?? ''))) {
+    manager = true;
+    exec = basename(args[0]) === 'npx';
+    // --filter, --dir, yarn workspace… naming the runner run in its folder.
+    args.forEach((a, k) => {
+      const value =
+        PM_DIR_FLAGS.includes(a) || a === 'workspace' ? args[k + 1] : '';
+      if (
+        (a.startsWith('-') && a.includes(ctx.name)) ||
+        value?.includes(ctx.name)
+      ) {
+        here = true;
+      }
+    });
+    for (j = 1; j < args.length; j++) {
+      const a = args[j];
+      if (PM_DIR_FLAGS.includes(a) || a === 'workspace') j++;
+      else if (PM_EXEC.includes(a)) exec = true;
+      else if (!a.startsWith('-')) break;
+    }
+  }
+  const word = args[j];
+  if (word === undefined) return null;
+  const rest = args.slice(j);
+  if (basename(word) === 'nx') return nxLaunch(rest.slice(1), ctx, here);
+  if (NODE_RUNNERS.includes(basename(word))) return fileLaunch(rest, ctx, here);
+  if (
+    runnerPath(word, ctx.name) ||
+    word === ctx.name ||
+    (here && looksLikeFile(word))
+  ) {
+    return { args: rest, at: 0, subcommand: rest[1] };
+  }
+  // A package script run in the runner's package: `pnpm start`, `npm run x`.
+  if (manager && !exec && here) {
+    const at = word === 'run' || word === 'run-script' ? 1 : 0;
+    const script = rest[at];
+    if (
+      script &&
+      !DEV_TARGETS.includes(script) &&
+      !PM_BUILTINS.includes(script)
+    ) {
+      return { args: rest, at, subcommand: script };
+    }
+  }
+  return null;
+}
+
+// Returns why a runner launch in the command is not allowed, or null.
+// `here` is true once an earlier `cd` entered the runner's folder.
+export function runnerProblem(
+  command,
+  runnerName,
+  safeSubcommands,
+  here = false,
+) {
+  if (!runnerName) return null;
+  const ctx = {
+    name: runnerName,
+    safe: safeSubcommands,
+    mentioned: command.includes(runnerName),
+  };
+  const { segments: parts, unclosed } = parse(command);
+  if (unclosed && ctx.mentioned) {
+    return 'a runner command inside an unterminated quote cannot be checked';
+  }
+  for (const tokens of parts) {
+    const i = commandIndex(tokens);
+    const nested = nestedCommand(tokens, i);
+    const nestedProblem =
+      nested && runnerProblem(nested, runnerName, safeSubcommands, here);
+    if (nestedProblem) return nestedProblem;
+    const args = withoutRedirects(tokens.slice(i));
+    if (
+      (args[0] === 'cd' || args[0] === 'pushd') &&
+      args.slice(1).some((a) => segments(a).includes(runnerName))
+    ) {
+      here = true;
+    }
+    const launch = findLaunch(args, ctx, here);
+    if (!launch) continue;
+    if ('problem' in launch) {
+      if (launch.problem) return launch.problem;
+      continue;
+    }
+    const { at, subcommand, skip = 0 } = launch;
+    if (safeSubcommands.includes(subcommand)) continue;
+    if (dryRunAfter(launch.args, at, skip)) continue;
+    return 'a real run is not allowed';
+  }
+  return null;
+}
+
 // Returns the first secret or private token, looking inside nested shells.
 function findBlockedToken(command) {
   const { segments, unclosed } = parse(command);
@@ -318,7 +571,10 @@ function findBlockedToken(command) {
   }
 }
 
-export function evaluate({ tool_name, tool_input = {} }) {
+export function evaluate(
+  { tool_name, tool_input = {} },
+  { runnerName = RUNNER_NAME, safeSubcommands = RUNNER_SAFE_SUBCOMMANDS } = {},
+) {
   if (tool_name === 'Bash') {
     const command = tool_input.command ?? '';
     const pushProblem = gitPushProblem(command);
@@ -333,6 +589,13 @@ export function evaluate({ tool_name, tool_input = {} }) {
       return {
         block: true,
         reason: `gh blocked: ${ghIssue}. Claude may only open PRs to main; the human merges.`,
+      };
+    }
+    const runnerIssue = runnerProblem(command, runnerName, safeSubcommands);
+    if (runnerIssue) {
+      return {
+        block: true,
+        reason: `Runner blocked: ${runnerIssue}. Claude may only start --dry-run runs, and only when the author asks (see CLAUDE.md).`,
       };
     }
     const hit = findBlockedToken(command);
