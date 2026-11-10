@@ -77,6 +77,7 @@ test('bash: unsafe git push forms stay blocked', () => {
   for (const command of [
     // main, directly or by another name
     'git push origin main',
+    '/usr/bin/git push origin main',
     'git push -u origin main',
     'git push origin refs/heads/main',
     'git push origin master',
@@ -257,6 +258,17 @@ test('bash: gh merge and retarget paths are blocked', () => {
     'gh pr create -B dev --title -Bmain',
     'gh pr create --base dev --title --base=main',
     'gh api -X PUT repos/o/r/pulls/1/merge --jq -XGET',
+    '/home/linuxbrew/.linuxbrew/bin/gh pr merge 1',
+    '$(which gh) pr merge 1',
+    'GH=gh; $GH pr merge 1',
+    'find . -exec gh pr merge 1 \\;',
+    'gh pr merge$IFS1',
+    "gh alias set mm 'pr merge'",
+    'gh alias import aliases.yml',
+    'gh extension install owner/gh-merge',
+    'gh ext install owner/gh-merge',
+    'gh extension exec merge',
+    'gh api -H "X-HTTP-Method-Override: PUT" repos/o/r/pulls/1/merge',
   ]) {
     assert.equal(blocked('Bash', { command }), true, command);
   }
@@ -277,6 +289,9 @@ test('bash: gh reads and PRs to main are allowed', () => {
     'gh api -X GET repos/o/r/pulls -f state=open',
     'gh api --method=GET repos/o/r/pulls',
     'git commit -m "gh pr merge later"',
+    'gh pr list --state merged',
+    'gh alias list',
+    'gh extension list',
   ]) {
     assert.equal(blocked('Bash', { command }), false, command);
   }
@@ -317,6 +332,11 @@ test('runner: real launches are blocked', () => {
     'pnpm exec apps/fake-runner/bin.js apply x',
     'pnpm -w nx run fake-runner:apply',
     'pnpm --reporter silent nx run fake-runner:apply',
+    'node node_modules/nx/bin/nx.js run fake-runner:apply',
+    'node node_modules/nx/bin/nx run fake-runner:apply',
+    'pnpm nx --output-style stream run-many -t apply',
+    'pnpm nx -c production run-many -t apply',
+    'pnpm nx apply',
   ]) {
     assert.equal(runnerBlocked(command), true, command);
   }
@@ -347,10 +367,15 @@ test('runner: dry runs, safe subcommands and development pass', () => {
 
 test('runner: no name configured blocks nothing', () => {
   assert.equal(
-    runnerBlocked('node apps/fake-runner/main.js apply x', {}),
+    runnerBlocked('node apps/fake-runner/main.js apply x', {
+      runnerName: '',
+    }),
     false,
   );
-  assert.equal(runnerBlocked('pnpm nx run-many -t apply', {}), false);
+  assert.equal(
+    runnerBlocked('pnpm nx run-many -t apply', { runnerName: '' }),
+    false,
+  );
 });
 
 test('reasons: runner', () => {

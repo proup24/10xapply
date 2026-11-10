@@ -1,6 +1,8 @@
 import { pathToFileURL } from 'node:url';
 
 const segments = (p) => p.split('/');
+// `/usr/bin/git` runs git: compare command words by their last segment.
+const basename = (t) => t.split('/').at(-1);
 const isSecret = (s) =>
   s === '.env' || (s.startsWith('.env.') && s !== '.env.example');
 const isPrivate = (s) => s === 'private';
@@ -200,7 +202,7 @@ function gitPushProblem(command) {
     if (nestedProblem) return nestedProblem;
     // xargs appends stdin to the arguments, so the refspecs cannot be checked.
     const viaXargs = tokens.slice(0, i).includes('xargs');
-    if (tokens[i++] !== 'git') continue;
+    if (basename(tokens[i++] ?? '') !== 'git') continue;
     let override = false;
     while (tokens[i]?.startsWith('-')) {
       if (tokens[i] === '-c' || tokens[i].startsWith('--config')) {
@@ -241,9 +243,32 @@ function flagValues(args, long, short) {
 
 function ghApiProblem(args) {
   const methods = flagValues(args, 'method', 'X').map((m) => m.toUpperCase());
-  const writes = args.some((a) => GH_API_BODY_FLAGS.test(a));
+  const writes =
+    args.some((a) => GH_API_BODY_FLAGS.test(a)) ||
+    flagValues(args, 'header', 'H').some((h) => /method-override/i.test(h));
   const ok = methods.length ? methods.every((m) => m === 'GET') : !writes;
   return ok ? null : 'gh api write calls are not allowed';
+}
+
+// An alias or extension can run a blocked call under a new name.
+const GH_RENAME = 'gh aliases and extensions are not allowed';
+// Word pairs that mean a blocked gh call wherever they appear in a segment,
+// even when `gh` hides behind a variable, `$(which gh)` or `find -exec`.
+// `merged` is a PR state (`gh pr list --state merged`), not a merge.
+const GH_BACKSTOP = [
+  [['pr'], /^merge(?!d$)/, 'merging is for the human'],
+  [['alias'], /^(set|import)/, GH_RENAME],
+  [['extension', 'ext'], /^(install|exec)/, GH_RENAME],
+];
+
+function ghBackstop(tokens) {
+  for (const [firsts, second, reason] of GH_BACKSTOP) {
+    const k = tokens.findIndex((t) => firsts.includes(t));
+    if (k >= 0 && tokens.slice(k + 1).some((t) => second.test(t))) {
+      return reason;
+    }
+  }
+  return null;
 }
 
 // Returns why a gh call in the command is not allowed, or null.
@@ -262,7 +287,9 @@ function ghProblem(command) {
     const nested = nestedCommand(tokens, i);
     const nestedProblem = nested && ghProblem(nested);
     if (nestedProblem) return nestedProblem;
-    if (tokens[i] !== 'gh') continue;
+    const backstop = ghBackstop(tokens);
+    if (backstop) return backstop;
+    if (basename(tokens[i] ?? '') !== 'gh') continue;
     // xargs appends stdin to the arguments, so they cannot be checked.
     if (tokens.slice(0, i).includes('xargs')) {
       return 'a gh call through xargs cannot be checked';
@@ -279,6 +306,15 @@ function ghProblem(command) {
     if (words[0] === 'api') {
       const problem = ghApiProblem(args);
       if (problem) return problem;
+    }
+    if (words[0] === 'alias' && ['set', 'import'].includes(words[1])) {
+      return GH_RENAME;
+    }
+    if (
+      ['extension', 'ext'].includes(words[0]) &&
+      ['install', 'exec'].includes(words[1])
+    ) {
+      return GH_RENAME;
     }
     if (words[0] !== 'pr') continue;
     if (words[1] === 'merge') return 'merging is for the human';
@@ -306,6 +342,8 @@ export const RUNNER_SAFE_SUBCOMMANDS = [];
 export const DEV_TARGETS = ['build', 'test', 'lint', 'typecheck'];
 
 const NODE_RUNNERS = ['node', 'tsx', 'ts-node'];
+// The Nx CLI, run directly or as a file: `nx`, `.bin/nx`, `nx/bin/nx.js`.
+const isNx = (t) => basename(t) === 'nx' || basename(t) === 'nx.js';
 const PACKAGE_MANAGERS = ['pnpm', 'npx', 'npm', 'yarn'];
 // Package-manager flags whose value selects a package or folder.
 const PM_DIR_FLAGS = [
@@ -361,7 +399,6 @@ const NX_TOOLS = [
   'init',
 ];
 
-const basename = (t) => t.split('/').at(-1);
 const withoutRedirects = (tokens) =>
   tokens.filter((t, j, all) => t !== REDIRECT && all[j - 1] !== REDIRECT);
 // A path through a folder named after the runner: apps/<name>/…, and also
@@ -403,7 +440,9 @@ function nxLaunch(args, ctx, here) {
   const own = sep < 0 ? args : args.slice(0, sep);
   const words = own.filter((a) => !a.startsWith('-'));
   const cmd = words[0];
-  if (cmd === 'run-many' || cmd === 'affected') {
+  // A flag's value (`--output-style stream`) can come before the command, so
+  // run-many/affected count anywhere among the words.
+  if (words.includes('run-many') || words.includes('affected')) {
     const targets = nxTargets(own);
     return !targets.length || targets.some((t) => !DEV_TARGETS.includes(t))
       ? { problem: 'run-many with a non-dev target may launch the runner' }
@@ -421,7 +460,12 @@ function nxLaunch(args, ctx, here) {
     ...flagValues(own, 'projects', 'p'),
   ].flatMap((v) => v.split(','));
   // Inside the runner's folder, Nx picks the runner when no project is named.
-  const named = here || own.includes(ctx.name) || projects.includes(ctx.name);
+  // `nx <target>` with no project runs on the default project.
+  const named =
+    here ||
+    own.includes(ctx.name) ||
+    projects.includes(ctx.name) ||
+    (words.length === 1 && !projects.length && cmd !== 'run');
   if (spec < 0 && !named) return null;
   let at = own.indexOf(cmd);
   let target = cmd;
@@ -454,9 +498,7 @@ function fileLaunch(args, ctx, here) {
 
 // Words that start a launch wherever they appear after a package manager.
 const launchWord = (t, name) =>
-  basename(t) === 'nx' ||
-  NODE_RUNNERS.includes(basename(t)) ||
-  runnerPath(t, name);
+  isNx(t) || NODE_RUNNERS.includes(basename(t)) || runnerPath(t, name);
 
 // True when --filter, --dir, yarn workspace… name the runner, so the package
 // manager runs in its folder.
@@ -518,8 +560,15 @@ function launchAt(args, j, ctx, here, manager, exec) {
   const word = args[j];
   if (word === undefined) return null;
   const rest = args.slice(j);
-  if (basename(word) === 'nx') return nxLaunch(rest.slice(1), ctx, here);
-  if (NODE_RUNNERS.includes(basename(word))) return fileLaunch(rest, ctx, here);
+  if (isNx(word)) return nxLaunch(rest.slice(1), ctx, here);
+  if (NODE_RUNNERS.includes(basename(word))) {
+    // `node node_modules/nx/bin/nx.js …` is an Nx call.
+    const file = rest.findIndex((a, k) => k > 0 && !a.startsWith('-'));
+    if (file > 0 && isNx(rest[file])) {
+      return nxLaunch(rest.slice(file + 1), ctx, here);
+    }
+    return fileLaunch(rest, ctx, here);
+  }
   if (
     runnerPath(word, ctx.name) ||
     word === ctx.name ||

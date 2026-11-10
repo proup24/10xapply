@@ -61,7 +61,7 @@ See [docs/roadmap/README.md](docs/roadmap/README.md): phases, slice order and th
 - Claude debugs from `run-reports/` and from scrubbed page snapshots committed as fixtures.
 - Claude may start a `--dry-run` against a real job only when the author asks in that session, and only a few a day.
 - `guard.mjs` blocks runner launches without `--dry-run` (after the target or file, not in front of it). `RUNNER_NAME` and `RUNNER_SAFE_SUBCOMMANDS` are filled in by slice 03.
-- From slice 07, a real submit also asks for a typed confirmation at the keyboard. Slice 14 relaxes both locks.
+- From slice 07, a real submit also asks for a typed confirmation at the keyboard. Slice 14 removes that prompt when the runner goes unattended, and relaxes the guard's runner rule.
 
 <!-- nx configuration start-->
 <!-- Leave the start & end comments to automatically receive updates. -->
