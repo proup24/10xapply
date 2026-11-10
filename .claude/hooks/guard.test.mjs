@@ -315,6 +315,8 @@ test('runner: real launches are blocked', () => {
     'cd apps/fake-runner && node dist/main.js apply x',
     "node apps/fake-runner/main.js apply 'unterminated",
     'pnpm exec apps/fake-runner/bin.js apply x',
+    'pnpm -w nx run fake-runner:apply',
+    'pnpm --reporter silent nx run fake-runner:apply',
   ]) {
     assert.equal(runnerBlocked(command), true, command);
   }

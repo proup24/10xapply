@@ -452,34 +452,69 @@ function fileLaunch(args, ctx, here) {
   return at < 0 ? null : { args, at, subcommand: args[at + 1] };
 }
 
+// Words that start a launch wherever they appear after a package manager.
+const launchWord = (t, name) =>
+  basename(t) === 'nx' ||
+  NODE_RUNNERS.includes(basename(t)) ||
+  runnerPath(t, name);
+
+// True when --filter, --dir, yarn workspace… name the runner, so the package
+// manager runs in its folder.
+const managerInRunner = (args, name) =>
+  args.some((a, k) => {
+    const value =
+      PM_DIR_FLAGS.includes(a) || a === 'workspace' ? args[k + 1] : '';
+    return (a.startsWith('-') && a.includes(name)) || value?.includes(name);
+  });
+
+// Where the command run by a package manager may start. A flag's value cannot
+// always be told from the command word (`pnpm --reporter silent nx`), so after
+// the first word that follows a flag, later words that follow it are also
+// candidates when they start a launch. The value of a known value flag is a
+// candidate only when it starts a launch. In pnpm, `-w` takes no value.
+function managerCandidates(args, name) {
+  const pnpm = basename(args[0]) === 'pnpm';
+  let exec = basename(args[0]) === 'npx';
+  const candidates = [];
+  for (let j = 1; j < args.length; j++) {
+    const a = args[j];
+    const takesValue =
+      (PM_DIR_FLAGS.includes(a) && !(pnpm && a === '-w')) || a === 'workspace';
+    if (takesValue) {
+      if (launchWord(args[j + 1] ?? '', name)) {
+        candidates.push({ j: j + 1, exec });
+      }
+      j++;
+    } else if (PM_EXEC.includes(a)) exec = true;
+    else if (!a.startsWith('-')) {
+      if (!candidates.length || launchWord(a, name)) {
+        candidates.push({ j, exec });
+      }
+      // A word that does not follow a flag is the command word: stop.
+      if (!args[j - 1].startsWith('-')) break;
+    }
+  }
+  return candidates;
+}
+
 // The runner launch in one command (args start at the command word), or null.
 // A result has the launch token's index `at` and the `subcommand`, or a
 // `problem` when the call is blocked outright.
 function findLaunch(args, ctx, here) {
-  let j = 0;
-  let manager = false;
-  let exec = false;
-  if (PACKAGE_MANAGERS.includes(basename(args[0] ?? ''))) {
-    manager = true;
-    exec = basename(args[0]) === 'npx';
-    // --filter, --dir, yarn workspace… naming the runner run in its folder.
-    args.forEach((a, k) => {
-      const value =
-        PM_DIR_FLAGS.includes(a) || a === 'workspace' ? args[k + 1] : '';
-      if (
-        (a.startsWith('-') && a.includes(ctx.name)) ||
-        value?.includes(ctx.name)
-      ) {
-        here = true;
-      }
-    });
-    for (j = 1; j < args.length; j++) {
-      const a = args[j];
-      if (PM_DIR_FLAGS.includes(a) || a === 'workspace') j++;
-      else if (PM_EXEC.includes(a)) exec = true;
-      else if (!a.startsWith('-')) break;
-    }
+  if (!PACKAGE_MANAGERS.includes(basename(args[0] ?? ''))) {
+    return launchAt(args, 0, ctx, here, false, false);
   }
+  const inRunner = here || managerInRunner(args, ctx.name);
+  for (const { j, exec } of managerCandidates(args, ctx.name)) {
+    const launch = launchAt(args, j, ctx, inRunner, true, exec);
+    if (launch) return launch;
+  }
+  return null;
+}
+
+// The launch when the command word is `args[j]`, or null. `manager` is true
+// when a package manager runs it, and `exec` when it runs it as a binary.
+function launchAt(args, j, ctx, here, manager, exec) {
   const word = args[j];
   if (word === undefined) return null;
   const rest = args.slice(j);
