@@ -35,7 +35,11 @@ Failure even if it technically works:
 
 ## Workflow
 
-Build in small slices, one per session: brainstorm, then spec (`docs/superpowers/specs/`), then plan (`docs/superpowers/plans/`), then a branch and a PR to `main`. The next step is a roadmap brainstorm that lays out the remaining foundation and product slices.
+Build in small slices, one per session: brainstorm, then spec (`docs/superpowers/specs/`), then plan (`docs/superpowers/plans/`), then a branch and a PR to `main`.
+
+## Roadmap
+
+See [docs/roadmap/README.md](docs/roadmap/README.md): phases, slice order and the decisions locked for every slice.
 
 ## Guardrails
 
