@@ -37,14 +37,23 @@ Failure even if it technically works:
 
 Build in small slices, one per session: brainstorm, then spec (`docs/superpowers/specs/`), then plan (`docs/superpowers/plans/`), then a branch and a PR to `main`.
 
+## Commands
+
+`pnpm test:hooks` runs the guard hook tests.
+
 ## Roadmap
 
 See [docs/roadmap/README.md](docs/roadmap/README.md): phases, slice order and the decisions locked for every slice.
 
 ## Guardrails
 
+- `.env*` files (except `.env.example`) and the repo-root `private/` folder are off-limits. `.claude/hooks/guard.mjs` enforces this for file tools and Bash.
+- Claude may push a feature branch only as `git push -u origin <branch>` and may open its PR to `main` with `gh pr create`. Claude never pushes `main`, force-pushes or deletes remote branches; `guard.mjs` blocks every other push form, and the human merges.
 - Credentials go only in untracked `.env*` files; personal data (resumes, facts) only in the untracked `private/` folder. Never commit either.
 - Never commit or log LinkedIn session cookies or proxy credentials.
+- `run-reports/` holds redacted run reports (no personal facts, no cookies). It is git-ignored and Claude may read it.
+- Personal overrides go in `.claude/settings.local.json`.
+- Prettier runs automatically on files Claude edits or writes.
 
 <!-- nx configuration start-->
 <!-- Leave the start & end comments to automatically receive updates. -->
