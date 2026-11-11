@@ -9,7 +9,9 @@
 // The record shapes mirror apps/runner/src/pace/recording.ts:
 //   RecordedEvent { t, type, trusted, x?, y?, sx?, sy?, mx?, my?, button?,
 //     pointerType?, dy?, dm?, key?: 'space'|'backspace'|'other',
-//     target: { kind, hasValue?, options?, picked?, inDescription? },
+//     ox?, oy?,  (press point inside the target box, 0..1, 3 decimals)
+//     target: { kind, hasValue?, options?, picked?, inDescription?,
+//       w?, h? },  (target box size, CSS px, integers)
 //     ctx: { path, dialog, progress } }
 //   PageInfo { t, ctx, desc: { chars, height } | null, win, screen, dpr }
 (() => {
@@ -125,6 +127,31 @@
     );
   }
 
+  const BOX_TYPES = /^(pointer|mouse)(down|up)$|^click$|^pointerover$/;
+  const PRESS_TYPES = /^(pointer|mouse)(down|up)$|^click$/;
+
+  /** The interactive element an event targets, or null for a non-element. */
+  const interactiveOf = (raw) =>
+    isElement(raw) ? (raw.closest(INTERACTIVE) ?? raw) : null;
+
+  /** Box size and press offset: numbers only, and only for the listed types. */
+  function boxOf(el, event) {
+    if (typeof el.getBoundingClientRect !== 'function') return null;
+    const r = el.getBoundingClientRect();
+    if (!(r.width > 0) || !(r.height > 0)) return null;
+    const box = { w: Math.round(r.width), h: Math.round(r.height) };
+    if (PRESS_TYPES.test(event.type)) {
+      const round3 = (v) => Math.round(v * 1000) / 1000;
+      const ox = round3((event.clientX - r.left) / r.width);
+      const oy = round3((event.clientY - r.top) / r.height);
+      if (Number.isFinite(ox) && Number.isFinite(oy)) {
+        box.ox = ox;
+        box.oy = oy;
+      }
+    }
+    return box;
+  }
+
   function targetOf(raw, type, descEl) {
     if (!isElement(raw)) return { kind: 'other' };
     const el = raw.closest(INTERACTIVE) ?? raw;
@@ -178,6 +205,18 @@
       out.key = keyClass(event.key);
     }
     out.target = targetOf(event.target, type, descEl);
+    if (BOX_TYPES.test(type)) {
+      const el = interactiveOf(event.target);
+      const box = el ? boxOf(el, event) : null;
+      if (box) {
+        out.target.w = box.w;
+        out.target.h = box.h;
+        if (box.ox !== undefined) {
+          out.ox = box.ox;
+          out.oy = box.oy;
+        }
+      }
+    }
     out.ctx = ctxOf(event.target);
     return out;
   }

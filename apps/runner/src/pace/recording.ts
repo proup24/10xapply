@@ -16,6 +16,8 @@ export interface Target {
   options?: number; // select / radio group
   picked?: number; // on change
   inDescription?: boolean; // inside the measured description element
+  w?: number; // target box width, CSS px, integer (down/up/click/pointerover)
+  h?: number; // target box height, CSS px, integer
 }
 export interface Ctx {
   path: string;
@@ -51,6 +53,8 @@ export interface RecordedEvent {
   dy?: number;
   dm?: number;
   key?: KeyClass; // key events only — never the key itself
+  ox?: number; // press point in the target box, 0..1 from left, 3 decimals
+  oy?: number; // press point in the target box, 0..1 from top, 3 decimals
   target: Target;
   ctx: Ctx;
 }

@@ -193,6 +193,106 @@ describe('capture', () => {
   });
 });
 
+describe('target box', () => {
+  const withRect = (el, rect) => {
+    el.getBoundingClientRect = () => ({
+      left: 10,
+      top: 20,
+      width: 100,
+      height: 40,
+      ...rect,
+    });
+  };
+
+  it('click on a 100x40 button centre gives w, h, ox, oy', () => {
+    const { document, ctxOf } = dom('<button id="b">Apply now</button>');
+    const b = document.querySelector('button');
+    withRect(b, {});
+    const out = capture(
+      ev('click', b, { clientX: 60, clientY: 40, button: 0 }),
+      ctxOf,
+      null,
+    );
+    expect(out.target).toMatchObject({ kind: 'button', w: 100, h: 40 });
+    expect(out.ox).toBe(0.5);
+    expect(out.oy).toBe(0.5);
+  });
+
+  it('uses the interactive ancestor of the event target', () => {
+    const { document, ctxOf } = dom('<button><span>x</span></button>');
+    withRect(document.querySelector('button'), {});
+    const out = capture(
+      ev('pointerdown', document.querySelector('span'), {
+        clientX: 10,
+        clientY: 20,
+      }),
+      ctxOf,
+      null,
+    );
+    expect(out.target.w).toBe(100);
+    expect(out.ox).toBe(0);
+    expect(out.oy).toBe(0);
+  });
+
+  it('pointerover carries the size but no press offset', () => {
+    const { document, ctxOf } = dom('<button>b</button>');
+    const b = document.querySelector('button');
+    withRect(b, {});
+    const out = capture(ev('pointerover', b, { clientX: 60 }), ctxOf, null);
+    expect(out.target.w).toBe(100);
+    expect(out).not.toHaveProperty('ox');
+    expect(out).not.toHaveProperty('oy');
+  });
+
+  it('pointermove carries no w, h, ox or oy', () => {
+    const { document, ctxOf } = dom('<button>b</button>');
+    const b = document.querySelector('button');
+    let calls = 0;
+    b.getBoundingClientRect = () => {
+      calls++;
+      return { left: 0, top: 0, width: 100, height: 40 };
+    };
+    const out = capture(
+      ev('pointermove', b, { clientX: 5, clientY: 5 }),
+      ctxOf,
+      null,
+    );
+    expect(out.target).not.toHaveProperty('w');
+    expect(out.target).not.toHaveProperty('h');
+    expect(out).not.toHaveProperty('ox');
+    expect(out).not.toHaveProperty('oy');
+    expect(calls).toBe(0);
+  });
+
+  it('a zero-size rect gives no fields', () => {
+    const { document, ctxOf } = dom('<button>b</button>');
+    const b = document.querySelector('button');
+    withRect(b, { width: 0 });
+    const out = capture(
+      ev('click', b, { clientX: 10, clientY: 20 }),
+      ctxOf,
+      null,
+    );
+    expect(out.target).toEqual({ kind: 'button' });
+    expect(out).not.toHaveProperty('ox');
+    withRect(b, { height: 0 });
+    const out2 = capture(ev('click', b, { clientX: 10 }), ctxOf, null);
+    expect(out2.target).toEqual({ kind: 'button' });
+  });
+
+  it('still contains no text', () => {
+    const { document, ctxOf } = dom(
+      '<button id="secret-id" class="secret-cls">Secret label</button>',
+    );
+    const b = document.querySelector('button');
+    withRect(b, {});
+    const json = JSON.stringify(
+      capture(ev('mousedown', b, { clientX: 60, clientY: 40 }), ctxOf, null),
+    );
+    expect(json).not.toMatch(/Secret|secret/);
+  });
+});
+
 describe('ctx', () => {
   it('dialog is true inside [role=dialog] and progress reads aria-valuenow', () => {
     const { document, ctxOf } = dom(
