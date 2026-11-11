@@ -76,6 +76,8 @@ function connect() {
   ws = sock;
   sock.onopen = () => {
     if (ws !== sock) return;
+    // A recorder left on by an earlier socket has no sitting now.
+    void core.onRelayOpened();
     setBadge(true);
     clearInterval(pingTimer);
     pingTimer = setInterval(() => send({ method: 'ping', params: {} }), 20_000);
@@ -91,8 +93,12 @@ function connect() {
     void core.handleCommand(msg);
   };
   sock.onclose = () => {
+    // Before the guard: a socket that was CLOSING when a reconnect replaced
+    // it still stops the recorder, unless the newer socket is already open.
+    void core.onRelayClosed({
+      newerOpen: ws !== sock && ws?.readyState === WebSocket.OPEN,
+    });
     if (ws !== sock) return;
-    void core.stopRecorder();
     setBadge(false);
     clearInterval(pingTimer);
     ws = null;

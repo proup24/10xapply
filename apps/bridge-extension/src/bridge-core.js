@@ -17,6 +17,9 @@ const RECORDER_ID = 'pace-recorder';
  * starting or stopping. chromeApi.scripting registers the recorder's content
  * script, which is on only while recording and only on the fixed
  * RECORDER_MATCHES. The salt from recorder.start lives in memory only.
+ * recorder.start with `mode: 'runner'` narrows a sitting to the tabs this
+ * bridge opened: pages in any other tab (the author's own browsing) are not
+ * recorded. A mode can only narrow; the match list never changes.
  *
  * onWindowChanged(win) takes `{ id, state }` (a chrome Window works) and sends
  * window.state when win.id is the window of an owned tab.
@@ -31,6 +34,7 @@ export function createBridgeCore(
   const detached = new Set(); // tabIds whose debugger detached; never re-attached
 
   let recording = false;
+  let ownTabsOnly = false; // runner mode: only owned tabs' pages connect
   let salt = null;
   let generation = 0; // bumped by every stop, so a start in flight can tell
   let starting = null; // the start in flight, shared by a concurrent start
@@ -42,6 +46,7 @@ export function createBridgeCore(
   async function stopRecorder() {
     const was = recording;
     recording = false;
+    ownTabsOnly = false;
     salt = null;
     generation++;
     starting = null;
@@ -62,6 +67,19 @@ export function createBridgeCore(
       // nothing was registered
     }
     if (was) onRecording?.(false);
+  }
+
+  function narrowToOwnTabs() {
+    ownTabsOnly = true;
+    for (const port of ports) {
+      if (ownsTab(port.sender?.tab?.id)) continue;
+      ports.delete(port);
+      try {
+        port.disconnect();
+      } catch {
+        // already closed
+      }
+    }
   }
 
   const commands = {
@@ -89,6 +107,12 @@ export function createBridgeCore(
       if (typeof params?.salt !== 'string' || params.salt === '') {
         throw new Error('recorder.start needs a salt');
       }
+      if (params.mode !== undefined && params.mode !== 'runner') {
+        throw new Error('recorder.start: unknown mode');
+      }
+      // Narrowing applies at once, also to a sitting already on or starting;
+      // a start without a mode never widens it again (only a stop does).
+      if (params.mode === 'runner') narrowToOwnTabs();
       if (recording) return {};
       if (starting) return starting;
       const gen = generation;
@@ -237,13 +261,15 @@ export function createBridgeCore(
     handleCommand,
     isRecording: () => recording,
     // chrome.runtime.onConnect handler. Accepts only 'recorder' ports from
-    // this extension while recording; stop disconnects every accepted port.
-    // Gives the page its salt and forwards its batches to the relay.
+    // this extension while recording, and in runner mode only from a tab this
+    // bridge opened; stop disconnects every accepted port. Gives the page its
+    // salt and forwards its batches to the relay.
     onConnect(port, extensionId) {
       if (
         port.name !== 'recorder' ||
         port.sender?.id !== extensionId ||
-        !recording
+        !recording ||
+        (ownTabsOnly && !ownsTab(port.sender?.tab?.id))
       ) {
         port.disconnect();
         return;
@@ -260,6 +286,15 @@ export function createBridgeCore(
     },
     recorderSalt: () => salt,
     stopRecorder,
+    // The relay socket's lifecycle. A recorder still on belongs to no sitting
+    // once a new socket opens, or once a socket closes, unless a newer socket
+    // is already open: that one stopped it on opening, and what it records
+    // now is its own sitting.
+    onRelayOpened: () => stopRecorder(),
+    onRelayClosed({ newerOpen = false } = {}) {
+      if (newerOpen) return Promise.resolve();
+      return stopRecorder();
+    },
     ownsTab,
     ownedWindowIds,
     onDebuggerEvent,

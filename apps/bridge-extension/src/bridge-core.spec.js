@@ -479,10 +479,10 @@ describe('bridge core', () => {
     expect(seen).toEqual([true, false]);
   });
 
-  const makePort = (name = 'recorder', id = 'ext') => {
+  const makePort = (name = 'recorder', id = 'ext', tabId = 99) => {
     const p = {
       name,
-      sender: { id },
+      sender: { id, tab: { id: tabId } },
       disconnected: false,
       posted: [],
       drop: null,
@@ -557,6 +557,147 @@ describe('bridge core', () => {
     const before = sent.length;
     a.onMsg({ pageId: 'old', jobKey: 'oldsalt', events: [] });
     expect(sent.length).toBe(before);
+  });
+
+  it('runner mode accepts only ports from tabs the bridge opened', async () => {
+    const { core, sent } = setup();
+    await open(core); // owns tab 42
+    await core.handleCommand({
+      id: 2,
+      method: 'recorder.start',
+      params: { salt: 's1', mode: 'runner' },
+    });
+    expect(sent[1]).toEqual({ id: 2, result: {} });
+    const runTab = makePort('recorder', 'ext', 42);
+    const ownBrowsing = makePort('recorder', 'ext', 99);
+    const noTab = makePort('recorder', 'ext', undefined);
+    core.onConnect(runTab, 'ext');
+    core.onConnect(ownBrowsing, 'ext');
+    core.onConnect(noTab, 'ext');
+    expect(runTab.disconnected).toBe(false);
+    expect(runTab.posted).toEqual([{ salt: 's1' }]);
+    expect(ownBrowsing.disconnected).toBe(true);
+    expect(ownBrowsing.posted).toEqual([]);
+    expect(noTab.disconnected).toBe(true);
+  });
+
+  it('without a mode, ports from any tab are accepted (the author sitting)', async () => {
+    const { core } = setup();
+    await core.handleCommand({
+      id: 1,
+      method: 'recorder.start',
+      params: { salt: 's1' },
+    });
+    const anyTab = makePort('recorder', 'ext', 99);
+    core.onConnect(anyTab, 'ext');
+    expect(anyTab.disconnected).toBe(false);
+  });
+
+  it('runner mode keeps the fixed matches and refuses an unknown mode', async () => {
+    const { core, calls, sent } = setup();
+    await core.handleCommand({
+      id: 1,
+      method: 'recorder.start',
+      params: { salt: 's1', mode: 'everything' },
+    });
+    expect(sent[0]).toEqual({ id: 1, error: 'recorder.start: unknown mode' });
+    expect(calls).toEqual([]);
+    await core.handleCommand({
+      id: 2,
+      method: 'recorder.start',
+      params: { salt: 's1', mode: 'runner', matches: ['https://evil/*'] },
+    });
+    expect(calls[0][1][0].matches).toEqual(RECORDER_MATCHES);
+  });
+
+  it('runner mode narrows a sitting already on and is not widened by a plain start', async () => {
+    const { core } = setup();
+    await open(core);
+    await core.handleCommand({
+      id: 2,
+      method: 'recorder.start',
+      params: { salt: 's1' },
+    });
+    const runTab = makePort('recorder', 'ext', 42);
+    const ownBrowsing = makePort('recorder', 'ext', 99);
+    core.onConnect(runTab, 'ext');
+    core.onConnect(ownBrowsing, 'ext');
+    await core.handleCommand({
+      id: 3,
+      method: 'recorder.start',
+      params: { salt: 's1', mode: 'runner' },
+    });
+    expect(ownBrowsing.disconnected).toBe(true);
+    expect(runTab.disconnected).toBe(false);
+    await core.handleCommand({
+      id: 4,
+      method: 'recorder.start',
+      params: { salt: 's1' },
+    });
+    const later = makePort('recorder', 'ext', 99);
+    core.onConnect(later, 'ext');
+    expect(later.disconnected).toBe(true);
+  });
+
+  it('a stop ends runner mode for the next sitting', async () => {
+    const { core } = setup();
+    await core.handleCommand({
+      id: 1,
+      method: 'recorder.start',
+      params: { salt: 's1', mode: 'runner' },
+    });
+    await core.stopRecorder();
+    await core.handleCommand({
+      id: 2,
+      method: 'recorder.start',
+      params: { salt: 's2' },
+    });
+    const anyTab = makePort('recorder', 'ext', 99);
+    core.onConnect(anyTab, 'ext');
+    expect(anyTab.disconnected).toBe(false);
+  });
+
+  it('a new relay socket opening stops a recorder left on', async () => {
+    const { core, calls } = setup();
+    await core.handleCommand({
+      id: 1,
+      method: 'recorder.start',
+      params: { salt: 's1' },
+    });
+    const port = makePort();
+    core.onConnect(port, 'ext');
+    await core.onRelayOpened();
+    expect(core.isRecording()).toBe(false);
+    expect(core.recorderSalt()).toBeNull();
+    expect(port.disconnected).toBe(true);
+    expect(calls.at(-1)).toEqual([
+      'scripting.unregister',
+      { ids: ['pace-recorder'] },
+    ]);
+  });
+
+  it('a relay socket closing stops the recorder unless a newer socket is open', async () => {
+    const { core } = setup();
+    await core.handleCommand({
+      id: 1,
+      method: 'recorder.start',
+      params: { salt: 's1' },
+    });
+    // The replaced socket's late close, after the newer one opened and
+    // started its own sitting: that sitting stays on.
+    await core.onRelayClosed({ newerOpen: true });
+    expect(core.isRecording()).toBe(true);
+    // The replaced socket's close while the newer one is still connecting,
+    // or the current socket's close: the recorder stops.
+    await core.onRelayClosed({ newerOpen: false });
+    expect(core.isRecording()).toBe(false);
+    await core.handleCommand({
+      id: 2,
+      method: 'recorder.start',
+      params: { salt: 's2' },
+    });
+    await core.onRelayClosed();
+    expect(core.isRecording()).toBe(false);
   });
 
   const tick = () => new Promise((r) => setTimeout(r, 0));
