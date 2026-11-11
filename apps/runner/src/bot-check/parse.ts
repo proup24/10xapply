@@ -14,13 +14,15 @@ export function parseRebrowser(json: string): CheckResult {
   const page = 'rebrowser';
   try {
     const data: unknown = JSON.parse(json);
-    if (!Array.isArray(data)) return unparseable(page);
+    // An empty list, or an entry without a numeric rating, proves nothing.
+    if (!Array.isArray(data) || data.length === 0) return unparseable(page);
     const failed: string[] = [];
     for (const entry of data) {
       if (typeof entry !== 'object' || entry === null) {
         return unparseable(page);
       }
       const { type, rating } = entry as { type?: unknown; rating?: unknown };
+      if (typeof rating !== 'number') return unparseable(page);
       if (rating === 1) failed.push(typeof type === 'string' ? type : '?');
     }
     return { page, passed: failed.length === 0, detail: failed };

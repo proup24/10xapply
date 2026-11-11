@@ -72,7 +72,11 @@ export async function runSession(d: SessionDeps): Promise<SessionReport> {
       await d.wait(d.randomInt(1500, 4000));
     } catch {
       if (!stopped()) result = 'unexpected-page';
+      return finish();
     }
+    // A detach for any reason, even during the final wait, ends the run as
+    // stopped (spec Goal 6).
+    stopped();
     return finish();
   } finally {
     try {

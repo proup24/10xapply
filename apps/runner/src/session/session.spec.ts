@@ -86,6 +86,27 @@ describe('runSession', () => {
     expect(r.stopReason).toBe('run window minimized');
   });
 
+  it('stop reason set during the final wait ends the run as stopped', async () => {
+    let stop: string | null = null;
+    let waits = 0;
+    const { page, d } = fake(
+      {},
+      {
+        stopReason: () => stop,
+        wait: async () => {
+          waits += 1;
+          if (waits === 2) stop = 'debugger detached: tab closed';
+        },
+      },
+    );
+    const r = await runSession(d);
+    expect(waits).toBe(2);
+    expect(r.result).toBe('stopped');
+    expect(r.stopReason).toBe('debugger detached: tab closed');
+    expect(r.pathPrefix).toBe('/feed/');
+    expect(page.close).toHaveBeenCalled();
+  });
+
   it('waits are random within bounds', async () => {
     const { d } = fake();
     await runSession(d);

@@ -27,6 +27,22 @@ describe('parseRebrowser', () => {
       expect(r.detail).toEqual(['unparseable']);
     }
   });
+  it('does not pass an empty array', () => {
+    const r = parseRebrowser('[]');
+    expect(r.passed).toBe(false);
+    expect(r.detail).toEqual(['unparseable']);
+  });
+  it('is unparseable when an entry has no numeric rating', () => {
+    for (const s of [
+      '[{"type":"dummyFn"}]',
+      '[{"type":"dummyFn","rating":0},{"type":"x","rating":"1"}]',
+      '[{"type":"x","rating":null}]',
+    ]) {
+      const r = parseRebrowser(s);
+      expect(r.passed).toBe(false);
+      expect(r.detail).toEqual(['unparseable']);
+    }
+  });
 });
 
 describe('parseDabi', () => {
