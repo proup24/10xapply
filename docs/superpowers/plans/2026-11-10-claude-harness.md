@@ -33,10 +33,12 @@
 ### Task 1: Copy the 10xjobs harness
 
 **Files:**
+
 - Create: `.claude/hooks/guard.mjs`, `.claude/hooks/format.mjs`, `.claude/hooks/guard.test.mjs` (copied from `/home/lab/apps/10xjobs/.claude/hooks/`)
 - Modify: `.claude/settings.json`, `package.json`, `.gitignore`, `CLAUDE.md` (Guardrails section, plus a new Commands section)
 
 **Interfaces:**
+
 - Produces: `evaluate({ tool_name, tool_input }) -> { block: boolean, reason?: string }` in `guard.mjs`, plus the internal helpers `parse`, `commandIndex`, `nestedCommand`, `REDIRECT` that Tasks 2–3 reuse.
 
 - [ ] **Step 1: Create the branch and copy the three hook files unchanged**
@@ -50,7 +52,10 @@ cp /home/lab/apps/10xjobs/.claude/hooks/{guard.mjs,format.mjs,guard.test.mjs} .c
 - [ ] **Step 2: Add the `run-reports` tests to `guard.test.mjs`** (in the `private data` test)
 
 ```js
-assert.equal(blocked('Read', { file_path: '/repo/run-reports/r1.json' }), false);
+assert.equal(
+  blocked('Read', { file_path: '/repo/run-reports/r1.json' }),
+  false,
+);
 assert.equal(blocked('Bash', { command: 'cat run-reports/r1.json' }), false);
 ```
 
@@ -59,6 +64,7 @@ assert.equal(blocked('Bash', { command: 'cat run-reports/r1.json' }), false);
 - [ ] **Step 4: Merge permissions and hooks into `.claude/settings.json`**
 
 Keep the existing keys. Add `$schema`, plus `permissions` and `hooks` exactly as in `/home/lab/apps/10xjobs/.claude/settings.json`, except:
+
 - allow: replace each `npx nx <x>:*` with `pnpm nx <x>:*` for `lint`, `test`, `typecheck`, `build`, `run-many`, `affected`; replace `npm run test:hooks` with `pnpm test:hooks`; keep the git read-only entries as they are.
 - ask: `Bash(git push:*)`, `Bash(gh pr create:*)`.
 - deny: unchanged (`Read(./.env)`, `Read(./.env.local)`, `Read(./private/**)`).
@@ -93,9 +99,11 @@ git commit -m "chore: add Claude guard and format hooks from 10xjobs"
 ### Task 2: Block merging and retargeting through `gh`
 
 **Files:**
+
 - Modify: `.claude/hooks/guard.mjs`, `.claude/hooks/guard.test.mjs`, `CLAUDE.md` (Guardrails)
 
 **Interfaces:**
+
 - Consumes: `parse`, `commandIndex`, `nestedCommand` from Task 1.
 - Produces: `ghProblem(command: string) -> string | null` (not exported). `evaluate` calls it right after `gitPushProblem` and blocks with reason `` `gh blocked: ${problem}. Claude may only open PRs to main; the human merges.` ``
 
@@ -148,7 +156,10 @@ test('bash: gh reads and PRs to main are allowed', () => {
 });
 
 test('reasons: gh', () => {
-  const r = evaluate({ tool_name: 'Bash', tool_input: { command: 'gh pr merge 1' } });
+  const r = evaluate({
+    tool_name: 'Bash',
+    tool_input: { command: 'gh pr merge 1' },
+  });
   assert.match(r.reason, /gh blocked/);
 });
 ```
@@ -161,6 +172,7 @@ Expected: the two new blocking tests and `reasons: gh` fail; every other test pa
 - [ ] **Step 3: Implement `ghProblem(command)` in `guard.mjs`**
 
 Follow `gitPushProblem`'s shape: recurse into `nestedCommand`, and find the command word with `commandIndex`. Ignore `REDIRECT` tokens and their targets. A flag's value may come joined (`-XPOST`, `--method=POST`, `--base=dev`) or as the next token. Rules:
+
 - `gh pr merge` → `'merging is for the human'`.
 - `gh pr edit` with `--base`/`-B` → `'retargeting a PR is not allowed'`.
 - `gh pr review` with `--approve`/`-a` → `'approving a PR is not allowed'`.
@@ -188,9 +200,11 @@ git commit -m "feat(guard): block merging and retargeting PRs through gh"
 ### Task 3: Block real runner launches
 
 **Files:**
+
 - Modify: `.claude/hooks/guard.mjs`, `.claude/hooks/guard.test.mjs`, `CLAUDE.md` (a new "Running against LinkedIn" section)
 
 **Interfaces:**
+
 - Consumes: `parse`, `commandIndex`, `nestedCommand`, `REDIRECT` from Task 1.
 - Produces:
   - exported constants `RUNNER_NAME = ''`, `RUNNER_SAFE_SUBCOMMANDS = []`, `DEV_TARGETS = ['build', 'test', 'lint', 'typecheck']`. Slice 03 fills in the first two;
@@ -201,7 +215,10 @@ git commit -m "feat(guard): block merging and retargeting PRs through gh"
 - [ ] **Step 1: Write the failing tests**
 
 ```js
-const runner = { runnerName: 'fake-runner', safeSubcommands: ['check-session'] };
+const runner = {
+  runnerName: 'fake-runner',
+  safeSubcommands: ['check-session'],
+};
 const runnerBlocked = (command, opts = runner) =>
   evaluate({ tool_name: 'Bash', tool_input: { command } }, opts).block;
 
@@ -250,13 +267,19 @@ test('runner: dry runs, safe subcommands and development pass', () => {
 });
 
 test('runner: no name configured blocks nothing', () => {
-  assert.equal(runnerBlocked('node apps/fake-runner/main.js apply x', {}), false);
+  assert.equal(
+    runnerBlocked('node apps/fake-runner/main.js apply x', {}),
+    false,
+  );
   assert.equal(runnerBlocked('pnpm nx run-many -t apply', {}), false);
 });
 
 test('reasons: runner', () => {
   const r = evaluate(
-    { tool_name: 'Bash', tool_input: { command: 'pnpm nx run fake-runner:apply' } },
+    {
+      tool_name: 'Bash',
+      tool_input: { command: 'pnpm nx run fake-runner:apply' },
+    },
     runner,
   );
   assert.match(r.reason, /Runner blocked/);
@@ -271,12 +294,13 @@ Expected: `runner: real launches are blocked` and `reasons: runner` fail; the re
 - [ ] **Step 3: Implement `runnerProblem` in `guard.mjs` and call it from `evaluate`'s Bash branch, after `ghProblem`**
 
 Rules, applied to each segment from `parse`, recursing into `nestedCommand`:
+
 - **Nx launch:** the command word is `nx`, or `pnpm`/`npx` followed by `nx`, or `pnpm exec nx`. Read the Nx form:
   - `run <proj>:<target>[:<config>]`;
   - `run-many`/`affected` with targets from `-t`/`--target`/`--targets` (space- or comma-separated, joined or separate). A non-dev target here → blocked as `'run-many with a non-dev target may launch the runner'`, whatever follows;
   - `<proj>:<target>`;
   - `<target> <proj>`.
-  If the project is `runnerName` and the target is not in `DEV_TARGETS`, the launch token is the `proj:target` (or target) token and the subcommand is the target.
+    If the project is `runnerName` and the target is not in `DEV_TARGETS`, the launch token is the `proj:target` (or target) token and the subcommand is the target.
 - **File launch:** the command word (after `pnpm exec` / `npx`) is `node`, `tsx` or `ts-node`, and its first non-flag argument is a path under `apps/<runnerName>/` (after `./` is stripped). Also a launch: any relative path, when an earlier segment in the same command was `cd` into a path containing `apps/<runnerName>`. The launch token is that path. The subcommand is the first non-flag token after it.
 - A launch is allowed when the subcommand is in `safeSubcommands`, or when a token exactly equal to `--dry-run` appears after the launch token. Otherwise → `'a real run is not allowed'`.
 - If an unterminated quote is present and the raw command contains `runnerName`, block with `'a runner command inside an unterminated quote cannot be checked'`.
