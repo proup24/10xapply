@@ -13,10 +13,12 @@ import {
   type MeasureName,
   type Measures,
 } from '../pace/measures.js';
+import { compare, type Check } from '../pace/compare.js';
 import { PACE_DIR, writeAtomic } from '../pace/paths.js';
 import { buildProfile, wheelDefaulted } from '../pace/profile.js';
 import { isApplication } from '../pace/phases.js';
-import type { Recording } from '../pace/recording.js';
+import type { Actor, Recording } from '../pace/recording.js';
+import { cryptoRng, type Rng } from '../pace/rng.js';
 import { createWriter, type Writer } from '../pace/writer.js';
 import { startRelay, type Relay } from '../relay/relay.js';
 
@@ -135,9 +137,13 @@ export async function recordCommand(
   }
 }
 
-/** Every author recording under `dir/author/`, skipping unreadable files. */
-function readRecordings(dir: string, out: (t: string) => void): Recording[] {
-  const root = join(dir, 'author');
+/** Every recording under `dir/<actor>/`, skipping unreadable files. */
+function readRecordings(
+  dir: string,
+  out: (t: string) => void,
+  actor: Actor = 'author',
+): Recording[] {
+  const root = join(dir, actor);
   if (!existsSync(root)) return [];
   const recs: Recording[] = [];
   const files = readdirSync(root, { recursive: true, encoding: 'utf8' })
@@ -314,4 +320,58 @@ export function buildCommand(
       `  warning: no wheel events in the LinkedIn or typing recordings; using the default notch (deltaY ${profile.wheel.deltaY}, deltaMode ${profile.wheel.deltaMode})\n`,
     );
   return 0;
+}
+
+function checkRows(title: string, checks: Check[], out: (t: string) => void) {
+  out(`\n${title}\n`);
+  for (const c of checks) {
+    out(
+      `  ${c.name.padEnd(18)}${(c.passed ? 'pass' : 'FAIL').padEnd(6)}${c.detail}\n`,
+    );
+  }
+}
+
+/**
+ * Puts the runner's recordings next to the author's, writes
+ * `compare-<timestamp>.json` and prints a table. Exits 0 when every check
+ * passes and 2 when one fails; 1 when either side has no recordings. Only
+ * reads files.
+ */
+export function compareCommand(
+  opts: { dir?: string; out?: (text: string) => void; rng?: Rng } = {},
+): number {
+  const dir = opts.dir ?? PACE_DIR;
+  const out = opts.out ?? ((t: string) => void process.stdout.write(t));
+  const author = readRecordings(dir, out, 'author');
+  const runner = readRecordings(dir, out, 'runner');
+  if (author.length === 0) {
+    out(
+      `no recordings under ${join(dir, 'author')}: run pnpm nx run runner:pace-record\n`,
+    );
+    return 1;
+  }
+  if (runner.length === 0) {
+    out(
+      `no recordings under ${join(dir, 'runner')}: run pnpm nx run runner:pace-practice\n`,
+    );
+    return 1;
+  }
+  const report = compare(author, runner, opts.rng ?? cryptoRng());
+  const path = join(dir, `compare-${sittingIdNow()}.json`);
+  writeAtomic(
+    path,
+    `${JSON.stringify({ comparedAt: new Date().toISOString(), recordings: { author: author.length, runner: runner.length }, ...report }, null, 2)}\n`,
+  );
+  out(
+    `pace compare: ${author.length} author recordings, ${runner.length} runner recordings\n`,
+  );
+  checkRows('shape', report.shape, out);
+  checkRows('timing (two-sample KS, pass at p >= 0.01)', report.timing, out);
+  checkRows('variety', report.variety, out);
+  const checks = [...report.shape, ...report.timing, ...report.variety];
+  const failed = checks.filter((c) => !c.passed).length;
+  out(
+    `\n${report.passed ? 'PASS' : `FAIL: ${failed} of ${checks.length} checks`}\nreport: ${path}\n`,
+  );
+  return report.passed ? 0 : 2;
 }

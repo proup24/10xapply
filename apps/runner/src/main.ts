@@ -4,6 +4,7 @@ import { bridgeCheck, bridgeInstall } from './commands/bridge.js';
 import { practiceCommand } from './pace/practice-run.js';
 import {
   buildCommand,
+  compareCommand,
   recordCommand,
   summaryCommand,
 } from './commands/pace.js';
@@ -20,6 +21,7 @@ const USAGE = `usage: runner <command>
   pace build       build the pace profile from the recordings
   pace practice    run the local practice form with the pace module (--runs N, default 5; --record)
   pace summary     count the recorded samples per measure against the minimums
+  pace compare     compare the runner's recordings with yours (shape, timing, variety)
   bridge check     check the bridge extension (--crash: also check the crash stop)`;
 
 /** The value after `--flag`, as a positive integer, or undefined. */
@@ -54,6 +56,7 @@ export async function main(argv: string[]): Promise<number> {
         record: argv.includes('--record'),
       });
     if (a === 'pace' && b === 'summary') return summaryCommand();
+    if (a === 'pace' && b === 'compare') return compareCommand();
   } catch (e) {
     if (e instanceof ConfigError || e instanceof RelayPortInUseError) {
       console.error(redact(e.message));

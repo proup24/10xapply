@@ -4,6 +4,7 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   rmSync,
   writeFileSync,
@@ -14,8 +15,12 @@ import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { BridgeEvent } from '../relay/relay.js';
 import type { Writer } from '../pace/writer.js';
+import type { Recording } from '../pace/recording.js';
+import { seededRng } from '../pace/rng.js';
+import { synthSet } from '../pace/testing/recordings.js';
 import {
   buildCommand,
+  compareCommand,
   recordCommand,
   summaryCommand,
   type RecordDeps,
@@ -231,5 +236,87 @@ describe('pace summary', () => {
     const { code, output } = run(dir);
     expect(code).toBe(1);
     expect(output).toContain('pnpm nx run runner:pace-record');
+  });
+});
+
+describe('pace compare', () => {
+  const fixtures = fileURLToPath(new URL('../pace/fixtures/', import.meta.url));
+  let dir: string | null = null;
+  afterEach(() => {
+    if (dir) rmSync(dir, { recursive: true, force: true });
+    dir = null;
+  });
+
+  function save(d: string, recs: Recording[]) {
+    for (const r of recs) {
+      const sub = join(d, r.actor, r.source);
+      mkdirSync(sub, { recursive: true });
+      writeFileSync(join(sub, `${r.jobKey}.json`), JSON.stringify(r));
+    }
+  }
+  function withAuthor(runnerFixture?: string): string {
+    const d = mkdtempSync(join(tmpdir(), 'pace-compare-'));
+    dir = d;
+    save(d, [
+      ...synthSet(8, { actor: 'author', source: 'linkedin' }, 1, seededRng),
+      ...synthSet(6, { actor: 'author', source: 'practice' }, 2, seededRng),
+    ]);
+    if (runnerFixture) {
+      save(
+        d,
+        JSON.parse(
+          readFileSync(join(fixtures, runnerFixture), 'utf8'),
+        ) as Recording[],
+      );
+    }
+    return d;
+  }
+  function run(d: string) {
+    let output = '';
+    const code = compareCommand({
+      dir: d,
+      out: (t) => void (output += t),
+      rng: seededRng(1),
+    });
+    return { code, output };
+  }
+  const reports = (d: string) =>
+    readdirSync(d).filter((f) => /^compare-\d{8}T\d{6}Z\.json$/.test(f));
+
+  it('exits 0, prints the table and writes the report when every check passes', () => {
+    const d = withAuthor('runner-good.json');
+    const { code, output } = run(d);
+    expect(code).toBe(0);
+    expect(output).toContain(
+      'pace compare: 14 author recordings, 5 runner recordings',
+    );
+    expect(output).toMatch(/^\s+coordinates\s+pass\s/m);
+    expect(output).toMatch(/^\s+appTime\s+pass\s+p=/m);
+    expect(output).toContain('PASS');
+    const [file] = reports(d);
+    const report = JSON.parse(readFileSync(join(d, file), 'utf8'));
+    expect(report).toMatchObject({
+      passed: true,
+      recordings: { author: 14, runner: 5 },
+    });
+    expect(report.timing).toHaveLength(10);
+  });
+
+  it('exits 2 and names the failing checks when one fails', () => {
+    const d = withAuthor('runner-leaky.json');
+    const { code, output } = run(d);
+    expect(code).toBe(2);
+    expect(output).toMatch(/^\s+coordinates\s+FAIL\s/m);
+    expect(output).toMatch(/^\s+movement\s+FAIL\s/m);
+    expect(output).toMatch(/FAIL: \d+ of 17 checks/);
+    expect(reports(d)).toHaveLength(1);
+  });
+
+  it('exits 1 without runner recordings and writes nothing', () => {
+    const d = withAuthor();
+    const { code, output } = run(d);
+    expect(code).toBe(1);
+    expect(output).toContain('runner:pace-practice');
+    expect(reports(d)).toEqual([]);
   });
 });

@@ -81,6 +81,13 @@
           "cwd": "apps/runner",
           "command": "tsx src/main.ts pace summary"
         }
+      },
+      "pace-compare": {
+        "executor": "nx:run-commands",
+        "options": {
+          "cwd": "apps/runner",
+          "command": "tsx src/main.ts pace compare"
+        }
       }
     }
   },
