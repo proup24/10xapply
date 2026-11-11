@@ -49,7 +49,7 @@ Build in small slices, one per session: brainstorm, then spec (`docs/superpowers
 - `pnpm nx run runner:bridge-check` starts the relay and opens and closes one blank window. It never touches LinkedIn.
 - `pnpm nx run runner:bot-check` loads three public bot-detection pages and prints a pass/fail table. It never touches LinkedIn.
 - `pnpm nx run runner:bot-check-repeat` runs `bot-check` three times in a row and records the runs. It never touches LinkedIn.
-- `pnpm nx run runner:bridge-check-crash` runs the bridge check and then simulates a crash, to confirm the run window closes. It never touches LinkedIn.
+- `pnpm nx run runner:bridge-check-crash` runs the bridge check then crashes the run tab and checks that the run stops (`crash stop: ok`). It never touches LinkedIn.
 - `pnpm nx run runner:pace-record` records the author's own timing while they browse by hand. It only listens.
 - `pnpm nx run runner:pace-record-typing` serves a local page of text boxes so the author can record typing gaps. The text is never kept.
 - `pnpm nx run runner:pace-summary` prints how much recorded data there is per pace input, and "enough" or "short" for each.
@@ -85,10 +85,10 @@ See [docs/roadmap/README.md](docs/roadmap/README.md): phases, slice order and th
 - `guard.mjs` blocks runner launches without `--dry-run` (after the target or file, not in front of it). In `guard.mjs`, `RUNNER_NAME = 'runner'` and `RUNNER_SAFE_SUBCOMMANDS = ['bridge', 'bridge-install', 'bridge-check', 'bridge-check-crash', 'pace', 'pace-record', 'pace-record-typing', 'pace-summary', 'pace-build', 'pace-practice', 'pace-compare', 'bot-check', 'bot-check-repeat', 'session']`.
 - Claude may run `runner:session` only when the author asks in that session. Every other safe subcommand (the bridge, `pace` and bot-check ones) never touches LinkedIn and needs no ask.
 - No scripts run in LinkedIn's page; the runner reads through locators only. An ESLint rule in `apps/runner` bans `evaluate`, `evaluateHandle`, `$eval`, `$$eval`, `evaluateAll`, `exposeFunction`, `exposeBinding` and `addInitScript`. The relay and extension also refuse cookie and storage reads, `Browser.close`, `Runtime.addBinding`, and `Page.addScriptToEvaluateOnNewDocument` (except Patchright's own empty-source utility-world script). On a run tab's sessions they pass only three `Target.*` methods: `setAutoAttach`, `detachFromTarget` and `getTargetInfo`.
-- Only `apps/runner/src/pace/` may click, type, scroll or move the mouse; ESLint bans input methods elsewhere.
+- Only the pace module (`apps/runner/src/pace/`) acts on a page; other code calls `pace.click`, `pace.type` and so on. ESLint bans Patchright input methods elsewhere.
 - The runner's file uploads go through the relay (`DOM.setFileInputFiles` on a Windows-side path), not Patchright's setFiles.
 - The recorder's LinkedIn match is `https://www.linkedin.com/*`, because LinkedIn is a single-page app. It records only on `/jobs/` paths.
-- The recorder captures timing and event shape plus numbers only (target box size, press offset, option counts, description length, window geometry). It never captures text or keys.
+- The recorder captures timing and event shape plus numbers only (target box size, press offset, option counts, description length, window geometry). It never captures text or which key was pressed; it records only a key class (space, backspace, other) for key gaps.
 - The recorder's content script exists only while a recording command runs.
 - From slice 07, a real submit also asks for a typed confirmation at the keyboard. Slice 14 removes that prompt when the runner goes unattended, and relaxes the guard's runner rule.
 
