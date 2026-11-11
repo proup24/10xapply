@@ -17,6 +17,9 @@ function setBadge(on) {
   chrome.action?.setBadgeText?.({ text: on ? 'on' : '' });
 }
 
+// A restarted service worker starts disconnected: clear a stale "on".
+setBadge(false);
+
 function connect() {
   if (
     ws &&

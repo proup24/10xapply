@@ -33,7 +33,9 @@ export function bridgeInstall(exec: Exec = realExec): number {
 Next, in Chrome:
   1. Open chrome://extensions and turn on Developer mode.
   2. Click "Load unpacked".
-  3. Choose ${winPath}`);
+  3. Choose ${winPath}
+On a re-install, skip those steps: click Reload on "10xapply bridge" in
+chrome://extensions so Chrome picks up the new files.`);
   return 0;
 }
 

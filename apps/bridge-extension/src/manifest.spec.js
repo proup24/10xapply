@@ -17,4 +17,11 @@ describe('manifest', () => {
       expect(m).not.toHaveProperty(k);
     }
   });
+
+  it('declares an empty action so chrome.action (the badge) exists', () => {
+    const m = JSON.parse(
+      readFileSync(new URL('./manifest.json', import.meta.url), 'utf8'),
+    );
+    expect(m.action).toEqual({});
+  });
 });

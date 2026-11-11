@@ -53,7 +53,8 @@ export async function connectBridge(
     if (browser) {
       const b = browser;
       browser = null;
-      // The relay refuses Browser.close; that error is expected.
+      // A connectOverCDP browser's close() only drops the CDP connection;
+      // it never sends Browser.close (which the relay refuses anyway).
       await quietly(() => b.close());
     }
     await quietly(() => relay.stop());
