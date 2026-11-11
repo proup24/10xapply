@@ -6,6 +6,7 @@ import {
   mkdtempSync,
   readFileSync,
   rmSync,
+  writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -151,6 +152,23 @@ describe('pace summary', () => {
     ).toBe(1);
     expect(output).toContain('pace profile: 1 applications, 1 practice');
     expect(output).toContain('pressRelease');
+  });
+
+  it('build warns about the default wheel notch when only practice has wheel events', () => {
+    const d = withFixtures();
+    const lf = join(d, 'author', 'linkedin', 'linkedin-app-1.json');
+    const lrec = JSON.parse(readFileSync(lf, 'utf8'));
+    lrec.events = lrec.events.filter(
+      (e: { type: string }) => e.type !== 'wheel',
+    );
+    writeFileSync(lf, JSON.stringify(lrec));
+    const f = join(d, 'author', 'practice', 'practice-1.json');
+    const rec = JSON.parse(readFileSync(f, 'utf8'));
+    rec.events.push({ t: 1, type: 'wheel', dy: 240, dm: 1 });
+    writeFileSync(f, JSON.stringify(rec));
+    let output = '';
+    buildCommand({ dir: d, out: (t) => void (output += t) });
+    expect(output).toContain('warning: no wheel events');
   });
 
   it('build with no recordings writes nothing and exits 1', () => {

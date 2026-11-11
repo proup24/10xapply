@@ -9,6 +9,7 @@ import {
   fitReading,
   loadProfile,
   sampleKde,
+  wheelDefaulted,
   wheelNotch,
 } from './profile.js';
 import type { Recording } from './recording.js';
@@ -96,7 +97,8 @@ describe('fitReading', () => {
       chars,
       dwell: 2000 + 3 * chars,
     }));
-    const r = fitReading(pts)!;
+    const r = fitReading(pts);
+    if (!r) throw new Error('expected a reading fit');
     expect(r.base).toBeCloseTo(2000);
     expect(r.perChar).toBeCloseTo(3);
     expect(fitReading([{ chars: null, dwell: 4000 }])).toBeNull();
@@ -104,23 +106,25 @@ describe('fitReading', () => {
 });
 
 describe('wheelNotch', () => {
-  it('is the mode of deltaY', () => {
-    const w = [100, 100, 120, 100, 53].map((deltaY) => ({
+  it('wheel notch is the mode of |deltaY| over non-zero values, up and down mixed', () => {
+    const w = [100, -100, 120, 100, -100, 0, 0, 0, 53].map((deltaY) => ({
       deltaY,
       deltaMode: 0,
     }));
     expect(wheelNotch(w)).toEqual({ deltaY: 100, deltaMode: 0 });
     expect(
       wheelNotch([
+        { deltaY: -3, deltaMode: 1 },
         { deltaY: 3, deltaMode: 1 },
-        { deltaY: 3, deltaMode: 1 },
+        { deltaY: -7, deltaMode: 0 },
+        { deltaY: 7, deltaMode: 0 },
         { deltaY: 7, deltaMode: 0 },
       ]),
-    ).toEqual({ deltaY: 3, deltaMode: 1 });
+    ).toEqual({ deltaY: 7, deltaMode: 0 });
   });
-  it('defaults to deltaY 100, deltaMode 0 with no wheel events', () => {
+  it('defaults to deltaY 100, deltaMode 0 with no usable wheel events', () => {
     expect(wheelNotch([])).toEqual({ deltaY: 100, deltaMode: 0 });
-    expect(DEFAULT_WHEEL).toEqual({ deltaY: 100, deltaMode: 0 });
+    expect(wheelNotch([{ deltaY: 0, deltaMode: 1 }])).toEqual(DEFAULT_WHEEL);
   });
 });
 
@@ -144,6 +148,27 @@ describe('buildProfile', () => {
     expect(
       p.practice.stepTime.length + p.practice.appTime.length,
     ).toBeGreaterThan(0);
+  });
+  it('wheel events only in a practice recording leave the default notch and flag it', () => {
+    const wheel = {
+      t: 1,
+      type: 'wheel',
+      dy: 240,
+      dm: 1,
+    } as unknown as Recording['events'][number];
+    const noWheelApp: Recording = {
+      ...app,
+      events: app.events.filter((e) => e.type !== 'wheel'),
+    };
+    const withWheel: Recording = {
+      ...practice,
+      events: [...practice.events, wheel],
+    };
+    expect(buildProfile([noWheelApp, withWheel]).wheel).toEqual(DEFAULT_WHEEL);
+    expect(wheelDefaulted([noWheelApp, withWheel])).toBe(true);
+    expect(wheelDefaulted([{ ...app, events: [...app.events, wheel] }])).toBe(
+      false,
+    );
   });
   it('typing recordings feed key measures', () => {
     const typing: Recording = { ...app, source: 'typing' };

@@ -60,7 +60,9 @@ export function fitFitts(moves: Models['moves']): PaceProfile['fitts'] {
   const useFixed = sized.length < MIN_FITTS_MOVES_WITH_SIZE;
   const pts = useFixed ? usable : sized;
   const xs = pts.map((m) =>
-    Math.log2(m.distance / (useFixed ? FITTS_FIXED_W : m.targetSize!) + 1),
+    Math.log2(
+      m.distance / (useFixed ? FITTS_FIXED_W : (m.targetSize ?? 0)) + 1,
+    ),
   );
   const ys = pts.map((m) => m.travel);
   const { a, b } = leastSquares(xs, ys);
@@ -89,19 +91,34 @@ export function fitReading(reading: Models['reading']): PaceProfile['reading'] {
   };
 }
 
-/** The most common deltaY (ties: the smaller), with the deltaMode seen most with it. */
+/**
+ * The author's notch: the most common |deltaY| over non-zero events (ties:
+ * the smaller) and the deltaMode seen most with it. The sign is applied by
+ * whoever scrolls. No usable events gives DEFAULT_WHEEL.
+ */
 export function wheelNotch(wheel: Models['wheel']): PaceProfile['wheel'] {
-  if (wheel.length === 0) return { ...DEFAULT_WHEEL };
-  const count = (xs: number[]) => {
+  const used = wheel.filter((w) => finite(w.deltaY) && w.deltaY !== 0);
+  if (used.length === 0) return { ...DEFAULT_WHEEL };
+  const mode = (xs: number[]) => {
     const c = new Map<number, number>();
     for (const x of xs) c.set(x, (c.get(x) ?? 0) + 1);
     return [...c].sort((p, q) => q[1] - p[1] || p[0] - q[0])[0][0];
   };
-  const deltaY = count(wheel.map((w) => w.deltaY));
-  const deltaMode = count(
-    wheel.filter((w) => w.deltaY === deltaY).map((w) => w.deltaMode),
+  const deltaY = mode(used.map((w) => Math.abs(w.deltaY)));
+  const deltaMode = mode(
+    used.filter((w) => Math.abs(w.deltaY) === deltaY).map((w) => w.deltaMode),
   );
   return { deltaY, deltaMode };
+}
+
+/** The recordings that feed samples: LinkedIn and typing, never practice. */
+const feeding = (recs: Recording[]) =>
+  recs.filter((r) => r.source === 'linkedin' || r.source === 'typing');
+
+/** True when `buildProfile(recs)` falls back to DEFAULT_WHEEL. */
+export function wheelDefaulted(recs: Recording[]): boolean {
+  const w = extractMeasures(feeding(recs)).models.wheel;
+  return !w.some((x) => finite(x.deltaY) && x.deltaY !== 0);
 }
 
 /**
@@ -109,9 +126,7 @@ export function wheelNotch(wheel: Models['wheel']): PaceProfile['wheel'] {
  * typing recordings feed the key measures like any other.
  */
 export function buildProfile(recs: Recording[]): PaceProfile {
-  const main = recs.filter(
-    (r) => r.source === 'linkedin' || r.source === 'typing',
-  );
+  const main = feeding(recs);
   const practice = recs.filter((r) => r.source === 'practice');
   const m = extractMeasures(main);
   const p = extractMeasures(practice);

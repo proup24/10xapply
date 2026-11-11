@@ -14,7 +14,7 @@ import {
   type Measures,
 } from '../pace/measures.js';
 import { PACE_DIR, writeAtomic } from '../pace/paths.js';
-import { buildProfile } from '../pace/profile.js';
+import { buildProfile, wheelDefaulted } from '../pace/profile.js';
 import { isApplication } from '../pace/phases.js';
 import type { Recording } from '../pace/recording.js';
 import { createWriter, type Writer } from '../pace/writer.js';
@@ -292,13 +292,9 @@ export function buildCommand(
   );
   const empty = MEASURE_NAMES.filter((n) => !profile.samples[n]?.length);
   if (empty.length > 0) out(`  warning: no samples for ${empty.join(', ')}\n`);
-  if (
-    !recs.some((r) =>
-      r.events.some((e) => e.type === 'wheel' && e.dy !== undefined),
-    )
-  )
+  if (wheelDefaulted(recs))
     out(
-      `  warning: no wheel events recorded; using the default notch (deltaY ${profile.wheel.deltaY}, deltaMode ${profile.wheel.deltaMode})\n`,
+      `  warning: no wheel events in the LinkedIn or typing recordings; using the default notch (deltaY ${profile.wheel.deltaY}, deltaMode ${profile.wheel.deltaMode})\n`,
     );
   return 0;
 }
