@@ -54,6 +54,13 @@
           "command": "tsx src/main.ts pace record --typing"
         }
       },
+      "pace-build": {
+        "executor": "nx:run-commands",
+        "options": {
+          "cwd": "apps/runner",
+          "command": "tsx src/main.ts pace build"
+        }
+      },
       "pace-summary": {
         "executor": "nx:run-commands",
         "options": {

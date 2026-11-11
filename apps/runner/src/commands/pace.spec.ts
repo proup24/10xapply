@@ -1,12 +1,24 @@
 import { EventEmitter } from 'node:events';
-import { copyFileSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { BridgeEvent } from '../relay/relay.js';
 import type { Writer } from '../pace/writer.js';
-import { recordCommand, summaryCommand, type RecordDeps } from './pace.js';
+import {
+  buildCommand,
+  recordCommand,
+  summaryCommand,
+  type RecordDeps,
+} from './pace.js';
 
 function setup() {
   const listeners = new Set<(e: BridgeEvent) => void>();
@@ -128,6 +140,24 @@ describe('pace summary', () => {
 
   const row = (output: string, name: string) =>
     output.split('\n').find((l) => l.trim().startsWith(`${name} `));
+
+  it('build writes profile.json and prints counts', () => {
+    const d = withFixtures();
+    let output = '';
+    expect(buildCommand({ dir: d, out: (t) => void (output += t) })).toBe(0);
+    expect(existsSync(join(d, 'profile.json'))).toBe(true);
+    expect(
+      JSON.parse(readFileSync(join(d, 'profile.json'), 'utf8')).version,
+    ).toBe(1);
+    expect(output).toContain('pace profile: 1 applications, 1 practice');
+    expect(output).toContain('pressRelease');
+  });
+
+  it('build with no recordings writes nothing and exits 1', () => {
+    dir = mkdtempSync(join(tmpdir(), 'pace-summary-'));
+    expect(buildCommand({ dir, out: () => undefined })).toBe(1);
+    expect(existsSync(join(dir, 'profile.json'))).toBe(false);
+  });
 
   it('summary prints count, minimum and enough/short per measure', () => {
     const { code, output } = run(withFixtures());

@@ -43,9 +43,12 @@ async function clickAt(page: Page, selector: string): Promise<void> {
 
 async function fillLoginForm(page: Page): Promise<void> {
   await clickAt(page, '#email');
-  await page.keyboard.type(`pace.test.${randomInt(100000, 1000000)}@example.com`, {
-    delay: 120,
-  });
+  await page.keyboard.type(
+    `pace.test.${randomInt(100000, 1000000)}@example.com`,
+    {
+      delay: 120,
+    },
+  );
   await clickAt(page, '#password');
   // The page requires one special character.
   await page.keyboard.type(`${randomText(11)}!`, { delay: 120 });

@@ -13,7 +13,8 @@ import {
   type MeasureName,
   type Measures,
 } from '../pace/measures.js';
-import { PACE_DIR } from '../pace/paths.js';
+import { PACE_DIR, writeAtomic } from '../pace/paths.js';
+import { buildProfile } from '../pace/profile.js';
 import { isApplication } from '../pace/phases.js';
 import type { Recording } from '../pace/recording.js';
 import { createWriter, type Writer } from '../pace/writer.js';
@@ -249,5 +250,55 @@ export function summaryCommand(
   if (short.length === 0 && practiceShort.length === 0) {
     out('every measure has enough samples\n');
   }
+  return 0;
+}
+
+/**
+ * Builds `profile.json` from the author's recordings and prints the sample
+ * count per measure. Only reads recordings; never touches the relay.
+ */
+export function buildCommand(
+  opts: { dir?: string; out?: (text: string) => void } = {},
+): number {
+  const dir = opts.dir ?? PACE_DIR;
+  const out = opts.out ?? ((t: string) => void process.stdout.write(t));
+  const recs = readRecordings(dir, out);
+  if (recs.length === 0) {
+    out(
+      `no recordings under ${join(dir, 'author')}: run pnpm nx run runner:pace-record\n`,
+    );
+    return 1;
+  }
+  const profile = buildProfile(recs);
+  writeAtomic(
+    join(dir, 'profile.json'),
+    `${JSON.stringify(profile, null, 2)}\n`,
+  );
+  out(
+    `pace profile: ${profile.sources.applications} applications, ${profile.sources.practice} practice\n`,
+  );
+  for (const n of MEASURE_NAMES) {
+    out(
+      `  ${n.padEnd(24)}${String(profile.samples[n]?.length ?? 0).padStart(7)}\n`,
+    );
+  }
+  out(
+    `  fitts: a=${profile.fitts.a.toFixed(1)} b=${profile.fitts.b.toFixed(1)} (${profile.fitts.residuals.length} moves${profile.fitts.wFixed ? `, W fixed at ${profile.fitts.wFixed}` : ''})\n`,
+  );
+  out(
+    profile.reading
+      ? `  reading: base=${profile.reading.base.toFixed(0)} perChar=${profile.reading.perChar.toFixed(2)}\n`
+      : '  warning: no description lengths recorded, so no reading model\n',
+  );
+  const empty = MEASURE_NAMES.filter((n) => !profile.samples[n]?.length);
+  if (empty.length > 0) out(`  warning: no samples for ${empty.join(', ')}\n`);
+  if (
+    !recs.some((r) =>
+      r.events.some((e) => e.type === 'wheel' && e.dy !== undefined),
+    )
+  )
+    out(
+      `  warning: no wheel events recorded; using the default notch (deltaY ${profile.wheel.deltaY}, deltaMode ${profile.wheel.deltaMode})\n`,
+    );
   return 0;
 }
