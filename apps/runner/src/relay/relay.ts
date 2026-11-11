@@ -72,6 +72,19 @@ const STATIC_PAGES: ReadonlyMap<string, Buffer> = new Map(
   ]),
 );
 
+/** Splits a request target without `URL`, which throws on targets like `//`. */
+function parseTarget(target: string | undefined): {
+  pathname: string;
+  params: URLSearchParams;
+} {
+  const [beforeFragment = ''] = (target ?? '/').split('#');
+  const q = beforeFragment.indexOf('?');
+  return {
+    pathname: q < 0 ? beforeFragment : beforeFragment.slice(0, q),
+    params: new URLSearchParams(q < 0 ? '' : beforeFragment.slice(q + 1)),
+  };
+}
+
 function digest(value: string): Buffer {
   return createHash('sha256').update(value, 'utf8').digest();
 }
@@ -322,7 +335,7 @@ export async function startRelay(opts: RelayOptions): Promise<Relay> {
   const server = http.createServer((req, res) => {
     const page =
       req.method === 'GET' && !stopped
-        ? STATIC_PAGES.get(new URL(req.url ?? '/', `http://${HOST}`).pathname)
+        ? STATIC_PAGES.get(parseTarget(req.url).pathname)
         : undefined;
     if (!page) {
       res.statusCode = 404;
@@ -339,7 +352,7 @@ export async function startRelay(opts: RelayOptions): Promise<Relay> {
   const wss = new WebSocketServer({ noServer: true });
 
   server.on('upgrade', (req, socket, head) => {
-    const url = new URL(req.url ?? '/', `http://${HOST}`);
+    const url = parseTarget(req.url);
     const kind =
       url.pathname === '/cdp'
         ? 'cdp'
@@ -351,7 +364,7 @@ export async function startRelay(opts: RelayOptions): Promise<Relay> {
       return;
     }
     wss.handleUpgrade(req, socket, head, (ws) => {
-      if (!tokenMatches(url.searchParams.get('token'), expectedToken)) {
+      if (!tokenMatches(url.params.get('token'), expectedToken)) {
         ws.close(CLOSE_UNAUTHORIZED, 'unauthorized');
         return;
       }

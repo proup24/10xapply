@@ -793,6 +793,38 @@ describe('relay', () => {
       expect(raw).toBe(404);
     });
 
+    function rawStatus(relay: Relay, request: string): Promise<number> {
+      return new Promise((resolve, reject) => {
+        const sock = net.connect(portOf(relay), '127.0.0.1', () =>
+          sock.write(request),
+        );
+        let buf = '';
+        sock.on('data', (d) => (buf += d.toString()));
+        sock.on('end', () => resolve(Number(buf.split(' ')[1])));
+        sock.on('error', reject);
+      });
+    }
+
+    it('survives a // target and a bare query', async () => {
+      const relay = await start();
+      const head = 'Host: x\r\nConnection: close\r\n\r\n';
+      expect(await rawStatus(relay, `GET // HTTP/1.1\r\n${head}`)).toBe(404);
+      expect(
+        await rawStatus(relay, `GET /practice?x HTTP/1.1\r\n${head}`),
+      ).toBe(404);
+      expect((await get(relay, '/practice/')).status).toBe(200);
+    });
+
+    it('refuses a bad upgrade target without crashing', async () => {
+      const relay = await start();
+      const status = await rawStatus(
+        relay,
+        'GET // HTTP/1.1\r\nHost: x\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n',
+      );
+      expect(status).toBe(404);
+      expect((await get(relay, '/typing/')).status).toBe(200);
+    });
+
     it('answers only GET', async () => {
       const relay = await start();
       const res = await fetch(`http://127.0.0.1:${portOf(relay)}/practice/`, {
