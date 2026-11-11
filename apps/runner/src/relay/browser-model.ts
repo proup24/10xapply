@@ -19,6 +19,8 @@ interface Tab {
   sessionId?: string; // set once announced to the CDP client
   targetInfo?: Json;
   childSessions: Set<string>; // auto-attached iframes and workers
+  detachSeen?: boolean; // the extension reported a debugger detach
+  closing?: boolean; // Target.closeTarget asked for this tab's removal
 }
 
 export class BrowserModel {
@@ -84,20 +86,25 @@ export class BrowserModel {
 
   // ─── Extension → model ─────────────────────────────────────────────────
 
+  /**
+   * Forwards a tab's CDP event. Returns 'tab-crashed' when the run tab's own
+   * renderer crashed (not a child frame or worker), so the relay can stop.
+   */
   onDebuggerEvent(
     source: { tabId?: unknown; sessionId?: unknown },
     method: unknown,
     params: unknown,
-  ): void {
+  ): 'tab-crashed' | undefined {
     const tab =
       typeof source.tabId === 'number'
         ? this.tabs.get(source.tabId)
         : undefined;
-    if (!tab?.attached || !tab.sessionId) return;
+    if (!tab?.attached || !tab.sessionId) return undefined;
     // Events come from the tab's own session or a child it auto-attached;
     // anything else is dropped, so it can't introduce a session either.
     const fromChild = typeof source.sessionId === 'string';
-    if (fromChild && !tab.childSessions.has(source.sessionId as string)) return;
+    if (fromChild && !tab.childSessions.has(source.sessionId as string))
+      return undefined;
     const child = (params as Json | undefined)?.sessionId;
     if (typeof child === 'string') {
       if (method === 'Target.attachedToTarget') tab.childSessions.add(child);
@@ -106,17 +113,36 @@ export class BrowserModel {
     }
     const sessionId = fromChild ? (source.sessionId as string) : tab.sessionId;
     this.sendToCdp({ sessionId, method, params });
+    return !fromChild && method === 'Inspector.targetCrashed'
+      ? 'tab-crashed'
+      : undefined;
   }
 
-  /** The tab stays known after a detach so Target.closeTarget can still close it. */
-  onDebuggerDetach(tabId: number): void {
+  /**
+   * The tab stays known after a detach so Target.closeTarget can still close
+   * it. Returns false when the detach comes from our own Target.closeTarget,
+   * which is not a stop.
+   */
+  onDebuggerDetach(tabId: number): boolean {
     const tab = this.tabs.get(tabId);
-    if (tab) this.detachSession(tab);
+    if (!tab) return true;
+    tab.detachSeen = true;
+    this.detachSession(tab);
+    return !tab.closing;
   }
 
-  onTabRemoved(tabId: number): void {
-    this.onDebuggerDetach(tabId);
+  /**
+   * Forgets a removed tab. Returns true when the removal is a stop nobody
+   * reported yet: a run tab closed by hand (or by Chrome), not by our own
+   * Target.closeTarget and not after a reported detach.
+   */
+  onTabRemoved(tabId: number): boolean {
+    const tab = this.tabs.get(tabId);
+    if (!tab) return false;
+    const unreported = !tab.closing && !tab.detachSeen;
+    this.detachSession(tab);
     this.tabs.delete(tabId);
+    return unreported;
   }
 
   /** Drops every session, telling the CDP client (if still there). */
@@ -186,7 +212,13 @@ export class BrowserModel {
       (t) => targetId !== undefined && t.targetInfo?.targetId === targetId,
     );
     if (!tab) return { success: false };
-    await this.callExtension('tabs.remove', { tabId: tab.tabId });
+    tab.closing = true;
+    try {
+      await this.callExtension('tabs.remove', { tabId: tab.tabId });
+    } catch (e) {
+      tab.closing = false;
+      throw e;
+    }
     return { success: true };
   }
 

@@ -101,8 +101,16 @@ export function createBridgeCore(chromeApi, send) {
     detached.add(source.tabId);
   }
 
+  // Chrome may fire tabs.onRemoved before debugger.onDetach, and the tab is
+  // forgotten here, so report the detach now: a closed run window is a stop.
   function onTabRemoved(tabId) {
     if (!ownsTab(tabId)) return;
+    if (attached.has(tabId)) {
+      send({
+        method: 'debugger.detach',
+        params: { tabId, reason: 'target_closed' },
+      });
+    }
     send({ method: 'tabs.removed', params: { tabId } });
     owned.delete(tabId);
     attached.delete(tabId);

@@ -162,20 +162,34 @@ export async function startRelay(opts: RelayOptions): Promise<Relay> {
   function onExtensionEvent(method: unknown, params: Json): void {
     const tabId = typeof params.tabId === 'number' ? params.tabId : undefined;
     switch (method) {
-      case 'debugger.event':
-        model.onDebuggerEvent(
-          (params.source ?? {}) as Json,
+      case 'debugger.event': {
+        const source = (params.source ?? {}) as Json;
+        const crashed = model.onDebuggerEvent(
+          source,
           params.method,
           params.params,
         );
+        if (crashed === 'tab-crashed' && typeof source.tabId === 'number') {
+          emit({ kind: 'detached', tabId: source.tabId, reason: 'crashed' });
+        }
         return;
+      }
       case 'debugger.detach':
         if (tabId === undefined) return;
-        model.onDebuggerDetach(tabId);
-        emit({ kind: 'detached', tabId, reason: String(params.reason ?? '') });
+        if (model.onDebuggerDetach(tabId)) {
+          emit({
+            kind: 'detached',
+            tabId,
+            reason: String(params.reason ?? ''),
+          });
+        }
         return;
       case 'tabs.removed':
-        if (tabId !== undefined) model.onTabRemoved(tabId);
+        // A run tab closed by hand is a stop, even when Chrome reports the
+        // removal before (or without) the debugger detach.
+        if (tabId !== undefined && model.onTabRemoved(tabId)) {
+          emit({ kind: 'detached', tabId, reason: 'tab closed' });
+        }
         return;
       case 'window.state':
         // Sent on every bounds or focus change; only minimising matters.

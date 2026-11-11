@@ -451,6 +451,106 @@ describe('relay', () => {
     ]);
   });
 
+  it('a hand-closed run tab emits a detach', async () => {
+    const ctx = await connected();
+    const events: BridgeEvent[] = [];
+    ctx.relay.onEvent((e) => events.push(e));
+    const { sessionId } = await openTarget(ctx);
+    ctx.ext.send({ method: 'tabs.removed', params: { tabId: 42 } });
+    const detached = await ctx.cdp.next(
+      (m) => m.method === 'Target.detachedFromTarget',
+    );
+    expect(detached.params).toMatchObject({ sessionId, targetId: 'T-42' });
+    await vi.waitFor(() => expect(events).toHaveLength(1));
+    expect(events).toEqual([
+      { kind: 'detached', tabId: 42, reason: 'tab closed' },
+    ]);
+  });
+
+  it('a detach followed by the tab removal emits one stop', async () => {
+    const ctx = await connected();
+    const events: BridgeEvent[] = [];
+    ctx.relay.onEvent((e) => events.push(e));
+    await openTarget(ctx);
+    ctx.ext.send({
+      method: 'debugger.detach',
+      params: { tabId: 42, reason: 'target_closed' },
+    });
+    ctx.ext.send({ method: 'tabs.removed', params: { tabId: 42 } });
+    // A marker event after both, so both have been handled.
+    ctx.ext.send({
+      method: 'window.state',
+      params: { tabId: 42, windowId: 7, state: 'minimized' },
+    });
+    await vi.waitFor(() => expect(events).toHaveLength(2));
+    expect(events).toEqual([
+      { kind: 'detached', tabId: 42, reason: 'target_closed' },
+      { kind: 'window-minimized', tabId: 42 },
+    ]);
+  });
+
+  it('our own Target.closeTarget is not a stop', async () => {
+    const ctx = await connected();
+    const events: BridgeEvent[] = [];
+    ctx.relay.onEvent((e) => events.push(e));
+    await openTarget(ctx);
+    const closed = await ctx.call('Target.closeTarget', { targetId: 'T-42' });
+    expect(closed.result).toEqual({ success: true });
+    // What the extension sends when the tab it removed was still attached.
+    ctx.ext.send({
+      method: 'debugger.detach',
+      params: { tabId: 42, reason: 'target_closed' },
+    });
+    ctx.ext.send({ method: 'tabs.removed', params: { tabId: 42 } });
+    ctx.ext.send({
+      method: 'window.state',
+      params: { tabId: 42, windowId: 7, state: 'minimized' },
+    });
+    await vi.waitFor(() => expect(events).toHaveLength(1));
+    expect(events).toEqual([{ kind: 'window-minimized', tabId: 42 }]);
+  });
+
+  it('a crashed run tab emits a detach and forwards the crash', async () => {
+    const ctx = await connected();
+    const events: BridgeEvent[] = [];
+    ctx.relay.onEvent((e) => events.push(e));
+    const { sessionId } = await openTarget(ctx);
+    // A crash in a child session (an iframe) is only forwarded.
+    ctx.ext.send({
+      method: 'debugger.event',
+      params: {
+        source: { tabId: 42 },
+        method: 'Target.attachedToTarget',
+        params: { sessionId: 'CHILD', targetInfo: { targetId: 'F' } },
+      },
+    });
+    ctx.ext.send({
+      method: 'debugger.event',
+      params: {
+        source: { tabId: 42, sessionId: 'CHILD' },
+        method: 'Inspector.targetCrashed',
+        params: {},
+      },
+    });
+    ctx.ext.send({
+      method: 'debugger.event',
+      params: {
+        source: { tabId: 42 },
+        method: 'Inspector.targetCrashed',
+        params: {},
+      },
+    });
+    const crash = await ctx.cdp.next(
+      (m) =>
+        m.method === 'Inspector.targetCrashed' && m.sessionId === sessionId,
+    );
+    expect(crash.params).toEqual({});
+    await vi.waitFor(() => expect(events).toHaveLength(1));
+    expect(events).toEqual([
+      { kind: 'detached', tabId: 42, reason: 'crashed' },
+    ]);
+  });
+
   it('logs method names only', async () => {
     const ctx = await connected();
     const { sessionId } = await openTarget(ctx);

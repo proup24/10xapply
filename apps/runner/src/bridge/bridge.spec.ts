@@ -81,6 +81,63 @@ describe('connectBridge', () => {
     expect(bridge.stopReason()).toBe('debugger detached: canceled_by_user');
   });
 
+  it('records a hand-closed run tab', async () => {
+    const relayPort = await freePort();
+    let cdpSocket: WebSocket | null = null;
+    const p = connectBridge(
+      { relayPort, token: TOKEN },
+      {
+        // A raw CDP client standing in for Patchright: it opens one tab.
+        connectOverCDP: (async (url: string) => {
+          const ws = new WebSocket(url);
+          cdpSocket = ws;
+          await new Promise<void>((res, rej) => {
+            ws.once('open', () => res());
+            ws.once('error', rej);
+          });
+          return { contexts: () => [], close: () => Promise.resolve() };
+        }) as never,
+        timeoutMs: 5000,
+      },
+    );
+    await sleep(50);
+    const ext = await fakeExtension(relayPort);
+    sockets.push(ext);
+    ext.on('message', (data) => {
+      const msg = JSON.parse(data.toString()) as {
+        id?: number;
+        method: string;
+        params: { method?: string };
+      };
+      if (msg.id === undefined) return;
+      const result =
+        msg.method === 'run.createWindow'
+          ? { tabId: 5, windowId: 6 }
+          : msg.params.method === 'Target.getTargetInfo'
+            ? { targetInfo: { targetId: 'T-5', type: 'page' } }
+            : {};
+      ext.send(JSON.stringify({ id: msg.id, result }));
+    });
+    const bridge = await p;
+    if ('unavailable' in bridge) throw new Error(bridge.unavailable);
+    open.push(bridge);
+    const cdp = cdpSocket as unknown as WebSocket;
+    sockets.push(cdp);
+    const replied = new Promise<void>((res) =>
+      cdp.on('message', (data) => {
+        if ((JSON.parse(data.toString()) as { id?: number }).id === 1) res();
+      }),
+    );
+    cdp.send(
+      JSON.stringify({ id: 1, method: 'Target.createTarget', params: {} }),
+    );
+    await replied;
+    expect(bridge.stopReason()).toBeNull();
+    ext.send(JSON.stringify({ method: 'tabs.removed', params: { tabId: 5 } }));
+    await sleep(100);
+    expect(bridge.stopReason()).toBe('debugger detached: tab closed');
+  });
+
   it('records a minimised window', async () => {
     const { bridge, ext } = await connected();
     ext.send(

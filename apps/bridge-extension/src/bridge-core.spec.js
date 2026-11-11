@@ -272,6 +272,26 @@ describe('bridge core', () => {
     expect(core.ownsTab(42)).toBe(false);
   });
 
+  it('a removed tab still attached reports a detach first', async () => {
+    const { core, sent } = setup();
+    await open(core);
+    await attach(core);
+    sent.length = 0;
+    core.onTabRemoved(42);
+    expect(sent).toEqual([
+      {
+        method: 'debugger.detach',
+        params: { tabId: 42, reason: 'target_closed' },
+      },
+      { method: 'tabs.removed', params: { tabId: 42 } },
+    ]);
+    expect(core.ownsTab(42)).toBe(false);
+    // A later chrome onDetach for the forgotten tab is dropped.
+    sent.length = 0;
+    core.onDebuggerDetach({ tabId: 42 }, 'target_closed');
+    expect(sent).toEqual([]);
+  });
+
   it('reports minimised run window', async () => {
     const { core, sent } = setup();
     await open(core);
