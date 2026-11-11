@@ -9,7 +9,8 @@
     "build": "nx run-many -t build",
     "typecheck": "nx run-many -t typecheck",
     "format": "nx format:write",
-    "format:check": "nx format:check"
+    "format:check": "nx format:check",
+    "test:scripts": "node --test \"scripts/*.test.mjs\""
   },
   "private": true,
   "dependencies": {},
