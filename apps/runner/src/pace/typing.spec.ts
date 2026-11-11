@@ -35,4 +35,15 @@ describe('planKeys', () => {
     expect(keys[0].hold).toBeLessThan(keys[1].gapBefore);
     expect(keys[1].hold).toBe(400);
   });
+
+  it('a repeated key keeps its hold and waits longer instead (no clipped holds)', () => {
+    // The author's holds run longer than their in-word gaps (rollover); a
+    // clipped hold before a repeat gave the runner holds the author never has.
+    const p = testProfile({ keyHold: [400, 400, 400] });
+    const keys = planKeys('aab', p, seededRng(4));
+    expect(keys.map((k) => k.hold)).toEqual([400, 400, 400]);
+    expect(keys[1].gapBefore).toBeCloseTo(400 / 0.8, 6);
+    // Other keys keep their drawn gap and may overlap.
+    expect(keys[2].gapBefore).toBe(100);
+  });
 });
