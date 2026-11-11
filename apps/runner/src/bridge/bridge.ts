@@ -11,6 +11,11 @@ export interface Bridge {
   crashRunTab(): Promise<void>;
   /** The run tab's viewport in CSS px, for the pace module. Runs no script. */
   viewport(): Promise<{ width: number; height: number } | null>;
+  /**
+   * Runs `open` (pace's click on an upload button) and sets `file`, a path on
+   * the Windows side, through the relay so Chrome fires a trusted `change`.
+   */
+  uploadOnChooser(file: string, open: () => Promise<void>): Promise<void>;
   startRecording(salt: string): Promise<void>;
   stopRecording(): Promise<void>;
   onRecorderBatch(fn: (b: RecorderBatch) => void): () => void;
@@ -92,6 +97,7 @@ export async function connectBridge(
     stopReason: () => reason,
     crashRunTab: () => relay.crashRunTab(),
     viewport: () => relay.viewport(),
+    uploadOnChooser: (file, open) => relay.uploadOnChooser([file], open),
     startRecording: (salt) => relay.startRecording(salt),
     stopRecording: () => relay.stopRecording(),
     onRecorderBatch: (fn) => relay.onRecorderBatch(fn),

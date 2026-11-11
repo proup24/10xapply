@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import type { Page } from 'patchright-core';
 import { UNAVAILABLE_MESSAGE, connectBridge } from '../bridge/bridge.js';
 import type { Bridge } from '../bridge/bridge.js';
+import { realExec, windowsPracticeFile } from '../bridge/install.js';
 import { sittingIdNow } from '../commands/pace.js';
 import { loadConfig, type RunnerConfig } from '../config.js';
 import { createPace, type Pace } from './pace.js';
@@ -25,7 +26,10 @@ const answers = JSON.parse(
   why: string;
 };
 
-/** A 1-byte file; the practice page never reads it. */
+/**
+ * A 1-byte file; the practice page never reads it. `bridge install` copies it
+ * to the Windows side, where Chrome reads the upload from.
+ */
 export const RESUME_PATH = fileURLToPath(
   new URL('./fixtures/resume.pdf', import.meta.url),
 );
@@ -33,12 +37,14 @@ export const RESUME_PATH = fileURLToPath(
 /**
  * One run of the local practice form, in the order a person fills it:
  * the long description first, then each of the four steps.
- * The optional extras come from `pace.maybe`.
+ * The optional extras come from `pace.maybe`. `resumeFile` is the upload's
+ * path where Chrome runs.
  */
 export async function runPractice(
   pace: Pace,
   page: Page,
   run: number,
+  resumeFile: string = RESUME_PATH,
 ): Promise<void> {
   const $ = (selector: string) => page.locator(selector);
 
@@ -56,7 +62,7 @@ export async function runPractice(
   await pace.pause();
 
   // Step 2: resume.
-  await pace.upload($('#upload'), RESUME_PATH);
+  await pace.upload($('#upload'), resumeFile);
   await pace.pause();
   await pace.type($('#years'), answers.years);
   await pace.pause();
@@ -86,6 +92,8 @@ export interface PracticeDeps {
   cfg?: RunnerConfig;
   connect?: typeof connectBridge;
   loadProfile?: () => PaceProfile;
+  /** The upload file's Windows path (default: next to the extension). */
+  resumeFile?: () => string;
   createPace?: typeof createPace;
   createWriter?: (sittingId: string) => Writer;
   out?: (text: string) => void;
@@ -101,6 +109,10 @@ export async function practiceCommand(
   const cfg = deps.cfg ?? loadConfig();
   // Throws a ConfigError when there is no profile: nothing to run without it.
   const profile = (deps.loadProfile ?? (() => loadProfile()))();
+  // Throws a ConfigError when bridge install has not copied the file yet.
+  const resumeFile = (
+    deps.resumeFile ?? (() => windowsPracticeFile(realExec))
+  )();
   const bridge: Bridge | { unavailable: string } = await (
     deps.connect ?? connectBridge
   )(cfg);
@@ -135,11 +147,12 @@ export async function practiceCommand(
       );
       const pace = (deps.createPace ?? createPace)(page, profile, {
         viewport: () => bridge.viewport(),
+        uploadOnChooser: (file, open) => bridge.uploadOnChooser(file, open),
       });
       if (run === 1 && pace.defaulted.length > 0) {
         out(`defaulted measures: ${pace.defaulted.join(', ')}`);
       }
-      await runPractice(pace, page, run);
+      await runPractice(pace, page, run, resumeFile);
       done++;
       out(`practice run ${run}/${runs} done`);
     }

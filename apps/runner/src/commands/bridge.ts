@@ -1,22 +1,16 @@
-import { execFileSync } from 'node:child_process';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { connectBridge, type Bridge } from '../bridge/bridge.js';
 import {
   ensureToken,
   installExtension,
+  installPracticeFile,
+  realExec,
   windowsExtensionDir,
   type Exec,
 } from '../bridge/install.js';
 import { ENV_FILE, loadConfig, resolveRelayPort } from '../config.js';
-
-// cmd.exe warns "UNC paths are not supported" when started from a WSL
-// folder, so it runs from the Windows drive instead.
-const realExec: Exec = (cmd, args) =>
-  execFileSync(cmd, args, {
-    encoding: 'utf8',
-    cwd: cmd === 'cmd.exe' ? '/mnt/c' : undefined,
-  });
+import { RESUME_PATH } from '../pace/practice-run.js';
 
 /** apps/bridge-extension/src, resolved from this file, not the cwd. */
 const SOURCE_DIR = join(
@@ -33,6 +27,7 @@ export function bridgeInstall(exec: Exec = realExec): number {
   const port = resolveRelayPort();
   const targetDir = windowsExtensionDir(exec);
   installExtension({ sourceDir: SOURCE_DIR, targetDir, port, token });
+  installPracticeFile(RESUME_PATH, targetDir);
   const winPath = exec('wslpath', ['-w', targetDir]).trim();
   console.log(`bridge extension installed to ${winPath}
 Next, in Chrome:

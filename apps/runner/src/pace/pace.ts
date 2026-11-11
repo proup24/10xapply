@@ -1,7 +1,7 @@
 import { setTimeout as delay } from 'node:timers/promises';
 import type { Locator, Page } from 'patchright-core';
 import { DEFAULTS, draw, isDefaulted, rate, samplesOf } from './defaults.js';
-import type { MeasureName } from './measures.js';
+import { WHEEL_BURST_GAP_MS, type MeasureName } from './measures.js';
 import { planPath, type Box, type Pt, type TimedPt } from './mouse.js';
 import { sampleKde, type PaceProfile } from './profile.js';
 import { cryptoRng, type Rng } from './rng.js';
@@ -20,9 +20,15 @@ export interface Pace {
   type(field: Locator, text: string): Promise<void>;
   /** A prefilled field: move onto it, dwell, no typing. */
   glance(field: Locator): Promise<void>;
-  /** A `<select>` (by option index) or a radio group (the nth radio's label). */
+  /**
+   * A `<select>` (by option index: click to open, then arrow keys and Enter
+   * in the open list) or a radio group (the nth radio's label).
+   */
   pick(control: Locator, index: number): Promise<void>;
-  /** Clicks the button with the file chooser intercepted, then sets the file. */
+  /**
+   * Clicks the button inside `deps.uploadOnChooser`, which sets `filePath`
+   * (a path where Chrome runs) on the chooser's input.
+   */
   upload(button: Locator, filePath: string): Promise<void>;
   /** Wheel notches over `area`; negative notches scroll up. */
   scroll(area: Locator, notches?: number): Promise<void>;
@@ -49,6 +55,16 @@ const READ_MIN_MS = 1000;
 const READ_MAX_FACTOR = 2;
 /** CSS px per line and per page when the author's wheel reports lines or pages. */
 const WHEEL_LINE_PX = 40;
+/** At most this many wheel notches to bring an off-screen target into view. */
+const REVEAL_MAX_NOTCHES = 40;
+/** Scrolling gives up after this many bursts in a row that moved nothing. */
+const REVEAL_MAX_STUCK = 2;
+/** Wait after a burst for smooth scrolling to settle before re-reading the box. */
+const SCROLL_SETTLE_MS = 300;
+/** A revealed target sits at least this share of the window from its edge. */
+const REVEAL_MARGIN = 0.15;
+/** The `<select>` options after the checked one (plain CSS, no script). */
+const AFTER_CHECKED = 'option:checked ~ option';
 /** Keys sent as keydown/keyup; anything else (newline, tab, non-ASCII) is inserted as text. */
 const KEYED = /^[\x20-\x7e]$/;
 
@@ -71,6 +87,15 @@ export function createPace(
      * connectOverCDP window). Must not run scripts in the page.
      */
     viewport?: () => Promise<{ width: number; height: number } | null>;
+    /**
+     * Runs `open` (the click on an upload button) and sets `file` on the
+     * chooser's input so Chrome fires a trusted `change` (the bridge's
+     * relay-side upload). Without it `upload` refuses.
+     */
+    uploadOnChooser?: (
+      file: string,
+      open: () => Promise<void>,
+    ) => Promise<void>;
   } = {},
 ): Pace {
   const rng = deps.rng ?? cryptoRng();
@@ -143,11 +168,8 @@ export function createPace(
     return pos;
   }
 
-  /** The part of the target's box inside the viewport. */
-  async function visibleBox(target: Locator): Promise<Box> {
-    const box = await target.boundingBox();
-    if (!box) throw new Error('pace: target has no box (hidden or detached)');
-    const view = await viewport();
+  /** The part of `box` inside the viewport; throws when none of it is. */
+  function clip(box: Box, view: { width: number; height: number }): Box {
     const x0 = Math.max(box.x, 0);
     const y0 = Math.max(box.y, 0);
     const x1 = Math.min(box.x + box.width, view.width);
@@ -158,14 +180,139 @@ export function createPace(
     return { x: x0, y: y0, width: x1 - x0, height: y1 - y0 };
   }
 
+  /** The part of the target's box inside the viewport. */
+  async function visibleBox(target: Locator): Promise<Box> {
+    const box = await target.boundingBox();
+    if (!box) throw new Error('pace: target has no box (hidden or detached)');
+    return clip(box, await viewport());
+  }
+
   /**
-   * Moves onto the target. The box is read again before the final approach,
-   * so a page that scrolled or a window that moved never gets a stale click.
+   * How far (CSS px, + is down) the page must scroll to show the target
+   * comfortably: 0 when it is fully in the window, or a tall target covers
+   * half of it. Throws for a target off to the side.
+   */
+  function revealDistance(
+    box: Box,
+    view: { width: number; height: number },
+  ): number {
+    if (box.x + box.width <= 0 || box.x >= view.width) {
+      throw new Error('pace: target is off-screen to the side; not scrolling');
+    }
+    const top = box.y;
+    const bottom = box.y + box.height;
+    const shown = Math.min(bottom, view.height) - Math.max(top, 0);
+    if (box.height <= view.height) {
+      if (top >= 0 && bottom <= view.height) return 0;
+    } else if (shown >= view.height / 2) {
+      return 0;
+    }
+    const margin = view.height * REVEAL_MARGIN;
+    // Below (or taller than the window): bring its bottom, or its top, up.
+    if (top > 0 && box.height <= view.height) {
+      return bottom - (view.height - margin);
+    }
+    return top - margin;
+  }
+
+  /**
+   * Scrolls an off-screen target into view the way a person does: the
+   * pointer goes over the target's column mid-window, then wheel bursts at
+   * the author's rhythm, reading the box again after each burst. Gives up
+   * after REVEAL_MAX_NOTCHES notches or when bursts stop moving the target.
+   * Returns the visible part of the target's last box.
+   */
+  async function reveal(target: Locator): Promise<Box> {
+    let used = 0;
+    let stuck = 0;
+    let lastY: number | null = null;
+    for (;;) {
+      const box = await target.boundingBox();
+      if (!box) throw new Error('pace: target has no box (hidden or detached)');
+      const view = await viewport();
+      const distance = revealDistance(box, view);
+      if (distance === 0) return clip(box, view);
+      if (lastY !== null) {
+        stuck = box.y === lastY ? stuck + 1 : 0;
+        if (stuck >= REVEAL_MAX_STUCK) {
+          throw new Error(
+            'pace: target is off-screen and scrolling does not move it',
+          );
+        }
+      }
+      if (used >= REVEAL_MAX_NOTCHES) {
+        throw new Error(
+          `pace: target is still off-screen after ${used} wheel notches`,
+        );
+      }
+      lastY = box.y;
+      if (used > 0) {
+        // Bursts are apart by at least the gap that splits them in recordings.
+        await wait(
+          WHEEL_BURST_GAP_MS -
+            SCROLL_SETTLE_MS +
+            draw(profile, 'wheelGap', rng),
+        );
+      } else {
+        await moveOver(scrollSpot(box, view), view);
+        await wait(draw(profile, 'hoverToPress', rng));
+      }
+      const px = await notchPx();
+      const needed = Math.max(1, Math.ceil(Math.abs(distance) / px));
+      const burst = Math.min(
+        Math.round(draw(profile, 'wheelBurst', rng, { min: 1 })),
+        needed,
+        REVEAL_MAX_NOTCHES - used,
+      );
+      await wheelNotches(Math.sign(distance) * burst, px);
+      used += burst;
+      await wait(SCROLL_SETTLE_MS);
+    }
+  }
+
+  /** Where the pointer rests while scrolling: the target's column, mid-window. */
+  function scrollSpot(box: Box, view: { width: number; height: number }): Box {
+    const x0 = Math.max(box.x, 0);
+    const x1 = Math.min(box.x + box.width, view.width);
+    const width = Math.min(x1 - x0, 120);
+    return {
+      x: (x0 + x1) / 2 - width / 2,
+      y: view.height * 0.35,
+      width,
+      height: view.height * 0.3,
+    };
+  }
+
+  /** Moves into `spot` along a planned path, unless the pointer is there. */
+  async function moveOver(
+    spot: Box,
+    view: { width: number; height: number },
+  ): Promise<void> {
+    const from = await position();
+    if (inside(from, spot)) return;
+    await emit(planPath(from, spot, profile, rng).points, now(), view);
+  }
+
+  /** `n` wheel notches of `px` (negative scrolls up), wheelGap apart. */
+  async function wheelNotches(n: number, px: number): Promise<void> {
+    for (let i = 0; i < Math.abs(n); i++) {
+      if (i > 0) await wait(draw(profile, 'wheelGap', rng));
+      await page.mouse.wheel(0, Math.sign(n) * px);
+    }
+  }
+
+  /**
+   * Moves onto the target, scrolling it into view first. The box is read
+   * again before the final approach, so a page that scrolled or a window
+   * that moved never gets a stale click.
    */
   async function approach(target: Locator): Promise<void> {
+    await position();
+    const shown = await reveal(target);
+    // After a scroll the pointer rests where it wheeled.
     const from = await position();
     const view = await viewport();
-    const plan = planPath(from, await visibleBox(target), profile, rng);
+    const plan = planPath(from, shown, profile, rng);
     const start = now();
     const total = plan.points[plan.points.length - 1].at;
     const cut = plan.points.findIndex((p) => p.at >= total * APPROACH_AT);
@@ -231,9 +378,65 @@ export function createPace(
       await click(await radioTarget(control, radio));
       return;
     }
+    const steps = await selectSteps(control, index);
+    // Open the list with the mouse, then move in it with the keys and take
+    // the option with Enter, so Chrome fires a trusted `change`.
     await click(control);
     await dwell('pickDwell');
-    await control.selectOption({ index });
+    const key = steps > 0 ? 'ArrowDown' : 'ArrowUp';
+    for (let i = 0; i < Math.abs(steps); i++) {
+      await press(key);
+      await wait(draw(profile, 'keyGapInWord', rng));
+    }
+    await press('Enter');
+    if ((await checkedIndex(control)) !== index) {
+      throw new Error(`pace: the select did not take option ${index}`);
+    }
+  }
+
+  /** One key press with the author's hold. */
+  async function press(key: string): Promise<void> {
+    await page.keyboard.down(key);
+    await wait(draw(profile, 'keyHold', rng));
+    await page.keyboard.up(key);
+  }
+
+  /** The checked option's index, read through CSS (no script). */
+  async function checkedIndex(control: Locator): Promise<number> {
+    const n = await control.locator('option').count();
+    return n - 1 - (await control.locator(AFTER_CHECKED).count());
+  }
+
+  /**
+   * Arrow presses from the checked option to option `index` (+ down, - up);
+   * disabled options are skipped, as the open list skips them. Refuses what
+   * the keys can't pick reliably, before anything is clicked.
+   */
+  async function selectSteps(control: Locator, index: number): Promise<number> {
+    if ((await control.getAttribute('multiple')) !== null) {
+      throw new Error('pace: a multiple select is not supported');
+    }
+    if ((await control.locator('optgroup').count()) > 0) {
+      throw new Error('pace: a select with option groups is not supported');
+    }
+    const options = control.locator('option');
+    const n = await options.count();
+    if (!Number.isInteger(index) || index < 0 || index >= n) {
+      throw new Error(`pace: the select has no option ${index}`);
+    }
+    if (await options.nth(index).isDisabled()) {
+      throw new Error(`pace: option ${index} is disabled`);
+    }
+    if ((await control.locator('option:checked').count()) !== 1) {
+      throw new Error('pace: the select has no checked option');
+    }
+    const from = await checkedIndex(control);
+    const dir = Math.sign(index - from);
+    let steps = 0;
+    for (let i = from + dir; dir !== 0 && i !== index + dir; i += dir) {
+      if (!(await options.nth(i).isDisabled())) steps += dir;
+    }
+    return steps;
   }
 
   /** The radio's label: `label[for=id]`, else a wrapping label, else the radio. */
@@ -289,23 +492,21 @@ export function createPace(
       await dwell('fieldDwellPrefilled');
     },
     async upload(button, filePath) {
-      // Listening for the chooser turns on interception, so no OS dialog opens.
-      const [chooser] = await Promise.all([
-        page.waitForEvent('filechooser'),
-        click(button),
-      ]);
-      await chooser.setFiles(filePath);
+      // Patchright's own setFiles over a remote connection sets the files by
+      // script (an untrusted `change`), so there is no fallback to it.
+      const upload = deps.uploadOnChooser;
+      if (!upload) {
+        throw new Error('pace: upload needs deps.uploadOnChooser; refusing');
+      }
+      await upload(filePath, () => click(button));
     },
     async scroll(area, notches) {
       await approach(area);
       const n =
         notches ?? Math.round(draw(profile, 'wheelBurst', rng, { min: 1 }));
-      const step = Math.sign(n) * (await notchPx());
+      const px = await notchPx();
       await wait(draw(profile, 'hoverToPress', rng));
-      for (let i = 0; i < Math.abs(n); i++) {
-        if (i > 0) await wait(draw(profile, 'wheelGap', rng));
-        await page.mouse.wheel(0, step);
-      }
+      await wheelNotches(n, px);
     },
     async read(chars) {
       await wait(readTime(chars) * mood);

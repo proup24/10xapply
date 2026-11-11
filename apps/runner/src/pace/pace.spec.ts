@@ -17,6 +17,16 @@ type Ev =
   | { kind: 'kdown' | 'kup' | 'text'; t: number; key: string }
   | { kind: 'box' | 'select' | 'chooser' | 'files'; t: number; arg?: unknown };
 
+/** A fake `<select>`: options (true = disabled) and the checked index. */
+interface FakeSelect {
+  disabled: boolean[];
+  checked: number;
+  /** False: Enter does not commit (the select ignores the keys). */
+  commits?: boolean;
+  optgroups?: number;
+  multiple?: boolean;
+}
+
 const VIEW = { width: 1280, height: 800 };
 
 type View = { width: number; height: number } | null;
@@ -26,11 +36,15 @@ interface Opts {
   view?: View;
   /** `deps.viewport`, when given. */
   depView?: () => Promise<View>;
+  /** Leave out `deps.uploadOnChooser`. */
+  noUpload?: boolean;
 }
 
 function fake(opts: Opts = {}) {
   let t = 1000;
   const log: Ev[] = [];
+  /** How far the page has scrolled, in CSS px, from the wheel events. */
+  let scrolled = 0;
   const clock = {
     now: () => t,
     sleep: async (ms: number) => {
@@ -45,8 +59,10 @@ function fake(opts: Opts = {}) {
       },
       down: async () => void log.push({ kind: 'down', t }),
       up: async () => void log.push({ kind: 'up', t }),
-      wheel: async (dx: number, dy: number) =>
-        void log.push({ kind: 'wheel', t, dx, dy }),
+      wheel: async (dx: number, dy: number) => {
+        log.push({ kind: 'wheel', t, dx, dy });
+        scrolled += dy;
+      },
     },
     keyboard: {
       down: async (key: string) => void log.push({ kind: 'kdown', t, key }),
@@ -55,16 +71,14 @@ function fake(opts: Opts = {}) {
         void log.push({ kind: 'text', t, key }),
     },
     viewportSize: () => (opts.view === undefined ? VIEW : opts.view),
-    waitForEvent: vi.fn(async (event: string) => {
-      log.push({ kind: 'chooser', t, arg: event });
-      // The chooser arrives once the button is pressed.
-      await new Promise((r) => setImmediate(r));
-      return {
-        setFiles: async (files: string) =>
-          void log.push({ kind: 'files', t, arg: files }),
-      };
-    }),
   };
+  const uploadOnChooser = vi.fn(
+    async (file: string, open: () => Promise<void>) => {
+      log.push({ kind: 'chooser', t });
+      await open();
+      log.push({ kind: 'files', t, arg: file });
+    },
+  );
   const locator = (boxes: Box[], extra: Record<string, unknown> = {}) => {
     let i = 0;
     return {
@@ -78,7 +92,66 @@ function fake(opts: Opts = {}) {
       ...extra,
     } as unknown as Locator;
   };
-  return { page: page as unknown as Page, log, clock, locator };
+  /** A target on a page that scrolls by `pxPerPx` CSS px per wheel px. */
+  const scrolling = (box: Box, pxPerPx = 1) =>
+    ({
+      boundingBox: async () => {
+        log.push({ kind: 'box', t });
+        return { ...box, y: box.y - scrolled * pxPerPx };
+      },
+    }) as unknown as Locator;
+  /**
+   * A `<select>` whose checked option follows the keys: arrows move the
+   * open popup's highlight over enabled options, Enter commits it.
+   */
+  const select = (s: FakeSelect) => {
+    const checked = () => {
+      let cur = s.checked;
+      let hi = s.checked;
+      for (const e of log) {
+        if (e.kind !== 'kdown') continue;
+        const dir = e.key === 'ArrowDown' ? 1 : e.key === 'ArrowUp' ? -1 : 0;
+        if (dir) {
+          let i = hi + dir;
+          while (s.disabled[i]) i += dir;
+          if (i >= 0 && i < s.disabled.length) hi = i;
+        } else if (e.key === 'Enter' && s.commits !== false) cur = hi;
+      }
+      return cur;
+    };
+    const selectors: string[] = [];
+    const loc = locator([BOX], {
+      getAttribute: async (name: string) =>
+        name === 'multiple' && s.multiple ? '' : null,
+      locator: (sel: string) => {
+        selectors.push(sel);
+        if (sel === 'option') {
+          return {
+            count: async () => s.disabled.length,
+            nth: (i: number) => ({ isDisabled: async () => s.disabled[i] }),
+          };
+        }
+        if (sel === 'option:checked ~ option') {
+          return { count: async () => s.disabled.length - 1 - checked() };
+        }
+        if (sel === 'optgroup') return { count: async () => s.optgroups ?? 0 };
+        if (sel === 'option:checked') {
+          return { count: async () => (s.checked >= 0 ? 1 : 0) };
+        }
+        return { count: async () => 0 };
+      },
+    });
+    return { loc, checked, selectors };
+  };
+  return {
+    page: page as unknown as Page,
+    log,
+    clock,
+    locator,
+    scrolling,
+    select,
+    uploadOnChooser,
+  };
 }
 
 const inside = (p: { x: number; y: number }, b: Box) =>
@@ -97,6 +170,7 @@ function setup(
     sleep: f.clock.sleep,
     now: f.clock.now,
     ...(opts.depView ? { viewport: opts.depView } : {}),
+    ...(opts.noUpload ? {} : { uploadOnChooser: f.uploadOnChooser }),
   });
   return { ...f, pace };
 }
@@ -199,13 +273,16 @@ describe('createPace', () => {
   });
 
   it('every input action refuses to move when the viewport is unknown', async () => {
-    const { pace, log, locator } = setup(testProfile(), 1, { view: null });
+    const { pace, log, locator, select } = setup(testProfile(), 1, {
+      view: null,
+    });
     const loc = locator([BOX]);
+    const sel = select({ disabled: [false, false], checked: 0 }).loc;
     const actions: (() => Promise<void>)[] = [
       () => pace.click(loc),
       () => pace.type(loc, 'x'),
       () => pace.glance(loc),
-      () => pace.pick(loc, 0),
+      () => pace.pick(sel, 1),
       () => pace.upload(loc, '/tmp/f.pdf'),
       () => pace.scroll(loc, 1),
     ];
@@ -237,11 +314,100 @@ describe('createPace', () => {
     expect(of(log, 'down')).toHaveLength(1);
   });
 
-  it('click refuses a target outside the viewport', async () => {
-    const { pace, log, locator } = setup();
-    const below: Box = { x: 100, y: 2000, width: 80, height: 30 };
-    await expect(pace.click(locator([below]))).rejects.toThrow(/off-screen/);
-    expect(of(log, 'down')).toHaveLength(0);
+  describe('an off-screen target', () => {
+    /** Wheel events split where the gap is at least a second (as measures do). */
+    const bursts = (log: Ev[]) => {
+      const out: (Ev & { kind: 'wheel' })[][] = [];
+      let last: number | null = null;
+      for (const w of of(log, 'wheel')) {
+        if (last === null || w.t - last >= 1000) out.push([]);
+        out[out.length - 1].push(w);
+        last = w.t;
+      }
+      return out;
+    };
+
+    it('click scrolls down in wheel bursts over the target column, then clicks it', async () => {
+      const f = setup();
+      const below: Box = { x: 600, y: 1700, width: 200, height: 96 };
+      await f.pace.click(f.scrolling(below));
+      const wheels = of(f.log, 'wheel');
+      expect(wheels.length).toBeGreaterThan(0);
+      expect(wheels.every((w) => w.dy === 100 && w.dx === 0)).toBe(true);
+      const b = bursts(f.log);
+      expect(b.length).toBeGreaterThan(1);
+      for (const burst of b) {
+        expect(burst.length).toBeLessThanOrEqual(3);
+        for (let i = 1; i < burst.length; i++) {
+          expect(burst[i].t - burst[i - 1].t).toBeCloseTo(120);
+        }
+      }
+      // The pointer rests over the target's column, mid-window, while wheeling.
+      const moves = of(f.log, 'move');
+      const atWheel = moves.filter((m) => m.t <= wheels[0].t).at(-1);
+      expect(atWheel?.x).toBeGreaterThanOrEqual(below.x);
+      expect(atWheel?.x).toBeLessThan(below.x + below.width);
+      expect(atWheel?.y).toBeGreaterThan(VIEW.height * 0.3);
+      expect(atWheel?.y).toBeLessThan(VIEW.height * 0.7);
+      // Scrolled until the whole target is in the window, then pressed on it.
+      const scrolled = wheels.reduce((n, w) => n + w.dy, 0);
+      const final = { ...below, y: below.y - scrolled };
+      expect(final.y).toBeGreaterThanOrEqual(0);
+      expect(final.y + final.height).toBeLessThanOrEqual(VIEW.height);
+      const down = of(f.log, 'down')[0];
+      expect(f.log.indexOf(down)).toBeGreaterThan(
+        f.log.indexOf(wheels.at(-1) as Ev),
+      );
+      const press = moves.filter((m) => m.t <= down.t).at(-1);
+      expect(press && inside(press, final)).toBe(true);
+    });
+
+    it('scrolls up to a target above the window', async () => {
+      const f = setup();
+      const above: Box = { x: 200, y: -900, width: 120, height: 36 };
+      await f.pace.click(f.scrolling(above));
+      const wheels = of(f.log, 'wheel');
+      expect(wheels.length).toBeGreaterThan(0);
+      expect(wheels.every((w) => w.dy === -100)).toBe(true);
+      expect(of(f.log, 'down')).toHaveLength(1);
+    });
+
+    it('does not scroll a target already in view', async () => {
+      const f = setup();
+      await f.pace.click(f.scrolling(BOX));
+      expect(of(f.log, 'wheel')).toHaveLength(0);
+    });
+
+    it('gives up when scrolling does not move the target', async () => {
+      const f = setup();
+      const below: Box = { x: 100, y: 2000, width: 80, height: 30 };
+      await expect(f.pace.click(f.locator([below]))).rejects.toThrow(
+        /off-screen/,
+      );
+      expect(of(f.log, 'wheel').length).toBeGreaterThan(0);
+      expect(of(f.log, 'wheel').length).toBeLessThanOrEqual(6);
+      expect(of(f.log, 'down')).toHaveLength(0);
+    });
+
+    it('stops after 40 notches when the target is still off-screen', async () => {
+      const f = setup();
+      // Each 100 px notch moves this page by only 10 px.
+      const far: Box = { x: 100, y: 5000, width: 80, height: 30 };
+      await expect(f.pace.click(f.scrolling(far, 0.1))).rejects.toThrow(
+        /off-screen/,
+      );
+      expect(of(f.log, 'wheel')).toHaveLength(40);
+      expect(of(f.log, 'down')).toHaveLength(0);
+    });
+
+    it('refuses a target off to the side without scrolling', async () => {
+      const f = setup();
+      const side: Box = { x: 3000, y: 300, width: 80, height: 30 };
+      await expect(f.pace.click(f.scrolling(side))).rejects.toThrow(
+        /off-screen/,
+      );
+      expect(of(f.log, 'wheel')).toHaveLength(0);
+    });
   });
 
   it('lagging moves skip points instead of slowing the move', async () => {
@@ -409,27 +575,106 @@ describe('createPace', () => {
     expect(new Set(moods).size).toBeGreaterThan(40);
   });
 
-  it('upload clicks the button with the file chooser intercepted and sets the file', async () => {
-    const { pace, page, log, locator } = setup();
-    await pace.upload(locator([BOX]), '/tmp/resume.pdf');
-    expect(page.waitForEvent).toHaveBeenCalledWith('filechooser');
+  it('upload clicks the button inside deps.uploadOnChooser, which sets the file', async () => {
+    const { pace, log, locator, uploadOnChooser } = setup();
+    await pace.upload(locator([BOX]), 'C:\\x\\resume.pdf');
+    expect(uploadOnChooser).toHaveBeenCalledOnce();
     const chooser = log.findIndex((e) => e.kind === 'chooser');
     const down = log.findIndex((e) => e.kind === 'down');
     const files = log.findIndex((e) => e.kind === 'files');
     expect(chooser).toBeGreaterThanOrEqual(0);
     expect(chooser).toBeLessThan(down);
     expect(files).toBeGreaterThan(down);
-    expect(log[files]).toMatchObject({ arg: '/tmp/resume.pdf' });
+    expect(log[files]).toMatchObject({ arg: 'C:\\x\\resume.pdf' });
   });
 
-  it('pick on a select clicks it, waits pickDwell, then selects by index', async () => {
-    const { pace, log, locator } = setup();
-    await pace.pick(locator([BOX]), 2);
-    const up = of(log, 'up')[0];
-    const [sel] = of(log, 'select');
-    expect(log.indexOf(sel)).toBeGreaterThan(log.indexOf(up));
-    expect(sel.t - up.t).toBeCloseTo(600);
-    expect(sel.arg).toEqual({ index: 2 });
+  it('upload refuses without deps.uploadOnChooser (no script-set files)', async () => {
+    const { pace, log, locator } = setup(testProfile(), 1, { noUpload: true });
+    await expect(pace.upload(locator([BOX]), '/tmp/r.pdf')).rejects.toThrow(
+      /uploadOnChooser/,
+    );
+    expect(of(log, 'move')).toHaveLength(0);
+  });
+
+  describe('pick on a select', () => {
+    const keys = (log: Ev[]) =>
+      log.filter(
+        (e): e is Ev & { kind: 'kdown' | 'kup'; key: string } =>
+          e.kind === 'kdown' || e.kind === 'kup',
+      );
+
+    it('clicks it, waits pickDwell, then presses ArrowDown n times and Enter', async () => {
+      const f = setup();
+      const s = f.select({
+        disabled: [false, false, false, false],
+        checked: 0,
+      });
+      await f.pace.pick(s.loc, 2);
+      const up = of(f.log, 'up')[0];
+      const k = keys(f.log);
+      expect(k.map((e) => `${e.kind}:${e.key}`)).toEqual([
+        'kdown:ArrowDown',
+        'kup:ArrowDown',
+        'kdown:ArrowDown',
+        'kup:ArrowDown',
+        'kdown:Enter',
+        'kup:Enter',
+      ]);
+      expect(f.log.indexOf(k[0])).toBeGreaterThan(f.log.indexOf(up));
+      expect(k[0].t - up.t).toBeCloseTo(600);
+      // keyHold 70 per press, keyGapInWord 100 between presses.
+      expect(k[1].t - k[0].t).toBe(70);
+      expect(k[2].t - k[1].t).toBe(100);
+      expect(k[5].t - k[4].t).toBe(70);
+      expect(of(f.log, 'select')).toHaveLength(0);
+      expect(s.checked()).toBe(2);
+    });
+
+    it('goes up with ArrowUp and skips disabled options', async () => {
+      const f = setup();
+      const s = f.select({ disabled: [false, true, false, false], checked: 3 });
+      await f.pace.pick(s.loc, 0);
+      expect(of(f.log, 'kdown').map((e) => e.key)).toEqual([
+        'ArrowUp',
+        'ArrowUp',
+        'Enter',
+      ]);
+      expect(s.checked()).toBe(0);
+    });
+
+    it('presses only Enter when the option is already picked', async () => {
+      const f = setup();
+      const s = f.select({ disabled: [false, false], checked: 1 });
+      await f.pace.pick(s.loc, 1);
+      expect(of(f.log, 'kdown').map((e) => e.key)).toEqual(['Enter']);
+    });
+
+    it('refuses a disabled or missing option, option groups and multiple selects before clicking', async () => {
+      for (const [sel, index] of [
+        [{ disabled: [false, true], checked: 0 }, 1],
+        [{ disabled: [false, false], checked: 0 }, 2],
+        [{ disabled: [false, false], checked: 0, optgroups: 1 }, 1],
+        [{ disabled: [false, false], checked: 0, multiple: true }, 1],
+        [{ disabled: [false, false], checked: -1 }, 1],
+      ] as [FakeSelect, number][]) {
+        const f = setup();
+        await expect(f.pace.pick(f.select(sel).loc, index)).rejects.toThrow(
+          /pace: /,
+        );
+        expect(of(f.log, 'down')).toHaveLength(0);
+        expect(of(f.log, 'kdown')).toHaveLength(0);
+      }
+    });
+
+    it('throws when the select did not take the option', async () => {
+      const f = setup();
+      const s = f.select({
+        disabled: [false, false, false],
+        checked: 0,
+        commits: false,
+      });
+      await expect(f.pace.pick(s.loc, 2)).rejects.toThrow(/did not take/);
+    });
   });
 
   describe('pick on a radio group', () => {

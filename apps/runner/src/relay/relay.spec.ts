@@ -6,6 +6,7 @@ import {
   type BridgeEvent,
   type Relay,
 } from './relay.js';
+import { BrowserModel } from './browser-model.js';
 
 const TOKEN = 'test-token-0123456789abcdef';
 
@@ -373,6 +374,156 @@ describe('relay', () => {
   it('viewport fails when there is no run tab', async () => {
     const ctx = await connected();
     await expect(ctx.relay.viewport()).rejects.toThrow('no run tab');
+  });
+
+  describe('uploadOnChooser', () => {
+    const sent = (ctx: Awaited<ReturnType<typeof connected>>) =>
+      ctx.ext.commands
+        .filter((c) => c.method === 'debugger.send')
+        .map((c) => c.params as Json)
+        .filter((p) => p.method !== 'Target.getTargetInfo')
+        .filter((p) => p.method !== 'Inspector.enable');
+    const chooser = (
+      ctx: Awaited<ReturnType<typeof connected>>,
+      params: Json,
+      source: Json = { tabId: 42 },
+    ) =>
+      ctx.ext.send({
+        method: 'debugger.event',
+        params: { source, method: 'Page.fileChooserOpened', params },
+      });
+
+    it('intercepts the chooser, clicks, sets the files on its input, then stops intercepting', async () => {
+      const ctx = await connected();
+      await openTarget(ctx);
+      const open = vi.fn(async () => {
+        expect(sent(ctx).map((p) => p.method)).toEqual([
+          'Page.setInterceptFileChooserDialog',
+        ]);
+        chooser(ctx, { frameId: 'F', mode: 'selectSingle', backendNodeId: 77 });
+      });
+      await ctx.relay.uploadOnChooser(['C:\\x\\r.pdf'], open);
+      expect(open).toHaveBeenCalledOnce();
+      expect(sent(ctx)).toEqual([
+        {
+          target: { tabId: 42 },
+          method: 'Page.setInterceptFileChooserDialog',
+          params: { enabled: true },
+        },
+        {
+          target: { tabId: 42 },
+          method: 'DOM.setFileInputFiles',
+          params: { files: ['C:\\x\\r.pdf'], backendNodeId: 77 },
+        },
+        {
+          target: { tabId: 42 },
+          method: 'Page.setInterceptFileChooserDialog',
+          params: { enabled: false },
+        },
+      ]);
+    });
+
+    it('keeps the chooser event from the CDP client while it waits', async () => {
+      const ctx = await connected();
+      await openTarget(ctx);
+      await ctx.relay.uploadOnChooser(['C:\\r.pdf'], async () => {
+        chooser(ctx, { frameId: 'F', mode: 'selectSingle', backendNodeId: 5 });
+      });
+      // Outside an upload the event is forwarded as before.
+      chooser(ctx, { frameId: 'F', mode: 'selectSingle', backendNodeId: 6 });
+      const forwarded = await ctx.cdp.next(
+        (m) => m.method === 'Page.fileChooserOpened',
+      );
+      expect((forwarded.params as Json).backendNodeId).toBe(6);
+      expect(
+        ctx.cdp.messages.filter((m) => m.method === 'Page.fileChooserOpened'),
+      ).toHaveLength(1);
+    });
+
+    it('ignores a chooser from a child session', async () => {
+      const ctx = await connected();
+      await openTarget(ctx);
+      ctx.ext.send({
+        method: 'debugger.event',
+        params: {
+          source: { tabId: 42 },
+          method: 'Target.attachedToTarget',
+          params: { sessionId: 'CHILD-1', targetInfo: { type: 'iframe' } },
+        },
+      });
+      await ctx.cdp.next((m) => m.method === 'Target.attachedToTarget');
+      await ctx.relay.uploadOnChooser(['C:\\r.pdf'], async () => {
+        chooser(
+          ctx,
+          { frameId: 'C', mode: 'selectSingle', backendNodeId: 9 },
+          { tabId: 42, sessionId: 'CHILD-1' },
+        );
+        chooser(ctx, { frameId: 'F', mode: 'selectSingle', backendNodeId: 3 });
+      });
+      const set = sent(ctx).find((p) => p.method === 'DOM.setFileInputFiles');
+      expect((set?.params as Json).backendNodeId).toBe(3);
+    });
+
+    it('fails without a chooser element and still stops intercepting', async () => {
+      const ctx = await connected();
+      await openTarget(ctx);
+      await expect(
+        ctx.relay.uploadOnChooser(['C:\\r.pdf'], async () => {
+          chooser(ctx, { frameId: 'F', mode: 'selectSingle' });
+        }),
+      ).rejects.toThrow(/without an input/);
+      expect(sent(ctx).map((p) => p.method)).toEqual([
+        'Page.setInterceptFileChooserDialog',
+        'Page.setInterceptFileChooserDialog',
+      ]);
+      expect(sent(ctx).at(-1)?.params).toEqual({ enabled: false });
+    });
+
+    it('fails when the click throws, and stops intercepting', async () => {
+      const ctx = await connected();
+      await openTarget(ctx);
+      await expect(
+        ctx.relay.uploadOnChooser(['C:\\r.pdf'], async () => {
+          throw new Error('pace: target keeps moving; not pressing');
+        }),
+      ).rejects.toThrow(/keeps moving/);
+      expect(sent(ctx).at(-1)?.params).toEqual({ enabled: false });
+      expect(sent(ctx).some((p) => p.method === 'DOM.setFileInputFiles')).toBe(
+        false,
+      );
+    });
+
+    it('times out when no chooser opens, and stops intercepting', async () => {
+      const calls: Json[] = [];
+      const model = new BrowserModel(
+        async (method, params) => {
+          calls.push({ ext: method, ...params });
+          if (method === 'run.createWindow') return { tabId: 1 };
+          return params.method === 'Target.getTargetInfo'
+            ? { targetInfo: { targetId: 'T-1' } }
+            : {};
+        },
+        () => undefined,
+      );
+      await model.handleCommand('Target.createTarget', {}, undefined);
+      await expect(
+        model.uploadOnChooser(['C:\\r.pdf'], async () => undefined, 20),
+      ).rejects.toThrow('no file chooser opened');
+      expect(calls.at(-1)).toMatchObject({
+        ext: 'debugger.send',
+        method: 'Page.setInterceptFileChooserDialog',
+        params: { enabled: false },
+      });
+    });
+
+    it('fails when there is no run tab', async () => {
+      const ctx = await connected();
+      const open = vi.fn(async () => undefined);
+      await expect(
+        ctx.relay.uploadOnChooser(['C:\\r.pdf'], open),
+      ).rejects.toThrow('no run tab');
+      expect(open).not.toHaveBeenCalled();
+    });
   });
 
   it('answers root commands locally', async () => {

@@ -41,6 +41,7 @@ function fakes(opts: { expand?: boolean; confirmed?: boolean } = {}) {
       return opts.expand ?? false;
     },
   } as unknown as Pace;
+  Object.assign(pace, { calls });
   return { page, pace, calls };
 }
 
@@ -101,6 +102,9 @@ describe('practiceCommand', () => {
       openRunWindow: async () => page,
       stopReason: () => null,
       viewport: async () => ({ width: 1280, height: 800 }),
+      uploadOnChooser: vi.fn(async (_f: string, open: () => Promise<void>) =>
+        open(),
+      ),
       startRecording: async () => void order.push('start'),
       stopRecording: async () => void order.push('stop'),
       onRecorderBatch: () => () => undefined,
@@ -125,12 +129,22 @@ describe('practiceCommand', () => {
           cfg: { relayPort: 9444, token: 't' },
           connect: (async () => bridge) as never,
           loadProfile: () => testProfile(),
+          resumeFile: () => 'C:\\L\\10xapply\\practice-resume.pdf',
           createPace: createPace as never,
           createWriter,
           out: (t) => void (output += `${t}\n`),
         },
       });
-    return { run, urls, order, createWriter, createPace, out: () => output };
+    return {
+      run,
+      urls,
+      order,
+      bridge,
+      calls: () => (pace as unknown as { calls: string[] }).calls,
+      createWriter,
+      createPace,
+      out: () => output,
+    };
   }
 
   it('runs the practice form the requested number of times', async () => {
@@ -143,6 +157,27 @@ describe('practiceCommand', () => {
     ]);
     expect(s.createPace).toHaveBeenCalledTimes(3);
     expect(s.createWriter).not.toHaveBeenCalled();
+  });
+
+  it('uploads the Windows-side file through the bridge', async () => {
+    const s = setup(1);
+    expect(await s.run(false)).toBe(0);
+    expect(s.calls()).toContain(
+      'upload(#upload, C:\\L\\10xapply\\practice-resume.pdf)',
+    );
+    const pdeps = (
+      s.createPace.mock.calls[0] as unknown as [
+        unknown,
+        unknown,
+        {
+          uploadOnChooser: (f: string, o: () => Promise<void>) => Promise<void>;
+        },
+      ]
+    )[2];
+    const open = vi.fn(async () => undefined);
+    await pdeps.uploadOnChooser('C:\\f.pdf', open);
+    expect(s.bridge.uploadOnChooser).toHaveBeenCalledWith('C:\\f.pdf', open);
+    expect(open).toHaveBeenCalledOnce();
   });
 
   it('--record records as the runner and flushes after stopping', async () => {

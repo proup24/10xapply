@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import {
   appendFileSync,
@@ -8,10 +9,48 @@ import {
   rmSync,
   writeFileSync,
 } from 'node:fs';
-import { isAbsolute, join } from 'node:path';
+import { dirname, isAbsolute, join } from 'node:path';
 import { parseEnv } from 'node:util';
+import { ConfigError } from '../config.js';
 
 export type Exec = (cmd: string, args: string[]) => string;
+
+// cmd.exe warns "UNC paths are not supported" when started from a WSL
+// folder, so it runs from the Windows drive instead.
+export const realExec: Exec = (cmd, args) =>
+  execFileSync(cmd, args, {
+    encoding: 'utf8',
+    cwd: cmd === 'cmd.exe' ? '/mnt/c' : undefined,
+  });
+
+/**
+ * The practice form's upload file, beside the extension folder on the
+ * Windows side: Chrome reads uploads from its own disk.
+ */
+export const PRACTICE_FILE = 'practice-resume.pdf';
+
+export function practiceFilePath(extensionDir: string): string {
+  return join(dirname(extensionDir), PRACTICE_FILE);
+}
+
+/** Copies the practice upload file next to the installed extension. */
+export function installPracticeFile(
+  source: string,
+  extensionDir: string,
+): void {
+  cpSync(source, practiceFilePath(extensionDir));
+}
+
+/** The practice upload file as a Windows path, for the relay-side upload. */
+export function windowsPracticeFile(exec: Exec): string {
+  const file = practiceFilePath(windowsExtensionDir(exec));
+  if (!existsSync(file)) {
+    throw new ConfigError(
+      `${PRACTICE_FILE} is not on the Windows side; run pnpm nx run runner:bridge-install`,
+    );
+  }
+  return exec('wslpath', ['-w', file]).trim();
+}
 
 /** The Windows folder the extension is installed to, as a WSL path. */
 export function windowsExtensionDir(exec: Exec): string {
