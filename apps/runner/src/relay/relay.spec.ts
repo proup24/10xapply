@@ -739,6 +739,69 @@ describe('relay', () => {
     expect(portOf(relay)).toBeGreaterThan(0);
   });
 
+  describe('static pages', () => {
+    async function get(relay: Relay, path: string) {
+      const res = await fetch(`http://127.0.0.1:${portOf(relay)}${path}`);
+      return {
+        status: res.status,
+        type: res.headers.get('content-type'),
+        body: await res.text(),
+      };
+    }
+
+    it('serves /practice/ as text/html', async () => {
+      const relay = await start();
+      const res = await get(relay, '/practice/?run=3');
+      expect(res.status).toBe(200);
+      expect(res.type).toContain('text/html');
+      expect(res.body).toContain('id="job-details"');
+    });
+
+    it('serves /typing/', async () => {
+      const relay = await start();
+      const res = await get(relay, '/typing/');
+      expect(res.status).toBe(200);
+      expect(res.type).toContain('text/html');
+      expect(res.body).toContain('<textarea');
+    });
+
+    it('other paths stay 404', async () => {
+      const relay = await start();
+      for (const path of [
+        '/',
+        '/practice',
+        '/practice/index.html',
+        '/other/',
+      ]) {
+        expect((await get(relay, path)).status).toBe(404);
+      }
+    });
+
+    it('no path traversal', async () => {
+      const relay = await start();
+      const raw = await new Promise<number>((resolve, reject) => {
+        const sock = net.connect(portOf(relay), '127.0.0.1', () =>
+          sock.write(
+            'GET /practice/../relay.ts HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n',
+          ),
+        );
+        let buf = '';
+        sock.on('data', (d) => (buf += d.toString()));
+        sock.on('end', () => resolve(Number(buf.split(' ')[1])));
+        sock.on('error', reject);
+      });
+      expect(raw).toBe(404);
+    });
+
+    it('answers only GET', async () => {
+      const relay = await start();
+      const res = await fetch(`http://127.0.0.1:${portOf(relay)}/practice/`, {
+        method: 'POST',
+      });
+      expect(res.status).toBe(404);
+    });
+  });
+
   describe('recorder channel', () => {
     const batch = {
       pageId: 'secret-page-id',

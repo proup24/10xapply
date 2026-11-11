@@ -8,8 +8,10 @@
 // the spec's additions: a token on both sides, one client of each kind, the
 // refused-method policy and method-name-only logging.
 import { createHash, timingSafeEqual } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
+import { fileURLToPath } from 'node:url';
 import { WebSocket, WebSocketServer, type RawData } from 'ws';
 import type { RecorderBatch } from '../pace/recording.js';
 import { BrowserModel, type Json } from './browser-model.js';
@@ -58,6 +60,17 @@ interface Pending {
   resolve: (result: unknown) => void;
   reject: (error: Error) => void;
 }
+
+// The practice and typing pages: a fixed set, read once at start. A request
+// path is only ever compared against these keys, never used to build a path.
+const STATIC_PAGES: ReadonlyMap<string, Buffer> = new Map(
+  ['practice', 'typing'].map((name) => [
+    `/${name}/`,
+    readFileSync(
+      fileURLToPath(new URL(`./static/${name}/index.html`, import.meta.url)),
+    ),
+  ]),
+);
 
 function digest(value: string): Buffer {
   return createHash('sha256').update(value, 'utf8').digest();
@@ -306,9 +319,22 @@ export async function startRelay(opts: RelayOptions): Promise<Relay> {
     });
   }
 
-  const server = http.createServer((_req, res) => {
-    res.statusCode = 404;
-    res.end();
+  const server = http.createServer((req, res) => {
+    const page =
+      req.method === 'GET' && !stopped
+        ? STATIC_PAGES.get(new URL(req.url ?? '/', `http://${HOST}`).pathname)
+        : undefined;
+    if (!page) {
+      res.statusCode = 404;
+      res.end();
+      return;
+    }
+    res.writeHead(200, {
+      'content-type': 'text/html; charset=utf-8',
+      'cache-control': 'no-store',
+      'x-content-type-options': 'nosniff',
+    });
+    res.end(page);
   });
   const wss = new WebSocketServer({ noServer: true });
 
