@@ -628,11 +628,11 @@ describe('createPace', () => {
     const holds = of(log, 'kdown')
       .filter((d) => d.key !== 'Shift')
       .map((d) => {
-      const u = log.find(
-        (e) => e.kind === 'kup' && e.key === d.key && e.t >= d.t,
-      );
-      return (u?.t ?? 0) - d.t;
-    });
+        const u = log.find(
+          (e) => e.kind === 'kup' && e.key === d.key && e.t >= d.t,
+        );
+        return (u?.t ?? 0) - d.t;
+      });
     expect(holds.every((h) => h === 70)).toBe(true);
   });
 
