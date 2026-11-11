@@ -6,6 +6,7 @@ import {
   type BridgeEvent,
   type Relay,
 } from './relay.js';
+import { BrowserModel } from './browser-model.js';
 
 const TOKEN = 'test-token-0123456789abcdef';
 
@@ -63,6 +64,10 @@ class FakeExtension extends Client {
     'run.createWindow': () => ({ tabId: 42, windowId: 7 }),
     'debugger.attach': () => ({}),
     'tabs.remove': () => ({}),
+    'browser.version': () => ({
+      userAgent: 'Mozilla/5.0 (X11) Chrome/157.0.1.2 Safari/537.36',
+      product: 'Chrome/157.0.1.2',
+    }),
     'debugger.send': (p) =>
       p.method === 'Target.getTargetInfo'
         ? { targetInfo: { targetId: 'T-42', type: 'page', url: 'about:blank' } }
@@ -254,6 +259,329 @@ describe('relay', () => {
     });
   });
 
+  it('sends Inspector.enable to a new run tab after attach', async () => {
+    const ctx = await connected();
+    await openTarget(ctx);
+    const methods = ctx.ext.commands.map((c) => [
+      c.method,
+      (c.params as Json).method,
+    ]);
+    const attachAt = methods.findIndex(([m]) => m === 'debugger.attach');
+    expect(methods[attachAt + 1]).toEqual([
+      'debugger.send',
+      'Inspector.enable',
+    ]);
+    expect(ctx.ext.commands[attachAt + 1]).toMatchObject({
+      params: { target: { tabId: 42 }, method: 'Inspector.enable' },
+    });
+  });
+
+  it("Browser.getVersion returns the extension's real values", async () => {
+    const ctx = await connected();
+    const userAgent = 'Mozilla/5.0 (X11) Chrome/157.0.1.2 Safari/537.36';
+    const first = await ctx.call('Browser.getVersion');
+    expect(first.result).toEqual({
+      protocolVersion: '1.3',
+      product: 'Chrome/157.0.1.2',
+      userAgent,
+      revision: '',
+      jsVersion: '',
+    });
+    await ctx.call('Browser.getVersion');
+    expect(
+      ctx.ext.methods().filter((m) => m === 'browser.version'),
+    ).toHaveLength(1);
+  });
+
+  it("Browser.getVersion falls back when the extension can't answer", async () => {
+    const ctx = await connected();
+    delete ctx.ext.handlers['browser.version']; // fake replies with an error
+    const reply = await ctx.call('Browser.getVersion');
+    expect(reply.error).toBeUndefined();
+    expect(reply.result).toEqual({
+      protocolVersion: '1.3',
+      product: 'Chrome/Extension-Bridge',
+      userAgent: 'CDP-Bridge-Server/1.0.0',
+    });
+  });
+
+  it('crashRunTab sends Page.crash to the run tab, and the crash is a stop', async () => {
+    const ctx = await connected();
+    const events: BridgeEvent[] = [];
+    ctx.relay.onEvent((e) => events.push(e));
+    await openTarget(ctx);
+    await ctx.relay.crashRunTab();
+    expect(ctx.ext.commands.at(-1)).toMatchObject({
+      method: 'debugger.send',
+      params: { target: { tabId: 42 }, method: 'Page.crash' },
+    });
+    ctx.ext.send({
+      method: 'debugger.event',
+      params: {
+        source: { tabId: 42 },
+        method: 'Inspector.targetCrashed',
+        params: {},
+      },
+    });
+    await vi.waitFor(() =>
+      expect(events).toEqual([
+        { kind: 'detached', tabId: 42, reason: 'crashed' },
+      ]),
+    );
+  });
+
+  it('crashRunTab fails when there is no run tab', async () => {
+    const ctx = await connected();
+    await expect(ctx.relay.crashRunTab()).rejects.toThrow('no run tab');
+  });
+
+  it('viewport asks the run tab for its layout metrics and returns the CSS visual viewport', async () => {
+    const ctx = await connected();
+    ctx.ext.handlers['debugger.send'] = (p) =>
+      p.method === 'Page.getLayoutMetrics'
+        ? {
+            cssVisualViewport: { clientWidth: 1280.5, clientHeight: 720 },
+            cssLayoutViewport: { clientWidth: 1265, clientHeight: 700 },
+          }
+        : p.method === 'Target.getTargetInfo'
+          ? { targetInfo: { targetId: 'T-42', type: 'page' } }
+          : {};
+    await openTarget(ctx);
+    expect(await ctx.relay.viewport()).toEqual({ width: 1280.5, height: 720 });
+    expect(ctx.ext.commands.at(-1)).toMatchObject({
+      method: 'debugger.send',
+      params: { target: { tabId: 42 }, method: 'Page.getLayoutMetrics' },
+    });
+  });
+
+  it('viewport falls back to the layout viewport, then to null', async () => {
+    const ctx = await connected();
+    let metrics: Json = {
+      cssLayoutViewport: { clientWidth: 900, clientHeight: 600 },
+    };
+    ctx.ext.handlers['debugger.send'] = (p) =>
+      p.method === 'Page.getLayoutMetrics'
+        ? metrics
+        : p.method === 'Target.getTargetInfo'
+          ? { targetInfo: { targetId: 'T-42', type: 'page' } }
+          : {};
+    await openTarget(ctx);
+    expect(await ctx.relay.viewport()).toEqual({ width: 900, height: 600 });
+    metrics = { cssVisualViewport: { clientWidth: 0, clientHeight: 0 } };
+    expect(await ctx.relay.viewport()).toBeNull();
+  });
+
+  it('viewport fails when there is no run tab', async () => {
+    const ctx = await connected();
+    await expect(ctx.relay.viewport()).rejects.toThrow('no run tab');
+  });
+
+  describe('uploadOnChooser', () => {
+    const noWait = async () => undefined;
+    const sent = (ctx: Awaited<ReturnType<typeof connected>>) =>
+      ctx.ext.commands
+        .filter((c) => c.method === 'debugger.send')
+        .map((c) => c.params as Json)
+        .filter((p) => p.method !== 'Target.getTargetInfo')
+        .filter((p) => p.method !== 'Inspector.enable');
+    const chooser = (
+      ctx: Awaited<ReturnType<typeof connected>>,
+      params: Json,
+      source: Json = { tabId: 42 },
+    ) =>
+      ctx.ext.send({
+        method: 'debugger.event',
+        params: { source, method: 'Page.fileChooserOpened', params },
+      });
+
+    it('intercepts the chooser, clicks, sets the files on its input, then stops intercepting', async () => {
+      const ctx = await connected();
+      await openTarget(ctx);
+      const open = vi.fn(async () => {
+        expect(sent(ctx).map((p) => p.method)).toEqual([
+          'Page.setInterceptFileChooserDialog',
+        ]);
+        chooser(ctx, { frameId: 'F', mode: 'selectSingle', backendNodeId: 77 });
+      });
+      await ctx.relay.uploadOnChooser(['C:\\x\\r.pdf'], open, noWait);
+      expect(open).toHaveBeenCalledOnce();
+      expect(sent(ctx)).toEqual([
+        {
+          target: { tabId: 42 },
+          method: 'Page.setInterceptFileChooserDialog',
+          params: { enabled: true },
+        },
+        {
+          target: { tabId: 42 },
+          method: 'DOM.setFileInputFiles',
+          params: { files: ['C:\\x\\r.pdf'], backendNodeId: 77 },
+        },
+        {
+          target: { tabId: 42 },
+          method: 'Page.setInterceptFileChooserDialog',
+          params: { enabled: false },
+        },
+      ]);
+    });
+
+    it('waits for choose between the chooser opening and setting the files', async () => {
+      const ctx = await connected();
+      await openTarget(ctx);
+      const order: string[] = [];
+      await ctx.relay.uploadOnChooser(
+        ['C:\\r.pdf'],
+        async () => {
+          chooser(ctx, {
+            frameId: 'F',
+            mode: 'selectSingle',
+            backendNodeId: 4,
+          });
+        },
+        async () => {
+          order.push(
+            `choose after ${sent(ctx)
+              .map((p) => p.method)
+              .join(',')}`,
+          );
+        },
+      );
+      expect(order).toEqual([
+        'choose after Page.setInterceptFileChooserDialog',
+      ]);
+      expect(sent(ctx).map((p) => p.method)).toEqual([
+        'Page.setInterceptFileChooserDialog',
+        'DOM.setFileInputFiles',
+        'Page.setInterceptFileChooserDialog',
+      ]);
+    });
+
+    it('keeps the chooser event from the CDP client while it waits', async () => {
+      const ctx = await connected();
+      await openTarget(ctx);
+      await ctx.relay.uploadOnChooser(
+        ['C:\\r.pdf'],
+        async () => {
+          chooser(ctx, {
+            frameId: 'F',
+            mode: 'selectSingle',
+            backendNodeId: 5,
+          });
+        },
+        noWait,
+      );
+      // Outside an upload the event is forwarded as before.
+      chooser(ctx, { frameId: 'F', mode: 'selectSingle', backendNodeId: 6 });
+      const forwarded = await ctx.cdp.next(
+        (m) => m.method === 'Page.fileChooserOpened',
+      );
+      expect((forwarded.params as Json).backendNodeId).toBe(6);
+      expect(
+        ctx.cdp.messages.filter((m) => m.method === 'Page.fileChooserOpened'),
+      ).toHaveLength(1);
+    });
+
+    it('ignores a chooser from a child session', async () => {
+      const ctx = await connected();
+      await openTarget(ctx);
+      ctx.ext.send({
+        method: 'debugger.event',
+        params: {
+          source: { tabId: 42 },
+          method: 'Target.attachedToTarget',
+          params: { sessionId: 'CHILD-1', targetInfo: { type: 'iframe' } },
+        },
+      });
+      await ctx.cdp.next((m) => m.method === 'Target.attachedToTarget');
+      await ctx.relay.uploadOnChooser(
+        ['C:\\r.pdf'],
+        async () => {
+          chooser(
+            ctx,
+            { frameId: 'C', mode: 'selectSingle', backendNodeId: 9 },
+            { tabId: 42, sessionId: 'CHILD-1' },
+          );
+          chooser(ctx, {
+            frameId: 'F',
+            mode: 'selectSingle',
+            backendNodeId: 3,
+          });
+        },
+        noWait,
+      );
+      const set = sent(ctx).find((p) => p.method === 'DOM.setFileInputFiles');
+      expect((set?.params as Json).backendNodeId).toBe(3);
+    });
+
+    it('fails without a chooser element and still stops intercepting', async () => {
+      const ctx = await connected();
+      await openTarget(ctx);
+      await expect(
+        ctx.relay.uploadOnChooser(
+          ['C:\\r.pdf'],
+          async () => {
+            chooser(ctx, { frameId: 'F', mode: 'selectSingle' });
+          },
+          noWait,
+        ),
+      ).rejects.toThrow(/without an input/);
+      expect(sent(ctx).map((p) => p.method)).toEqual([
+        'Page.setInterceptFileChooserDialog',
+        'Page.setInterceptFileChooserDialog',
+      ]);
+      expect(sent(ctx).at(-1)?.params).toEqual({ enabled: false });
+    });
+
+    it('fails when the click throws, and stops intercepting', async () => {
+      const ctx = await connected();
+      await openTarget(ctx);
+      await expect(
+        ctx.relay.uploadOnChooser(
+          ['C:\\r.pdf'],
+          async () => {
+            throw new Error('pace: target keeps moving; not pressing');
+          },
+          noWait,
+        ),
+      ).rejects.toThrow(/keeps moving/);
+      expect(sent(ctx).at(-1)?.params).toEqual({ enabled: false });
+      expect(sent(ctx).some((p) => p.method === 'DOM.setFileInputFiles')).toBe(
+        false,
+      );
+    });
+
+    it('times out when no chooser opens, and stops intercepting', async () => {
+      const calls: Json[] = [];
+      const model = new BrowserModel(
+        async (method, params) => {
+          calls.push({ ext: method, ...params });
+          if (method === 'run.createWindow') return { tabId: 1 };
+          return params.method === 'Target.getTargetInfo'
+            ? { targetInfo: { targetId: 'T-1' } }
+            : {};
+        },
+        () => undefined,
+      );
+      await model.handleCommand('Target.createTarget', {}, undefined);
+      await expect(
+        model.uploadOnChooser(['C:\\r.pdf'], async () => undefined, noWait, 20),
+      ).rejects.toThrow('no file chooser opened');
+      expect(calls.at(-1)).toMatchObject({
+        ext: 'debugger.send',
+        method: 'Page.setInterceptFileChooserDialog',
+        params: { enabled: false },
+      });
+    });
+
+    it('fails when there is no run tab', async () => {
+      const ctx = await connected();
+      const open = vi.fn(async () => undefined);
+      await expect(
+        ctx.relay.uploadOnChooser(['C:\\r.pdf'], open, noWait),
+      ).rejects.toThrow('no run tab');
+      expect(open).not.toHaveBeenCalled();
+    });
+  });
+
   it('answers root commands locally', async () => {
     const ctx = await connected();
     const version = await ctx.call('Browser.getVersion');
@@ -274,7 +602,8 @@ describe('relay', () => {
     expect(await ctx.call('Target.getTargetInfo')).toMatchObject({
       result: {},
     });
-    expect(ctx.ext.commands).toEqual([]);
+    // Only the browser.version question; nothing reaches a tab.
+    expect(ctx.ext.methods()).toEqual(['browser.version']);
     expect(
       ctx.cdp.messages.some((m) => m.method === 'Target.attachedToTarget'),
     ).toBe(false);
@@ -656,5 +985,172 @@ describe('relay', () => {
     expect(url.pathname).toBe('/cdp');
     expect(url.searchParams.get('token')).toBe(TOKEN);
     expect(portOf(relay)).toBeGreaterThan(0);
+  });
+
+  describe('static pages', () => {
+    async function get(relay: Relay, path: string) {
+      const res = await fetch(`http://127.0.0.1:${portOf(relay)}${path}`);
+      return {
+        status: res.status,
+        type: res.headers.get('content-type'),
+        body: await res.text(),
+      };
+    }
+
+    it('serves /practice/ as text/html', async () => {
+      const relay = await start();
+      const res = await get(relay, '/practice/?run=3');
+      expect(res.status).toBe(200);
+      expect(res.type).toContain('text/html');
+      expect(res.body).toContain('id="job-details"');
+    });
+
+    it('serves /typing/', async () => {
+      const relay = await start();
+      const res = await get(relay, '/typing/');
+      expect(res.status).toBe(200);
+      expect(res.type).toContain('text/html');
+      expect(res.body).toContain('<textarea');
+    });
+
+    it('other paths stay 404', async () => {
+      const relay = await start();
+      for (const path of ['/', '/practice/index.html', '/other/']) {
+        expect((await get(relay, path)).status).toBe(404);
+      }
+    });
+
+    it('no path traversal', async () => {
+      const relay = await start();
+      const raw = await new Promise<number>((resolve, reject) => {
+        const sock = net.connect(portOf(relay), '127.0.0.1', () =>
+          sock.write(
+            'GET /practice/../relay.ts HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n',
+          ),
+        );
+        let buf = '';
+        sock.on('data', (d) => (buf += d.toString()));
+        sock.on('end', () => resolve(Number(buf.split(' ')[1])));
+        sock.on('error', reject);
+      });
+      expect(raw).toBe(404);
+    });
+
+    function rawStatus(relay: Relay, request: string): Promise<number> {
+      return new Promise((resolve, reject) => {
+        const sock = net.connect(portOf(relay), '127.0.0.1', () =>
+          sock.write(request),
+        );
+        let buf = '';
+        sock.on('data', (d) => (buf += d.toString()));
+        sock.on('end', () => resolve(Number(buf.split(' ')[1])));
+        sock.on('error', reject);
+      });
+    }
+
+    it('survives a // target and a bare query', async () => {
+      const relay = await start();
+      const head = 'Host: x\r\nConnection: close\r\n\r\n';
+      expect(await rawStatus(relay, `GET // HTTP/1.1\r\n${head}`)).toBe(404);
+      expect(
+        await rawStatus(relay, `GET /practice?x HTTP/1.1\r\n${head}`),
+      ).toBe(301);
+      expect((await get(relay, '/practice/')).status).toBe(200);
+    });
+
+    it('refuses a bad upgrade target without crashing', async () => {
+      const relay = await start();
+      const status = await rawStatus(
+        relay,
+        'GET // HTTP/1.1\r\nHost: x\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n',
+      );
+      expect(status).toBe(404);
+      expect((await get(relay, '/typing/')).status).toBe(200);
+    });
+
+    it('redirects /typing and /practice to the slash form, keeping the query', async () => {
+      const relay = await start();
+      const base = `http://127.0.0.1:${portOf(relay)}`;
+      for (const [from, to] of [
+        ['/typing', '/typing/'],
+        ['/practice', '/practice/'],
+        ['/practice?run=2', '/practice/?run=2'],
+        ['/practice?x', '/practice/?x'],
+      ]) {
+        const res = await fetch(base + from, { redirect: 'manual' });
+        expect(res.status).toBe(301);
+        expect(res.headers.get('location')).toBe(to);
+      }
+      const res = await fetch(`${base}/other`, { redirect: 'manual' });
+      expect(res.status).toBe(404);
+      const post = await fetch(`${base}/typing`, {
+        method: 'POST',
+        redirect: 'manual',
+      });
+      expect(post.status).toBe(404);
+    });
+
+    it('answers only GET', async () => {
+      const relay = await start();
+      const res = await fetch(`http://127.0.0.1:${portOf(relay)}/practice/`, {
+        method: 'POST',
+      });
+      expect(res.status).toBe(404);
+    });
+  });
+
+  describe('recorder channel', () => {
+    const batch = {
+      pageId: 'secret-page-id',
+      jobKey: 'secret-job-key',
+      events: [{ t: 987654321, type: 'click', trusted: true }],
+    };
+
+    it('startRecording sends recorder.start with the salt', async () => {
+      const { relay, ext } = await connected();
+      ext.handlers['recorder.start'] = () => ({});
+      ext.handlers['recorder.stop'] = () => ({});
+      await relay.startRecording('salt-1');
+      await relay.stopRecording();
+      expect(ext.commands.map((c) => [c.method, c.params])).toEqual([
+        ['recorder.start', { salt: 'salt-1' }],
+        ['recorder.stop', {}],
+      ]);
+    });
+
+    it('startRecording passes runner mode when asked', async () => {
+      const { relay, ext } = await connected();
+      ext.handlers['recorder.start'] = () => ({});
+      await relay.startRecording('salt-1', { mode: 'runner' });
+      expect(ext.commands.map((c) => [c.method, c.params])).toEqual([
+        ['recorder.start', { salt: 'salt-1', mode: 'runner' }],
+      ]);
+    });
+
+    it('recorder.batch reaches onRecorderBatch listeners', async () => {
+      const { relay, ext } = await connected();
+      const got: unknown[] = [];
+      const off = relay.onRecorderBatch((b) => got.push(b));
+      ext.send({ method: 'recorder.batch', params: batch });
+      await vi.waitFor(() => expect(got).toEqual([batch]));
+      off();
+      ext.send({ method: 'recorder.batch', params: batch });
+      ext.send({ method: 'ping' });
+      await new Promise((r) => setTimeout(r, 50));
+      expect(got).toHaveLength(1);
+    });
+
+    it('recorder.batch is never logged beyond the method name', async () => {
+      const { relay, ext } = await connected();
+      const got: unknown[] = [];
+      relay.onRecorderBatch((b) => got.push(b));
+      ext.send({ method: 'recorder.batch', params: batch });
+      await vi.waitFor(() => expect(got).toHaveLength(1));
+      const text = logs.join('\n');
+      expect(text).toContain('recorder.batch');
+      for (const value of ['secret-page-id', 'secret-job-key', '987654321']) {
+        expect(text).not.toContain(value);
+      }
+    });
   });
 });

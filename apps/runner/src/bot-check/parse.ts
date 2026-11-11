@@ -2,6 +2,8 @@ export interface CheckResult {
   page: string;
   passed: boolean;
   detail: string[];
+  /** The page was not checked (not loadable, stopped, or no profile); shown apart from FAIL. */
+  notRun?: boolean;
 }
 
 const unparseable = (page: string): CheckResult => ({
@@ -40,6 +42,22 @@ export function parseDabi(text: string): CheckResult {
   return { page, passed, detail };
 }
 
+export function parseDabiInteractions(text: string): CheckResult {
+  const page = 'dabi-interactions';
+  const text_ = typeof text === 'string' ? text : '';
+  const flag = (name: string) =>
+    new RegExp(`"${name}"\\s*:\\s*(true|false)`).exec(text_)?.[1];
+  const flags = [
+    'isBot',
+    'suspiciousClientSideBehavior',
+    'superHumanSpeed',
+    'hasCDPMouseLeak',
+  ].map((n) => flag(n));
+  if (flags.some((f) => f === undefined)) return unparseable(page);
+  const detail = [...text_.matchAll(/"(\w+)"\s*:\s*true\b/g)].map((m) => m[1]);
+  return { page, passed: flags.every((f) => f === 'false'), detail };
+}
+
 export function parseBrowserscan(text: string): CheckResult {
   const page = 'browserscan';
   const lines = (typeof text === 'string' ? text : '').split(/\r?\n/);
@@ -57,11 +75,46 @@ export function parseBrowserscan(text: string): CheckResult {
   };
 }
 
+/**
+ * bot.incolumitas.com, "Behavioral Bot Classification": the page shows
+ * "Your Behavioral Score: <n>" (field behavioralClassificationScore), 0 = bot
+ * to 1 = human; below 0.5 is most likely a bot. The first score appears after
+ * 1.5 s and is updated at 4, 7, 10 and 15 s. Until then the score reads "...":
+ * that is no verdict, so the page counts as not run. Seen live on 2026-11-11:
+ * the score's script (abs.incolumitas.com/lib.js) answered 502, so the score
+ * stayed "..." for everyone. `fixtures/incolumitas-pending.txt` is that real
+ * capture (trimmed before the IP and fingerprint sections); the human and bot
+ * fixtures are hand-edited copies with a made-up score, since no real score
+ * could be captured.
+ */
+export const INCOLUMITAS_HUMAN_MIN = 0.5;
+
+export function parseIncolumitas(text: string): CheckResult {
+  const page = 'incolumitas';
+  const text_ = typeof text === 'string' ? text : '';
+  if (/Behavioral Score:\s*\.\.\.\s*$/m.test(text_)) {
+    return {
+      page,
+      passed: false,
+      notRun: true,
+      detail: ['no behavioural score (the page still shows "...")'],
+    };
+  }
+  const m =
+    /Behavioral Score:\s*(\d+(?:\.\d+)?)/.exec(text_) ??
+    /"?behavioralClassificationScore"?\s*[:=]\s*(\d+(?:\.\d+)?)/.exec(text_);
+  if (!m) return unparseable(page);
+  const score = Number(m[1]);
+  if (!Number.isFinite(score) || score > 1) return unparseable(page);
+  const passed = score >= INCOLUMITAS_HUMAN_MIN;
+  return { page, passed, detail: [`score ${score}`] };
+}
+
 export function formatTable(results: CheckResult[]): string {
   const width = Math.max(4, ...results.map((r) => r.page.length));
   return results
     .map((r) =>
-      `${r.page.padEnd(width)}  ${r.passed ? 'PASS' : 'FAIL'}  ${r.detail.join(', ')}`.trimEnd(),
+      `${r.page.padEnd(width)}  ${r.notRun ? 'NOT RUN' : r.passed ? 'PASS' : 'FAIL'}  ${r.detail.join(', ')}`.trimEnd(),
     )
     .join('\n');
 }

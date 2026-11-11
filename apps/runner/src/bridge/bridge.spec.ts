@@ -4,21 +4,53 @@ import { EXTENSION_TIMEOUT_MS, connectBridge, type Bridge } from './bridge.js';
 
 const TOKEN = 'test-token-0123456789abcdef';
 
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+// A free port below Linux's ephemeral range (32768+). Outgoing connections,
+// including the fake extension's retries, pick source ports from that range,
+// and a port from there can be taken, or even self-connected, before the
+// relay binds it.
 async function freePort(): Promise<number> {
-  const s = net.createServer();
-  await new Promise<void>((r) => s.listen(0, '127.0.0.1', r));
-  const { port } = s.address() as net.AddressInfo;
-  await new Promise<void>((r) => s.close(() => r()));
-  return port;
+  for (;;) {
+    const port = 20_000 + Math.floor(Math.random() * 10_000);
+    const s = net.createServer();
+    const ok = await new Promise<boolean>((r) => {
+      s.once('error', () => r(false));
+      s.listen(port, '127.0.0.1', () => r(true));
+    });
+    if (!ok) continue;
+    await new Promise<void>((r) => s.close(() => r()));
+    return port;
+  }
 }
 
+// The relay starts inside connectBridge, so the first connection attempts
+// may be refused until it listens: retry every 10 ms for up to 2 s.
 async function fakeExtension(port: number): Promise<WebSocket> {
-  const ws = new WebSocket(`ws://127.0.0.1:${port}/extension?token=${TOKEN}`);
-  await new Promise<void>((res, rej) => {
-    ws.once('open', () => res());
-    ws.once('error', rej);
-  });
-  return ws;
+  const deadline = Date.now() + 2000;
+  for (;;) {
+    const ws = new WebSocket(`ws://127.0.0.1:${port}/extension?token=${TOKEN}`);
+    try {
+      await new Promise<void>((res, rej) => {
+        ws.once('open', () => res());
+        ws.once('error', rej);
+      });
+      return ws;
+    } catch (e) {
+      ws.terminate();
+      const refused = (e as NodeJS.ErrnoException).code === 'ECONNREFUSED';
+      if (!refused || Date.now() > deadline) throw e;
+      await sleep(10);
+    }
+  }
+}
+
+// Waits for the bridge to record a stop, polling every 5 ms for up to 2 s:
+// the event, not a guessed delay, ends the wait.
+async function stopReasonOf(bridge: Bridge): Promise<string | null> {
+  const deadline = Date.now() + 2000;
+  while (bridge.stopReason() === null && Date.now() < deadline) await sleep(5);
+  return bridge.stopReason();
 }
 
 const fakeCdp = (() =>
@@ -26,8 +58,6 @@ const fakeCdp = (() =>
     contexts: () => [],
     close: () => Promise.resolve(),
   })) as never;
-
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 describe('connectBridge', () => {
   const open: { close(): Promise<void> }[] = [];
@@ -43,7 +73,6 @@ describe('connectBridge', () => {
       { relayPort, token: TOKEN },
       { connectOverCDP: fakeCdp, timeoutMs: 5000 },
     );
-    await sleep(50);
     const ext = await fakeExtension(relayPort);
     sockets.push(ext);
     const bridge = await p;
@@ -77,8 +106,9 @@ describe('connectBridge', () => {
         params: { tabId: 1, reason: 'canceled_by_user' },
       }),
     );
-    await sleep(100);
-    expect(bridge.stopReason()).toBe('debugger detached: canceled_by_user');
+    expect(await stopReasonOf(bridge)).toBe(
+      'debugger detached: canceled_by_user',
+    );
   });
 
   it('records a hand-closed run tab', async () => {
@@ -100,7 +130,6 @@ describe('connectBridge', () => {
         timeoutMs: 5000,
       },
     );
-    await sleep(50);
     const ext = await fakeExtension(relayPort);
     sockets.push(ext);
     ext.on('message', (data) => {
@@ -134,8 +163,7 @@ describe('connectBridge', () => {
     await replied;
     expect(bridge.stopReason()).toBeNull();
     ext.send(JSON.stringify({ method: 'tabs.removed', params: { tabId: 5 } }));
-    await sleep(100);
-    expect(bridge.stopReason()).toBe('debugger detached: tab closed');
+    expect(await stopReasonOf(bridge)).toBe('debugger detached: tab closed');
   });
 
   it('records a minimised window', async () => {
@@ -146,15 +174,32 @@ describe('connectBridge', () => {
         params: { tabId: 1, state: 'minimized' },
       }),
     );
-    await sleep(100);
-    expect(bridge.stopReason()).toBe('run window minimized');
+    expect(await stopReasonOf(bridge)).toBe('run window minimized');
   });
 
   it('records an extension disconnect', async () => {
     const { bridge, ext } = await connected();
     ext.close();
-    await sleep(100);
-    expect(bridge.stopReason()).toBe('extension disconnected');
+    expect(await stopReasonOf(bridge)).toBe('extension disconnected');
+  });
+
+  it('starts the recorder in runner mode', async () => {
+    const { bridge, ext } = await connected();
+    const seen: unknown[] = [];
+    ext.on('message', (data) => {
+      const msg = JSON.parse(data.toString()) as {
+        id?: number;
+        method: string;
+        params: unknown;
+      };
+      if (msg.id === undefined) return;
+      seen.push([msg.method, msg.params]);
+      ext.send(JSON.stringify({ id: msg.id, result: {} }));
+    });
+    await bridge.startRecording('salt-1');
+    expect(seen).toEqual([
+      ['recorder.start', { salt: 'salt-1', mode: 'runner' }],
+    ]);
   });
 
   it('close never throws, even when the browser close fails', async () => {
@@ -170,7 +215,6 @@ describe('connectBridge', () => {
         timeoutMs: 5000,
       },
     );
-    await sleep(50);
     sockets.push(await fakeExtension(relayPort));
     const bridge = (await p) as Bridge;
     await expect(bridge.close()).resolves.toBeUndefined();

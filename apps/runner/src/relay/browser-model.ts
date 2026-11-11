@@ -26,6 +26,12 @@ interface Tab {
 export class BrowserModel {
   private readonly tabs = new Map<number, Tab>();
   private nextSessionId = 1;
+  /** Set while `uploadOnChooser` waits for the run tab's file chooser. */
+  private chooserWaiter: {
+    tabId: number;
+    opened: (backendNodeId: number) => void;
+    failed: (e: Error) => void;
+  } | null = null;
 
   constructor(
     private readonly callExtension: CallExtension,
@@ -105,6 +111,21 @@ export class BrowserModel {
     const fromChild = typeof source.sessionId === 'string';
     if (fromChild && !tab.childSessions.has(source.sessionId as string))
       return undefined;
+    // A chooser the relay is waiting for is the relay's alone: Patchright
+    // never sees it, so its own file-chooser handling can't race ours.
+    if (
+      !fromChild &&
+      method === 'Page.fileChooserOpened' &&
+      this.chooserWaiter?.tabId === tab.tabId
+    ) {
+      const id = (params as Json | undefined)?.backendNodeId;
+      if (typeof id === 'number') this.chooserWaiter.opened(id);
+      else
+        this.chooserWaiter.failed(
+          new Error('file chooser opened without an input element'),
+        );
+      return undefined;
+    }
     const child = (params as Json | undefined)?.sessionId;
     if (typeof child === 'string') {
       if (method === 'Target.attachedToTarget') tab.childSessions.add(child);
@@ -145,8 +166,99 @@ export class BrowserModel {
     return unreported;
   }
 
+  /** Crashes the attached run tab (Page.crash). Only the bridge check uses it. */
+  crashRunTab(): Promise<unknown> {
+    const tab = [...this.tabs.values()].find((t) => t.attached);
+    if (!tab) return Promise.reject(new Error('no run tab'));
+    return this.debuggerSend({ tabId: tab.tabId }, 'Page.crash', {});
+  }
+
+  /**
+   * The run tab's viewport in CSS px, from Page.getLayoutMetrics (no script
+   * runs in the page). Null when Chrome gave no usable size.
+   */
+  async viewport(): Promise<{ width: number; height: number } | null> {
+    const tab = [...this.tabs.values()].find((t) => t.attached);
+    if (!tab) throw new Error('no run tab');
+    const m = (await this.debuggerSend(
+      { tabId: tab.tabId },
+      'Page.getLayoutMetrics',
+      {},
+    )) as
+      | {
+          cssVisualViewport?: { clientWidth?: unknown; clientHeight?: unknown };
+          cssLayoutViewport?: { clientWidth?: unknown; clientHeight?: unknown };
+        }
+      | undefined;
+    for (const v of [m?.cssVisualViewport, m?.cssLayoutViewport]) {
+      const { clientWidth: w, clientHeight: h } = v ?? {};
+      if (typeof w === 'number' && typeof h === 'number' && w >= 1 && h >= 1) {
+        return { width: w, height: h };
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Sets `files` on the input whose chooser `open` opens, after `choose`
+   * (the time a person spends in the dialog), through Chrome's own
+   * DOM.setFileInputFiles: Chrome then fires a trusted `input` and `change`,
+   * where Patchright's remote setFiles sets them by script. The chooser is
+   * intercepted (no OS dialog) only while this runs. `files` are paths on the
+   * machine Chrome runs on.
+   */
+  async uploadOnChooser(
+    files: string[],
+    open: () => Promise<void>,
+    choose: () => Promise<void>,
+    timeoutMs: number,
+  ): Promise<void> {
+    const tab = [...this.tabs.values()].find((t) => t.attached);
+    if (!tab) throw new Error('no run tab');
+    if (this.chooserWaiter) throw new Error('an upload is already running');
+    const target = { tabId: tab.tabId };
+    let timer: NodeJS.Timeout | undefined;
+    const opened = new Promise<number>((resolve, reject) => {
+      this.chooserWaiter = {
+        tabId: tab.tabId,
+        opened: resolve,
+        failed: reject,
+      };
+    });
+    // Rejections are handled where it is awaited; this keeps an early one quiet.
+    opened.catch(() => undefined);
+    try {
+      await this.debuggerSend(target, 'Page.setInterceptFileChooserDialog', {
+        enabled: true,
+      });
+      await open();
+      const backendNodeId = await Promise.race([
+        opened,
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(
+            () => reject(new Error('no file chooser opened')),
+            timeoutMs,
+          );
+        }),
+      ]);
+      clearTimeout(timer);
+      await choose();
+      await this.debuggerSend(target, 'DOM.setFileInputFiles', {
+        files,
+        backendNodeId,
+      });
+    } finally {
+      clearTimeout(timer);
+      this.chooserWaiter = null;
+      await this.debuggerSend(target, 'Page.setInterceptFileChooserDialog', {
+        enabled: false,
+      }).catch(() => undefined);
+    }
+  }
+
   /** Drops every session, telling the CDP client (if still there). */
   reset(): void {
+    this.chooserWaiter?.failed(new Error('run tab gone'));
     for (const tab of this.tabs.values()) this.detachSession(tab);
     this.tabs.clear();
   }
@@ -177,6 +289,11 @@ export class BrowserModel {
     try {
       await this.callExtension('debugger.attach', { tabId });
       tab.attached = true;
+      // Inspector.enable makes Chrome report a renderer crash as
+      // Inspector.targetCrashed. A failure here is not a reason to stop.
+      await this.debuggerSend({ tabId }, 'Inspector.enable', {}).catch(
+        () => undefined,
+      );
       const info = (await this.debuggerSend(
         { tabId },
         'Target.getTargetInfo',

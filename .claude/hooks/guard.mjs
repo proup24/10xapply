@@ -344,7 +344,16 @@ export const RUNNER_SAFE_SUBCOMMANDS = [
   'bridge',
   'bridge-install',
   'bridge-check',
+  'bridge-check-crash',
+  'pace',
+  'pace-record',
+  'pace-record-typing',
+  'pace-summary',
+  'pace-build',
+  'pace-practice',
+  'pace-compare',
   'bot-check',
+  'bot-check-repeat',
   'session',
 ];
 export const DEV_TARGETS = ['build', 'test', 'lint', 'typecheck'];

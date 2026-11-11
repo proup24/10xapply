@@ -1,0 +1,2401 @@
+{
+  "version": 1,
+  "actor": "author",
+  "source": "linkedin",
+  "sittingId": "20990101T000000Z",
+  "jobKey": "aaaaaaaaaaaa",
+  "pages": [
+    {
+      "t": 1000,
+      "ctx": {
+        "path": "/jobs/view/:id/",
+        "dialog": false,
+        "progress": null
+      },
+      "desc": {
+        "chars": 2400,
+        "height": 120
+      },
+      "win": {
+        "screenX": 0,
+        "screenY": 0,
+        "outerWidth": 1280,
+        "outerHeight": 800,
+        "innerWidth": 1264,
+        "innerHeight": 700
+      },
+      "screen": {
+        "width": 1600,
+        "height": 1000
+      },
+      "dpr": 1.25
+    },
+    {
+      "t": 2500,
+      "ctx": {
+        "path": "/jobs/view/:id/",
+        "dialog": false,
+        "progress": null
+      },
+      "desc": {
+        "chars": 2400,
+        "height": 600
+      },
+      "win": {
+        "screenX": 0,
+        "screenY": 0,
+        "outerWidth": 1280,
+        "outerHeight": 800,
+        "innerWidth": 1264,
+        "innerHeight": 700
+      },
+      "screen": {
+        "width": 1600,
+        "height": 1000
+      },
+      "dpr": 1.25
+    }
+  ],
+  "events": [
+    {
+      "t": 2000,
+      "type": "pointermove",
+      "trusted": true,
+      "x": 100,
+      "y": 100,
+      "sx": 100,
+      "sy": 200,
+      "mx": 0,
+      "my": 0,
+      "target": {
+        "kind": "other"
+      },
+      "ctx": {
+        "path": "/jobs/view/:id/",
+        "dialog": false,
+        "progress": null
+      },
+      "pointerType": "mouse"
+    },
+    {
+      "t": 2000,
+      "type": "mousemove",
+      "trusted": true,
+      "x": 100,
+      "y": 100,
+      "sx": 100,
+      "sy": 200,
+      "mx": 0,
+      "my": 0,
+      "target": {
+        "kind": "other"
+      },
+      "ctx": {
+        "path": "/jobs/view/:id/",
+        "dialog": false,
+        "progress": null
+      }
+    },
+    {
+      "t": 2020,
+      "type": "pointermove",
+      "trusted": true,
+      "x": 150,
+      "y": 104,
+      "sx": 150,
+      "sy": 204,
+      "mx": 63,
+      "my": 5,
+      "target": {
+        "kind": "other"
+      },
+      "ctx": {
+        "path": "/jobs/view/:id/",
+        "dialog": false,
+        "progress": null
+      },
+      "pointerType": "mouse"
+    },
+    {
+      "t": 2020,
+      "type": "mousemove",
+      "trusted": true,
+      "x": 150,
+      "y": 104,
+      "sx": 150,
+      "sy": 204,
+      "mx": 63,
+      "my": 5,
+      "target": {
+        "kind": "other"
+      },
+      "ctx": {
+        "path": "/jobs/view/:id/",
+        "dialog": false,
+        "progress": null
+      }
+    },
+    {
+      "t": 2040,
+      "type": "pointermove",
+      "trusted": true,
+      "x": 195,
+      "y": 102,
+      "sx": 195,
+      "sy": 202,
+      "mx": 56,
+      "my": -2,
+      "target": {
+        "kind": "other"
+      },
+      "ctx": {
+        "path": "/jobs/view/:id/",
+        "dialog": false,
+        "progress": null
+      },
+      "pointerType": "mouse"
+    },
+    {
+      "t": 2040,
+      "type": "mousemove",
+      "trusted": true,
+      "x": 195,
+      "y": 102,
+      "sx": 195,
+      "sy": 202,
+      "mx": 56,
+      "my": -2,
+      "target": {
+        "kind": "other"
+      },
+      "ctx": {
+        "path": "/jobs/view/:id/",
+        "dialog": false,
+        "progress": null
+      }
+    },
+    {
+      "t": 2060,
+      "type": "pointermove",
+      "trusted": true,
+      "x": 200,
+      "y": 100,
+      "sx": 200,
+      "sy": 200,
+      "mx": 6,
+      "my": -2,
+      "target": {
+        "kind": "other"
+      },
+      "ctx": {
+        "path": "/jobs/view/:id/",
+        "dialog": false,
+        "progress": null
+      },
+      "pointerType": "mouse"
+    },
+    {
+      "t": 2060,
+      "type": "mousemove",
+      "trusted": true,
+      "x": 200,
+      "y": 100,
+      "sx": 200,
+      "sy": 200,
+      "mx": 6,
+      "my": -2,
+      "target": {
+        "kind": "other"
+      },
+      "ctx": {
+        "path": "/jobs/view/:id/",
+        "dialog": false,
+        "progress": null
+      }
+    },
+    {
+      "t": 2160,
+      "type": "pointerdown",
+      "trusted": true,
+      "x": 200,
+      "y": 100,
+      "sx": 200,
+      "sy": 200,
+      "mx": 0,
+      "my": 0,
+      "target": {
+        "kind": "button",
+        "w": 80,
+        "h": 32
+      },
+      "ctx": {
+        "path": "/jobs/view/:id/",
+        "dialog": false,
+        "progress": null
+      },
+      "pointerType": "mouse",
+      "button": 0,
+      "ox": 0.5,
+      "oy": 0.5
+    },
+    {
+      "t": 2160,
+      "type": "mousedown",
+      "trusted": true,
+      "x": 200,
+      "y": 100,
+      "sx": 200,
+      "sy": 200,
+      "mx": 0,
+      "my": 0,
+      "target": {
+        "kind": "button",
+        "w": 80,
+        "h": 32
+      },
+      "ctx": {
+        "path": "/jobs/view/:id/",
+        "dialog": false,
+        "progress": null
+      },
+      "button": 0,
+      "ox": 0.5,
+      "oy": 0.5
+    },
+    {
+      "t": 2240,
+      "type": "pointerup",
+      "trusted": true,
+      "x": 200,
+      "y": 100,
+      "sx": 200,
+      "sy": 200,
+      "mx": 0,
+      "my": 0,
+      "target": {
+        "kind": "button",
+        "w": 80,
+        "h": 32
+      },
+      "ctx": {
+        "path": "/jobs/view/:id/",
+        "dialog": false,
+        "progress": null
+      },
+      "pointerType": "mouse",
+      "button": 0,
+      "ox": 0.5,
+      "oy": 0.5
+    },
+    {
+      "t": 2240,
+      "type": "mouseup",
+      "trusted": true,
+      "x": 200,
+      "y": 100,
+      "sx": 200,
+      "sy": 200,
+      "mx": 0,
+      "my": 0,
+      "target": {
+        "kind": "button",
+        "w": 80,
+        "h": 32
+      },
+      "ctx": {
+        "path": "/jobs/view/:id/",
+        "dialog": false,
+        "progress": null
+      },
+      "button": 0,
+      "ox": 0.5,
+      "oy": 0.5
+    },
+    {
+      "t": 2240,
+      "type": "click",
+      "trusted": true,
+      "x": 200,
+      "y": 100,
+      "sx": 200,
+      "sy": 200,
+      "mx": 0,
+      "my": 0,
+      "target": {
+        "kind": "button",
+        "w": 80,
+        "h": 32
+      },
+      "ctx": {
+        "path": "/jobs/view/:id/",
+        "dialog": false,
+        "progress": null
+      },
+      "button": 0,
+      "ox": 0.5,
+      "oy": 0.5
+    },
+    {
+      "t": 3000,
+      "type": "wheel",
+      "trusted": true,
+      "dy": 100,
+      "dm": 0,
+      "target": {
+        "kind": "other",
+        "inDescription": true
+      },
+      "ctx": {
+        "path": "/jobs/view/:id/",
+        "dialog": false,
+        "progress": null
+      }
+    },
+    {
+      "t": 3120,
+      "type": "wheel",
+      "trusted": true,
+      "dy": 100,
+      "dm": 0,
+      "target": {
+        "kind": "other",
+        "inDescription": true
+      },
+      "ctx": {
+        "path": "/jobs/view/:id/",
+        "dialog": false,
+        "progress": null
+      }
+    },
+    {
+      "t": 3260,
+      "type": "wheel",
+      "trusted": true,
+      "dy": 100,
+      "dm": 0,
+      "target": {
+        "kind": "other",
+        "inDescription": true
+      },
+      "ctx": {
+        "path": "/jobs/view/:id/",
+        "dialog": false,
+        "progress": null
+      }
+    },
+    {
+      "t": 5000,
+      "type": "wheel",
+      "trusted": true,
+      "dy": 100,
+      "dm": 0,
+      "target": {
+        "kind": "other",
+        "inDescription": true
+      },
+      "ctx": {
+        "path": "/jobs/view/:id/",
+        "dialog": false,
+        "progress": null
+      }
+    },
+    {
+      "t": 5100,
+      "type": "wheel",
+      "trusted": true,
+      "dy": 100,
+      "dm": 0,
+      "target": {
+        "kind": "other",
+        "inDescription": true
+      },
+      "ctx": {
+        "path": "/jobs/view/:id/",
+        "dialog": false,
+        "progress": null
+      }
+    },
+    {
+      "t": 7000,
+      "type": "pointermove",
+      "trusted": true,
+      "x": 200,
+      "y": 300,
+      "sx": 200,
+      "sy": 400,
+      "mx": 0,
+      "my": 0,
+      "target": {
+        "kind": "other"
+      },
+      "ctx": {
+        "path": "/jobs/view/:id/",
+        "dialog": false,
+        "progress": null
+      },
+      "pointerType": "mouse"
+    },
+    {
+      "t": 7000,
+      "type": "mousemove",
+      "trusted": true,
+      "x": 200,
+      "y": 300,
+      "sx": 200,
+      "sy": 400,
+      "mx": 0,
+      "my": 0,
+      "target": {
+        "kind": "other"
+      },
+      "ctx": {
+        "path": "/jobs/view/:id/",
+        "dialog": false,
+        "progress": null
+      }
+    },
+    {
+      "t": 7020,
+      "type": "pointermove",
+      "trusted": true,
+      "x": 260,
+      "y": 302,
+      "sx": 260,
+      "sy": 402,
+      "mx": 75,
+      "my": 3,
+      "target": {
+        "kind": "other"
+      },
+      "ctx": {
+        "path": "/jobs/view/:id/",
+        "dialog": false,
+        "progress": null
+      },
+      "pointerType": "mouse"
+    },
+    {
+      "t": 7020,
+      "type": "mousemove",
+      "trusted": true,
+      "x": 260,
+      "y": 302,
+      "sx": 260,
+      "sy": 402,
+      "mx": 75,
+      "my": 3,
+      "target": {
+        "kind": "other"
+      },
+      "ctx": {
+        "path": "/jobs/view/:id/",
+        "dialog": false,
+        "progress": null
+      }
+    },
+    {
+      "t": 7040,
+      "type": "pointermove",
+      "trusted": true,
+      "x": 306,
+      "y": 301,
+      "sx": 306,
+      "sy": 401,
+      "mx": 58,
+      "my": -1,
+      "target": {
+        "kind": "other"
+      },
+      "ctx": {
+        "path": "/jobs/view/:id/",
+        "dialog": false,
+        "progress": null
+      },
+      "pointerType": "mouse"
+    },
+    {
+      "t": 7040,
+      "type": "mousemove",
+      "trusted": true,
+      "x": 306,
+      "y": 301,
+      "sx": 306,
+      "sy": 401,
+      "mx": 58,
+      "my": -1,
+      "target": {
+        "kind": "other"
+      },
+      "ctx": {
+        "path": "/jobs/view/:id/",
+        "dialog": false,
+        "progress": null
+      }
+    },
+    {
+      "t": 7060,
+      "type": "pointermove",
+      "trusted": true,
+      "x": 300,
+      "y": 300,
+      "sx": 300,
+      "sy": 400,
+      "mx": -7,
+      "my": -1,
+      "target": {
+        "kind": "other"
+      },
+      "ctx": {
+        "path": "/jobs/view/:id/",
+        "dialog": false,
+        "progress": null
+      },
+      "pointerType": "mouse"
+    },
+    {
+      "t": 7060,
+      "type": "mousemove",
+      "trusted": true,
+      "x": 300,
+      "y": 300,
+      "sx": 300,
+      "sy": 400,
+      "mx": -7,
+      "my": -1,
+      "target": {
+        "kind": "other"
+      },
+      "ctx": {
+        "path": "/jobs/view/:id/",
+        "dialog": false,
+        "progress": null
+      }
+    },
+    {
+      "t": 7200,
+      "type": "pointerdown",
+      "trusted": true,
+      "x": 300,
+      "y": 300,
+      "sx": 300,
+      "sy": 400,
+      "mx": 0,
+      "my": 0,
+      "target": {
+        "kind": "button",
+        "w": 120,
+        "h": 40
+      },
+      "ctx": {
+        "path": "/jobs/view/:id/",
+        "dialog": false,
+        "progress": null
+      },
+      "pointerType": "mouse",
+      "button": 0,
+      "ox": 0.75,
+      "oy": 0.25
+    },
+    {
+      "t": 7200,
+      "type": "mousedown",
+      "trusted": true,
+      "x": 300,
+      "y": 300,
+      "sx": 300,
+      "sy": 400,
+      "mx": 0,
+      "my": 0,
+      "target": {
+        "kind": "button",
+        "w": 120,
+        "h": 40
+      },
+      "ctx": {
+        "path": "/jobs/view/:id/",
+        "dialog": false,
+        "progress": null
+      },
+      "button": 0,
+      "ox": 0.75,
+      "oy": 0.25
+    },
+    {
+      "t": 7290,
+      "type": "pointerup",
+      "trusted": true,
+      "x": 300,
+      "y": 300,
+      "sx": 300,
+      "sy": 400,
+      "mx": 0,
+      "my": 0,
+      "target": {
+        "kind": "button",
+        "w": 120,
+        "h": 40
+      },
+      "ctx": {
+        "path": "/jobs/view/:id/",
+        "dialog": false,
+        "progress": null
+      },
+      "pointerType": "mouse",
+      "button": 0,
+      "ox": 0.75,
+      "oy": 0.25
+    },
+    {
+      "t": 7290,
+      "type": "mouseup",
+      "trusted": true,
+      "x": 300,
+      "y": 300,
+      "sx": 300,
+      "sy": 400,
+      "mx": 0,
+      "my": 0,
+      "target": {
+        "kind": "button",
+        "w": 120,
+        "h": 40
+      },
+      "ctx": {
+        "path": "/jobs/view/:id/",
+        "dialog": false,
+        "progress": null
+      },
+      "button": 0,
+      "ox": 0.75,
+      "oy": 0.25
+    },
+    {
+      "t": 7290,
+      "type": "click",
+      "trusted": true,
+      "x": 300,
+      "y": 300,
+      "sx": 300,
+      "sy": 400,
+      "mx": 0,
+      "my": 0,
+      "target": {
+        "kind": "button",
+        "w": 120,
+        "h": 40
+      },
+      "ctx": {
+        "path": "/jobs/view/:id/",
+        "dialog": false,
+        "progress": null
+      },
+      "button": 0,
+      "ox": 0.75,
+      "oy": 0.25
+    },
+    {
+      "t": 8000,
+      "type": "pointermove",
+      "trusted": true,
+      "x": 300,
+      "y": 300,
+      "sx": 300,
+      "sy": 400,
+      "mx": 0,
+      "my": 0,
+      "target": {
+        "kind": "other"
+      },
+      "ctx": {
+        "path": "/jobs/view/:id/",
+        "dialog": true,
+        "progress": 33
+      },
+      "pointerType": "mouse"
+    },
+    {
+      "t": 8000,
+      "type": "mousemove",
+      "trusted": true,
+      "x": 300,
+      "y": 300,
+      "sx": 300,
+      "sy": 400,
+      "mx": 0,
+      "my": 0,
+      "target": {
+        "kind": "other"
+      },
+      "ctx": {
+        "path": "/jobs/view/:id/",
+        "dialog": true,
+        "progress": 33
+      }
+    },
+    {
+      "t": 8030,
+      "type": "pointermove",
+      "trusted": true,
+      "x": 300,
+      "y": 350,
+      "sx": 300,
+      "sy": 450,
+      "mx": 0,
+      "my": 63,
+      "target": {
+        "kind": "other"
+      },
+      "ctx": {
+        "path": "/jobs/view/:id/",
+        "dialog": true,
+        "progress": 33
+      },
+      "pointerType": "mouse"
+    },
+    {
+      "t": 8030,
+      "type": "mousemove",
+      "trusted": true,
+      "x": 300,
+      "y": 350,
+      "sx": 300,
+      "sy": 450,
+      "mx": 0,
+      "my": 63,
+      "target": {
+        "kind": "other"
+      },
+      "ctx": {
+        "path": "/jobs/view/:id/",
+        "dialog": true,
+        "progress": 33
+      }
+    },
+    {
+      "t": 8060,
+      "type": "pointermove",
+      "trusted": true,
+      "x": 300,
+      "y": 400,
+      "sx": 300,
+      "sy": 500,
+      "mx": 0,
+      "my": 63,
+      "target": {
+        "kind": "other"
+      },
+      "ctx": {
+        "path": "/jobs/view/:id/",
+        "dialog": true,
+        "progress": 33
+      },
+      "pointerType": "mouse"
+    },
+    {
+      "t": 8060,
+      "type": "mousemove",
+      "trusted": true,
+      "x": 300,
+      "y": 400,
+      "sx": 300,
+      "sy": 500,
+      "mx": 0,
+      "my": 63,
+      "target": {
+        "kind": "other"
+      },
+      "ctx": {
+        "path": "/jobs/view/:id/",
+        "dialog": true,
+        "progress": 33
+      }
+    },
+    {
+      "t": 8160,
+      "type": "pointerdown",
+      "trusted": true,
+      "x": 300,
+      "y": 400,
+      "sx": 300,
+      "sy": 500,
+      "mx": 0,
+      "my": 0,
+      "target": {
+        "kind": "text",
+        "w": 300,
+        "h": 36
+      },
+      "ctx": {
+        "path": "/jobs/view/:id/",
+        "dialog": true,
+        "progress": 33
+      },
+      "pointerType": "mouse",
+      "button": 0,
+      "ox": 0.1,
+      "oy": 0.6
+    },
+    {
+      "t": 8160,
+      "type": "mousedown",
+      "trusted": true,
+      "x": 300,
+      "y": 400,
+      "sx": 300,
+      "sy": 500,
+      "mx": 0,
+      "my": 0,
+      "target": {
+        "kind": "text",
+        "w": 300,
+        "h": 36
+      },
+      "ctx": {
+        "path": "/jobs/view/:id/",
+        "dialog": true,
+        "progress": 33
+      },
+      "button": 0,
+      "ox": 0.1,
+      "oy": 0.6
+    },
+    {
+      "t": 8160,
+      "type": "focusin",
+      "trusted": true,
+      "target": {
+        "kind": "text",
+        "hasValue": false
+      },
+      "ctx": {
+        "path": "/jobs/view/:id/",
+        "dialog": true,
+        "progress": 33
+      }
+    },
+    {
+      "t": 8230,
+      "type": "pointerup",
+      "trusted": true,
+      "x": 300,
+      "y": 400,
+      "sx": 300,
+      "sy": 500,
+      "mx": 0,
+      "my": 0,
+      "target": {
+        "kind": "text",
+        "w": 300,
+        "h": 36
+      },
+      "ctx": {
+        "path": "/jobs/view/:id/",
+        "dialog": true,
+        "progress": 33
+      },
+      "pointerType": "mouse",
+      "button": 0,
+      "ox": 0.1,
+      "oy": 0.6
+    },
+    {
+      "t": 8230,
+      "type": "mouseup",
+      "trusted": true,
+      "x": 300,
+      "y": 400,
+      "sx": 300,
+      "sy": 500,
+      "mx": 0,
+      "my": 0,
+      "target": {
+        "kind": "text",
+        "w": 300,
+        "h": 36
+      },
+      "ctx": {
+        "path": "/jobs/view/:id/",
+        "dialog": true,
+        "progress": 33
+      },
+      "button": 0,
+      "ox": 0.1,
+      "oy": 0.6
+    },
+    {
+      "t": 8230,
+      "type": "click",
+      "trusted": true,
+      "x": 300,
+      "y": 400,
+      "sx": 300,
+      "sy": 500,
+      "mx": 0,
+      "my": 0,
+      "target": {
+        "kind": "text",
+        "w": 300,
+        "h": 36
+      },
+      "ctx": {
+        "path": "/jobs/view/:id/",
+        "dialog": true,
+        "progress": 33
+      },
+      "button": 0,
+      "ox": 0.1,
+      "oy": 0.6
+    },
+    {
+      "t": 9000,
+      "type": "keydown",
+      "trusted": true,
+      "key": "other",
+      "target": {
+        "kind": "text"
+      },
+      "ctx": {
+        "path": "/jobs/view/:id/",
+        "dialog": true,
+        "progress": 33
+      }
+    },
+    {
+      "t": 9080,
+      "type": "keyup",
+      "trusted": true,
+      "key": "other",
+      "target": {
+        "kind": "text"
+      },
+      "ctx": {
+        "path": "/jobs/view/:id/",
+        "dialog": true,
+        "progress": 33
+      }
+    },
+    {
+      "t": 9200,
+      "type": "keydown",
+      "trusted": true,
+      "key": "other",
+      "target": {
+        "kind": "text"
+      },
+      "ctx": {
+        "path": "/jobs/view/:id/",
+        "dialog": true,
+        "progress": 33
+      }
+    },
+    {
+      "t": 9270,
+      "type": "keyup",
+      "trusted": true,
+      "key": "other",
+      "target": {
+        "kind": "text"
+      },
+      "ctx": {
+        "path": "/jobs/view/:id/",
+        "dialog": true,
+        "progress": 33
+      }
+    },
+    {
+      "t": 9350,
+      "type": "keydown",
+      "trusted": true,
+      "key": "space",
+      "target": {
+        "kind": "text"
+      },
+      "ctx": {
+        "path": "/jobs/view/:id/",
+        "dialog": true,
+        "progress": 33
+      }
+    },
+    {
+      "t": 9420,
+      "type": "keyup",
+      "trusted": true,
+      "key": "space",
+      "target": {
+        "kind": "text"
+      },
+      "ctx": {
+        "path": "/jobs/view/:id/",
+        "dialog": true,
+        "progress": 33
+      }
+    },
+    {
+      "t": 9600,
+      "type": "keydown",
+      "trusted": true,
+      "key": "other",
+      "target": {
+        "kind": "text"
+      },
+      "ctx": {
+        "path": "/jobs/view/:id/",
+        "dialog": true,
+        "progress": 33
+      }
+    },
+    {
+      "t": 9660,
+      "type": "keyup",
+      "trusted": true,
+      "key": "other",
+      "target": {
+        "kind": "text"
+      },
+      "ctx": {
+        "path": "/jobs/view/:id/",
+        "dialog": true,
+        "progress": 33
+      }
+    },
+    {
+      "t": 9750,
+      "type": "keydown",
+      "trusted": true,
+      "key": "backspace",
+      "target": {
+        "kind": "text"
+      },
+      "ctx": {
+        "path": "/jobs/view/:id/",
+        "dialog": true,
+        "progress": 33
+      }
+    },
+    {
+      "t": 9800,
+      "type": "keyup",
+      "trusted": true,
+      "key": "backspace",
+      "target": {
+        "kind": "text"
+      },
+      "ctx": {
+        "path": "/jobs/view/:id/",
+        "dialog": true,
+        "progress": 33
+      }
+    },
+    {
+      "t": 9950,
+      "type": "keydown",
+      "trusted": true,
+      "key": "other",
+      "target": {
+        "kind": "text"
+      },
+      "ctx": {
+        "path": "/jobs/view/:id/",
+        "dialog": true,
+        "progress": 33
+      }
+    },
+    {
+      "t": 10010,
+      "type": "keyup",
+      "trusted": true,
+      "key": "other",
+      "target": {
+        "kind": "text"
+      },
+      "ctx": {
+        "path": "/jobs/view/:id/",
+        "dialog": true,
+        "progress": 33
+      }
+    },
+    {
+      "t": 10500,
+      "type": "pointermove",
+      "trusted": true,
+      "x": 300,
+      "y": 400,
+      "sx": 300,
+      "sy": 500,
+      "mx": 0,
+      "my": 0,
+      "target": {
+        "kind": "other"
+      },
+      "ctx": {
+        "path": "/jobs/view/:id/",
+        "dialog": true,
+        "progress": 33
+      },
+      "pointerType": "mouse"
+    },
+    {
+      "t": 10500,
+      "type": "mousemove",
+      "trusted": true,
+      "x": 300,
+      "y": 400,
+      "sx": 300,
+      "sy": 500,
+      "mx": 0,
+      "my": 0,
+      "target": {
+        "kind": "other"
+      },
+      "ctx": {
+        "path": "/jobs/view/:id/",
+        "dialog": true,
+        "progress": 33
+      }
+    },
+    {
+      "t": 10520,
+      "type": "pointermove",
+      "trusted": true,
+      "x": 330,
+      "y": 440,
+      "sx": 330,
+      "sy": 540,
+      "mx": 38,
+      "my": 50,
+      "target": {
+        "kind": "other"
+      },
+      "ctx": {
+        "path": "/jobs/view/:id/",
+        "dialog": true,
+        "progress": 33
+      },
+      "pointerType": "mouse"
+    },
+    {
+      "t": 10520,
+      "type": "mousemove",
+      "trusted": true,
+      "x": 330,
+      "y": 440,
+      "sx": 330,
+      "sy": 540,
+      "mx": 38,
+      "my": 50,
+      "target": {
+        "kind": "other"
+      },
+      "ctx": {
+        "path": "/jobs/view/:id/",
+        "dialog": true,
+        "progress": 33
+      }
+    },
+    {
+      "t": 10540,
+      "type": "pointermove",
+      "trusted": true,
+      "x": 360,
+      "y": 480,
+      "sx": 360,
+      "sy": 580,
+      "mx": 38,
+      "my": 50,
+      "target": {
+        "kind": "other"
+      },
+      "ctx": {
+        "path": "/jobs/view/:id/",
+        "dialog": true,
+        "progress": 33
+      },
+      "pointerType": "mouse"
+    },
+    {
+      "t": 10540,
+      "type": "mousemove",
+      "trusted": true,
+      "x": 360,
+      "y": 480,
+      "sx": 360,
+      "sy": 580,
+      "mx": 38,
+      "my": 50,
+      "target": {
+        "kind": "other"
+      },
+      "ctx": {
+        "path": "/jobs/view/:id/",
+        "dialog": true,
+        "progress": 33
+      }
+    },
+    {
+      "t": 10640,
+      "type": "pointerdown",
+      "trusted": true,
+      "x": 360,
+      "y": 480,
+      "sx": 360,
+      "sy": 580,
+      "mx": 0,
+      "my": 0,
+      "target": {
+        "kind": "button",
+        "w": 80,
+        "h": 32
+      },
+      "ctx": {
+        "path": "/jobs/view/:id/",
+        "dialog": true,
+        "progress": 33
+      },
+      "pointerType": "mouse",
+      "button": 0,
+      "ox": 0.5,
+      "oy": 0.75
+    },
+    {
+      "t": 10640,
+      "type": "mousedown",
+      "trusted": true,
+      "x": 360,
+      "y": 480,
+      "sx": 360,
+      "sy": 580,
+      "mx": 0,
+      "my": 0,
+      "target": {
+        "kind": "button",
+        "w": 80,
+        "h": 32
+      },
+      "ctx": {
+        "path": "/jobs/view/:id/",
+        "dialog": true,
+        "progress": 33
+      },
+      "button": 0,
+      "ox": 0.5,
+      "oy": 0.75
+    },
+    {
+      "t": 10700,
+      "type": "pointerup",
+      "trusted": true,
+      "x": 360,
+      "y": 480,
+      "sx": 360,
+      "sy": 580,
+      "mx": 0,
+      "my": 0,
+      "target": {
+        "kind": "button",
+        "w": 80,
+        "h": 32
+      },
+      "ctx": {
+        "path": "/jobs/view/:id/",
+        "dialog": true,
+        "progress": 33
+      },
+      "pointerType": "mouse",
+      "button": 0,
+      "ox": 0.5,
+      "oy": 0.75
+    },
+    {
+      "t": 10700,
+      "type": "mouseup",
+      "trusted": true,
+      "x": 360,
+      "y": 480,
+      "sx": 360,
+      "sy": 580,
+      "mx": 0,
+      "my": 0,
+      "target": {
+        "kind": "button",
+        "w": 80,
+        "h": 32
+      },
+      "ctx": {
+        "path": "/jobs/view/:id/",
+        "dialog": true,
+        "progress": 33
+      },
+      "button": 0,
+      "ox": 0.5,
+      "oy": 0.75
+    },
+    {
+      "t": 10700,
+      "type": "click",
+      "trusted": true,
+      "x": 360,
+      "y": 480,
+      "sx": 360,
+      "sy": 580,
+      "mx": 0,
+      "my": 0,
+      "target": {
+        "kind": "button",
+        "w": 80,
+        "h": 32
+      },
+      "ctx": {
+        "path": "/jobs/view/:id/",
+        "dialog": true,
+        "progress": 33
+      },
+      "button": 0,
+      "ox": 0.5,
+      "oy": 0.75
+    },
+    {
+      "t": 11000,
+      "type": "pointermove",
+      "trusted": true,
+      "x": 360,
+      "y": 480,
+      "sx": 360,
+      "sy": 580,
+      "mx": 0,
+      "my": 0,
+      "target": {
+        "kind": "other"
+      },
+      "ctx": {
+        "path": "/jobs/view/:id/",
+        "dialog": true,
+        "progress": 66
+      },
+      "pointerType": "mouse"
+    },
+    {
+      "t": 11000,
+      "type": "mousemove",
+      "trusted": true,
+      "x": 360,
+      "y": 480,
+      "sx": 360,
+      "sy": 580,
+      "mx": 0,
+      "my": 0,
+      "target": {
+        "kind": "other"
+      },
+      "ctx": {
+        "path": "/jobs/view/:id/",
+        "dialog": true,
+        "progress": 66
+      }
+    },
+    {
+      "t": 11020,
+      "type": "pointermove",
+      "trusted": true,
+      "x": 380,
+      "y": 490,
+      "sx": 380,
+      "sy": 590,
+      "mx": 25,
+      "my": 13,
+      "target": {
+        "kind": "other"
+      },
+      "ctx": {
+        "path": "/jobs/view/:id/",
+        "dialog": true,
+        "progress": 66
+      },
+      "pointerType": "mouse"
+    },
+    {
+      "t": 11020,
+      "type": "mousemove",
+      "trusted": true,
+      "x": 380,
+      "y": 490,
+      "sx": 380,
+      "sy": 590,
+      "mx": 25,
+      "my": 13,
+      "target": {
+        "kind": "other"
+      },
+      "ctx": {
+        "path": "/jobs/view/:id/",
+        "dialog": true,
+        "progress": 66
+      }
+    },
+    {
+      "t": 11040,
+      "type": "pointermove",
+      "trusted": true,
+      "x": 400,
+      "y": 480,
+      "sx": 400,
+      "sy": 580,
+      "mx": 25,
+      "my": -12,
+      "target": {
+        "kind": "other"
+      },
+      "ctx": {
+        "path": "/jobs/view/:id/",
+        "dialog": true,
+        "progress": 66
+      },
+      "pointerType": "mouse"
+    },
+    {
+      "t": 11040,
+      "type": "mousemove",
+      "trusted": true,
+      "x": 400,
+      "y": 480,
+      "sx": 400,
+      "sy": 580,
+      "mx": 25,
+      "my": -12,
+      "target": {
+        "kind": "other"
+      },
+      "ctx": {
+        "path": "/jobs/view/:id/",
+        "dialog": true,
+        "progress": 66
+      }
+    },
+    {
+      "t": 11100,
+      "type": "pointerdown",
+      "trusted": true,
+      "x": 400,
+      "y": 480,
+      "sx": 400,
+      "sy": 580,
+      "mx": 0,
+      "my": 0,
+      "target": {
+        "kind": "select",
+        "options": 4,
+        "w": 200,
+        "h": 36
+      },
+      "ctx": {
+        "path": "/jobs/view/:id/",
+        "dialog": true,
+        "progress": 66
+      },
+      "pointerType": "mouse",
+      "button": 0,
+      "ox": 0.25,
+      "oy": 0.5
+    },
+    {
+      "t": 11100,
+      "type": "mousedown",
+      "trusted": true,
+      "x": 400,
+      "y": 480,
+      "sx": 400,
+      "sy": 580,
+      "mx": 0,
+      "my": 0,
+      "target": {
+        "kind": "select",
+        "options": 4,
+        "w": 200,
+        "h": 36
+      },
+      "ctx": {
+        "path": "/jobs/view/:id/",
+        "dialog": true,
+        "progress": 66
+      },
+      "button": 0,
+      "ox": 0.25,
+      "oy": 0.5
+    },
+    {
+      "t": 11100,
+      "type": "focusin",
+      "trusted": true,
+      "target": {
+        "kind": "select",
+        "hasValue": true,
+        "options": 4
+      },
+      "ctx": {
+        "path": "/jobs/view/:id/",
+        "dialog": true,
+        "progress": 66
+      }
+    },
+    {
+      "t": 11180,
+      "type": "pointerup",
+      "trusted": true,
+      "x": 400,
+      "y": 480,
+      "sx": 400,
+      "sy": 580,
+      "mx": 0,
+      "my": 0,
+      "target": {
+        "kind": "select",
+        "options": 4,
+        "w": 200,
+        "h": 36
+      },
+      "ctx": {
+        "path": "/jobs/view/:id/",
+        "dialog": true,
+        "progress": 66
+      },
+      "pointerType": "mouse",
+      "button": 0,
+      "ox": 0.25,
+      "oy": 0.5
+    },
+    {
+      "t": 11180,
+      "type": "mouseup",
+      "trusted": true,
+      "x": 400,
+      "y": 480,
+      "sx": 400,
+      "sy": 580,
+      "mx": 0,
+      "my": 0,
+      "target": {
+        "kind": "select",
+        "options": 4,
+        "w": 200,
+        "h": 36
+      },
+      "ctx": {
+        "path": "/jobs/view/:id/",
+        "dialog": true,
+        "progress": 66
+      },
+      "button": 0,
+      "ox": 0.25,
+      "oy": 0.5
+    },
+    {
+      "t": 11180,
+      "type": "click",
+      "trusted": true,
+      "x": 400,
+      "y": 480,
+      "sx": 400,
+      "sy": 580,
+      "mx": 0,
+      "my": 0,
+      "target": {
+        "kind": "select",
+        "options": 4,
+        "w": 200,
+        "h": 36
+      },
+      "ctx": {
+        "path": "/jobs/view/:id/",
+        "dialog": true,
+        "progress": 66
+      },
+      "button": 0,
+      "ox": 0.25,
+      "oy": 0.5
+    },
+    {
+      "t": 12000,
+      "type": "change",
+      "trusted": true,
+      "target": {
+        "kind": "select",
+        "options": 4,
+        "picked": 2
+      },
+      "ctx": {
+        "path": "/jobs/view/:id/",
+        "dialog": true,
+        "progress": 66
+      }
+    },
+    {
+      "t": 12500,
+      "type": "pointermove",
+      "trusted": true,
+      "x": 400,
+      "y": 500,
+      "sx": 400,
+      "sy": 600,
+      "mx": 0,
+      "my": 0,
+      "target": {
+        "kind": "other"
+      },
+      "ctx": {
+        "path": "/jobs/view/:id/",
+        "dialog": true,
+        "progress": 66
+      },
+      "pointerType": "mouse"
+    },
+    {
+      "t": 12500,
+      "type": "mousemove",
+      "trusted": true,
+      "x": 400,
+      "y": 500,
+      "sx": 400,
+      "sy": 600,
+      "mx": 0,
+      "my": 0,
+      "target": {
+        "kind": "other"
+      },
+      "ctx": {
+        "path": "/jobs/view/:id/",
+        "dialog": true,
+        "progress": 66
+      }
+    },
+    {
+      "t": 12520,
+      "type": "pointermove",
+      "trusted": true,
+      "x": 450,
+      "y": 500,
+      "sx": 450,
+      "sy": 600,
+      "mx": 63,
+      "my": 0,
+      "target": {
+        "kind": "other"
+      },
+      "ctx": {
+        "path": "/jobs/view/:id/",
+        "dialog": true,
+        "progress": 66
+      },
+      "pointerType": "mouse"
+    },
+    {
+      "t": 12520,
+      "type": "mousemove",
+      "trusted": true,
+      "x": 450,
+      "y": 500,
+      "sx": 450,
+      "sy": 600,
+      "mx": 63,
+      "my": 0,
+      "target": {
+        "kind": "other"
+      },
+      "ctx": {
+        "path": "/jobs/view/:id/",
+        "dialog": true,
+        "progress": 66
+      }
+    },
+    {
+      "t": 12540,
+      "type": "pointermove",
+      "trusted": true,
+      "x": 500,
+      "y": 500,
+      "sx": 500,
+      "sy": 600,
+      "mx": 63,
+      "my": 0,
+      "target": {
+        "kind": "other"
+      },
+      "ctx": {
+        "path": "/jobs/view/:id/",
+        "dialog": true,
+        "progress": 66
+      },
+      "pointerType": "mouse"
+    },
+    {
+      "t": 12540,
+      "type": "mousemove",
+      "trusted": true,
+      "x": 500,
+      "y": 500,
+      "sx": 500,
+      "sy": 600,
+      "mx": 63,
+      "my": 0,
+      "target": {
+        "kind": "other"
+      },
+      "ctx": {
+        "path": "/jobs/view/:id/",
+        "dialog": true,
+        "progress": 66
+      }
+    },
+    {
+      "t": 12600,
+      "type": "pointerdown",
+      "trusted": true,
+      "x": 500,
+      "y": 500,
+      "sx": 500,
+      "sy": 600,
+      "mx": 0,
+      "my": 0,
+      "target": {
+        "kind": "text",
+        "w": 300,
+        "h": 36
+      },
+      "ctx": {
+        "path": "/jobs/view/:id/",
+        "dialog": true,
+        "progress": 66
+      },
+      "pointerType": "mouse",
+      "button": 0,
+      "ox": 0.9,
+      "oy": 0.4
+    },
+    {
+      "t": 12600,
+      "type": "mousedown",
+      "trusted": true,
+      "x": 500,
+      "y": 500,
+      "sx": 500,
+      "sy": 600,
+      "mx": 0,
+      "my": 0,
+      "target": {
+        "kind": "text",
+        "w": 300,
+        "h": 36
+      },
+      "ctx": {
+        "path": "/jobs/view/:id/",
+        "dialog": true,
+        "progress": 66
+      },
+      "button": 0,
+      "ox": 0.9,
+      "oy": 0.4
+    },
+    {
+      "t": 12600,
+      "type": "focusin",
+      "trusted": true,
+      "target": {
+        "kind": "text",
+        "hasValue": true
+      },
+      "ctx": {
+        "path": "/jobs/view/:id/",
+        "dialog": true,
+        "progress": 66
+      }
+    },
+    {
+      "t": 12650,
+      "type": "pointerup",
+      "trusted": true,
+      "x": 500,
+      "y": 500,
+      "sx": 500,
+      "sy": 600,
+      "mx": 0,
+      "my": 0,
+      "target": {
+        "kind": "text",
+        "w": 300,
+        "h": 36
+      },
+      "ctx": {
+        "path": "/jobs/view/:id/",
+        "dialog": true,
+        "progress": 66
+      },
+      "pointerType": "mouse",
+      "button": 0,
+      "ox": 0.9,
+      "oy": 0.4
+    },
+    {
+      "t": 12650,
+      "type": "mouseup",
+      "trusted": true,
+      "x": 500,
+      "y": 500,
+      "sx": 500,
+      "sy": 600,
+      "mx": 0,
+      "my": 0,
+      "target": {
+        "kind": "text",
+        "w": 300,
+        "h": 36
+      },
+      "ctx": {
+        "path": "/jobs/view/:id/",
+        "dialog": true,
+        "progress": 66
+      },
+      "button": 0,
+      "ox": 0.9,
+      "oy": 0.4
+    },
+    {
+      "t": 12650,
+      "type": "click",
+      "trusted": true,
+      "x": 500,
+      "y": 500,
+      "sx": 500,
+      "sy": 600,
+      "mx": 0,
+      "my": 0,
+      "target": {
+        "kind": "text",
+        "w": 300,
+        "h": 36
+      },
+      "ctx": {
+        "path": "/jobs/view/:id/",
+        "dialog": true,
+        "progress": 66
+      },
+      "button": 0,
+      "ox": 0.9,
+      "oy": 0.4
+    },
+    {
+      "t": 13400,
+      "type": "pointermove",
+      "trusted": true,
+      "x": 500,
+      "y": 500,
+      "sx": 500,
+      "sy": 600,
+      "mx": 0,
+      "my": 0,
+      "target": {
+        "kind": "other"
+      },
+      "ctx": {
+        "path": "/jobs/view/:id/",
+        "dialog": true,
+        "progress": 66
+      },
+      "pointerType": "mouse"
+    },
+    {
+      "t": 13400,
+      "type": "mousemove",
+      "trusted": true,
+      "x": 500,
+      "y": 500,
+      "sx": 500,
+      "sy": 600,
+      "mx": 0,
+      "my": 0,
+      "target": {
+        "kind": "other"
+      },
+      "ctx": {
+        "path": "/jobs/view/:id/",
+        "dialog": true,
+        "progress": 66
+      }
+    },
+    {
+      "t": 13420,
+      "type": "pointermove",
+      "trusted": true,
+      "x": 550,
+      "y": 500,
+      "sx": 550,
+      "sy": 600,
+      "mx": 63,
+      "my": 0,
+      "target": {
+        "kind": "other"
+      },
+      "ctx": {
+        "path": "/jobs/view/:id/",
+        "dialog": true,
+        "progress": 66
+      },
+      "pointerType": "mouse"
+    },
+    {
+      "t": 13420,
+      "type": "mousemove",
+      "trusted": true,
+      "x": 550,
+      "y": 500,
+      "sx": 550,
+      "sy": 600,
+      "mx": 63,
+      "my": 0,
+      "target": {
+        "kind": "other"
+      },
+      "ctx": {
+        "path": "/jobs/view/:id/",
+        "dialog": true,
+        "progress": 66
+      }
+    },
+    {
+      "t": 13440,
+      "type": "pointermove",
+      "trusted": true,
+      "x": 600,
+      "y": 500,
+      "sx": 600,
+      "sy": 600,
+      "mx": 63,
+      "my": 0,
+      "target": {
+        "kind": "other"
+      },
+      "ctx": {
+        "path": "/jobs/view/:id/",
+        "dialog": true,
+        "progress": 66
+      },
+      "pointerType": "mouse"
+    },
+    {
+      "t": 13440,
+      "type": "mousemove",
+      "trusted": true,
+      "x": 600,
+      "y": 500,
+      "sx": 600,
+      "sy": 600,
+      "mx": 63,
+      "my": 0,
+      "target": {
+        "kind": "other"
+      },
+      "ctx": {
+        "path": "/jobs/view/:id/",
+        "dialog": true,
+        "progress": 66
+      }
+    },
+    {
+      "t": 13540,
+      "type": "pointerdown",
+      "trusted": true,
+      "x": 600,
+      "y": 500,
+      "sx": 600,
+      "sy": 600,
+      "mx": 0,
+      "my": 0,
+      "target": {
+        "kind": "button",
+        "w": 90,
+        "h": 32
+      },
+      "ctx": {
+        "path": "/jobs/view/:id/",
+        "dialog": true,
+        "progress": 66
+      },
+      "pointerType": "mouse",
+      "button": 0,
+      "ox": 0.6,
+      "oy": 0.5
+    },
+    {
+      "t": 13540,
+      "type": "mousedown",
+      "trusted": true,
+      "x": 600,
+      "y": 500,
+      "sx": 600,
+      "sy": 600,
+      "mx": 0,
+      "my": 0,
+      "target": {
+        "kind": "button",
+        "w": 90,
+        "h": 32
+      },
+      "ctx": {
+        "path": "/jobs/view/:id/",
+        "dialog": true,
+        "progress": 66
+      },
+      "button": 0,
+      "ox": 0.6,
+      "oy": 0.5
+    },
+    {
+      "t": 13610,
+      "type": "pointerup",
+      "trusted": true,
+      "x": 600,
+      "y": 500,
+      "sx": 600,
+      "sy": 600,
+      "mx": 0,
+      "my": 0,
+      "target": {
+        "kind": "button",
+        "w": 90,
+        "h": 32
+      },
+      "ctx": {
+        "path": "/jobs/view/:id/",
+        "dialog": true,
+        "progress": 66
+      },
+      "pointerType": "mouse",
+      "button": 0,
+      "ox": 0.6,
+      "oy": 0.5
+    },
+    {
+      "t": 13610,
+      "type": "mouseup",
+      "trusted": true,
+      "x": 600,
+      "y": 500,
+      "sx": 600,
+      "sy": 600,
+      "mx": 0,
+      "my": 0,
+      "target": {
+        "kind": "button",
+        "w": 90,
+        "h": 32
+      },
+      "ctx": {
+        "path": "/jobs/view/:id/",
+        "dialog": true,
+        "progress": 66
+      },
+      "button": 0,
+      "ox": 0.6,
+      "oy": 0.5
+    },
+    {
+      "t": 13610,
+      "type": "click",
+      "trusted": true,
+      "x": 600,
+      "y": 500,
+      "sx": 600,
+      "sy": 600,
+      "mx": 0,
+      "my": 0,
+      "target": {
+        "kind": "button",
+        "w": 90,
+        "h": 32
+      },
+      "ctx": {
+        "path": "/jobs/view/:id/",
+        "dialog": true,
+        "progress": 66
+      },
+      "button": 0,
+      "ox": 0.6,
+      "oy": 0.5
+    },
+    {
+      "t": 17000,
+      "type": "pointermove",
+      "trusted": true,
+      "x": 600,
+      "y": 500,
+      "sx": 600,
+      "sy": 600,
+      "mx": 0,
+      "my": 0,
+      "target": {
+        "kind": "other"
+      },
+      "ctx": {
+        "path": "/jobs/view/:id/",
+        "dialog": true,
+        "progress": 100
+      },
+      "pointerType": "mouse"
+    },
+    {
+      "t": 17000,
+      "type": "mousemove",
+      "trusted": true,
+      "x": 600,
+      "y": 500,
+      "sx": 600,
+      "sy": 600,
+      "mx": 0,
+      "my": 0,
+      "target": {
+        "kind": "other"
+      },
+      "ctx": {
+        "path": "/jobs/view/:id/",
+        "dialog": true,
+        "progress": 100
+      }
+    },
+    {
+      "t": 17020,
+      "type": "pointermove",
+      "trusted": true,
+      "x": 650,
+      "y": 500,
+      "sx": 650,
+      "sy": 600,
+      "mx": 63,
+      "my": 0,
+      "target": {
+        "kind": "other"
+      },
+      "ctx": {
+        "path": "/jobs/view/:id/",
+        "dialog": true,
+        "progress": 100
+      },
+      "pointerType": "mouse"
+    },
+    {
+      "t": 17020,
+      "type": "mousemove",
+      "trusted": true,
+      "x": 650,
+      "y": 500,
+      "sx": 650,
+      "sy": 600,
+      "mx": 63,
+      "my": 0,
+      "target": {
+        "kind": "other"
+      },
+      "ctx": {
+        "path": "/jobs/view/:id/",
+        "dialog": true,
+        "progress": 100
+      }
+    },
+    {
+      "t": 17040,
+      "type": "pointermove",
+      "trusted": true,
+      "x": 700,
+      "y": 500,
+      "sx": 700,
+      "sy": 600,
+      "mx": 63,
+      "my": 0,
+      "target": {
+        "kind": "other"
+      },
+      "ctx": {
+        "path": "/jobs/view/:id/",
+        "dialog": true,
+        "progress": 100
+      },
+      "pointerType": "mouse"
+    },
+    {
+      "t": 17040,
+      "type": "mousemove",
+      "trusted": true,
+      "x": 700,
+      "y": 500,
+      "sx": 700,
+      "sy": 600,
+      "mx": 63,
+      "my": 0,
+      "target": {
+        "kind": "other"
+      },
+      "ctx": {
+        "path": "/jobs/view/:id/",
+        "dialog": true,
+        "progress": 100
+      }
+    },
+    {
+      "t": 17140,
+      "type": "pointerdown",
+      "trusted": true,
+      "x": 700,
+      "y": 500,
+      "sx": 700,
+      "sy": 600,
+      "mx": 0,
+      "my": 0,
+      "target": {
+        "kind": "button",
+        "w": 100,
+        "h": 40
+      },
+      "ctx": {
+        "path": "/jobs/view/:id/",
+        "dialog": true,
+        "progress": 100
+      },
+      "pointerType": "mouse",
+      "button": 0,
+      "ox": 0.5,
+      "oy": 0.5
+    },
+    {
+      "t": 17140,
+      "type": "mousedown",
+      "trusted": true,
+      "x": 700,
+      "y": 500,
+      "sx": 700,
+      "sy": 600,
+      "mx": 0,
+      "my": 0,
+      "target": {
+        "kind": "button",
+        "w": 100,
+        "h": 40
+      },
+      "ctx": {
+        "path": "/jobs/view/:id/",
+        "dialog": true,
+        "progress": 100
+      },
+      "button": 0,
+      "ox": 0.5,
+      "oy": 0.5
+    },
+    {
+      "t": 17220,
+      "type": "pointerup",
+      "trusted": true,
+      "x": 700,
+      "y": 500,
+      "sx": 700,
+      "sy": 600,
+      "mx": 0,
+      "my": 0,
+      "target": {
+        "kind": "button",
+        "w": 100,
+        "h": 40
+      },
+      "ctx": {
+        "path": "/jobs/view/:id/",
+        "dialog": true,
+        "progress": 100
+      },
+      "pointerType": "mouse",
+      "button": 0,
+      "ox": 0.5,
+      "oy": 0.5
+    },
+    {
+      "t": 17220,
+      "type": "mouseup",
+      "trusted": true,
+      "x": 700,
+      "y": 500,
+      "sx": 700,
+      "sy": 600,
+      "mx": 0,
+      "my": 0,
+      "target": {
+        "kind": "button",
+        "w": 100,
+        "h": 40
+      },
+      "ctx": {
+        "path": "/jobs/view/:id/",
+        "dialog": true,
+        "progress": 100
+      },
+      "button": 0,
+      "ox": 0.5,
+      "oy": 0.5
+    },
+    {
+      "t": 17220,
+      "type": "click",
+      "trusted": true,
+      "x": 700,
+      "y": 500,
+      "sx": 700,
+      "sy": 600,
+      "mx": 0,
+      "my": 0,
+      "target": {
+        "kind": "button",
+        "w": 100,
+        "h": 40
+      },
+      "ctx": {
+        "path": "/jobs/view/:id/",
+        "dialog": true,
+        "progress": 100
+      },
+      "button": 0,
+      "ox": 0.5,
+      "oy": 0.5
+    },
+    {
+      "t": 18000,
+      "type": "pointermove",
+      "trusted": true,
+      "x": 700,
+      "y": 500,
+      "sx": 700,
+      "sy": 600,
+      "mx": 0,
+      "my": 0,
+      "target": {
+        "kind": "other"
+      },
+      "ctx": {
+        "path": "/jobs/view/:id/",
+        "dialog": false,
+        "progress": null
+      },
+      "pointerType": "mouse"
+    },
+    {
+      "t": 18000,
+      "type": "mousemove",
+      "trusted": true,
+      "x": 700,
+      "y": 500,
+      "sx": 700,
+      "sy": 600,
+      "mx": 0,
+      "my": 0,
+      "target": {
+        "kind": "other"
+      },
+      "ctx": {
+        "path": "/jobs/view/:id/",
+        "dialog": false,
+        "progress": null
+      }
+    }
+  ]
+}

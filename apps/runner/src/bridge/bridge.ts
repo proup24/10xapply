@@ -1,11 +1,33 @@
 import { chromium, type Page } from 'patchright-core';
 import type { RunnerConfig } from '../config.js';
+import type { RecorderBatch } from '../pace/recording.js';
 import { startRelay } from '../relay/relay.js';
 
 export interface Bridge {
   openRunWindow(): Promise<Page>;
   /** Why the run must stop, or null. Set by detach, minimise or disconnect. */
   stopReason(): string | null;
+  /** Crashes the run tab on purpose, for `bridge check --crash`. */
+  crashRunTab(): Promise<void>;
+  /** The run tab's viewport in CSS px, for the pace module. Runs no script. */
+  viewport(): Promise<{ width: number; height: number } | null>;
+  /**
+   * Runs `open` (pace's click on an upload button), awaits `choose` once the
+   * chooser has opened, then sets `file`, a path on the Windows side,
+   * through the relay so Chrome fires a trusted `change`.
+   */
+  uploadOnChooser(
+    file: string,
+    open: () => Promise<void>,
+    choose: () => Promise<void>,
+  ): Promise<void>;
+  /**
+   * Starts the recorder in runner mode: only pages in tabs the bridge opened
+   * are recorded, never the author's own browsing meanwhile.
+   */
+  startRecording(salt: string): Promise<void>;
+  stopRecording(): Promise<void>;
+  onRecorderBatch(fn: (b: RecorderBatch) => void): () => void;
   /** Closes the run page, disconnects Patchright, stops the relay. Never throws. */
   close(): Promise<void>;
 }
@@ -82,6 +104,13 @@ export async function connectBridge(
       return page;
     },
     stopReason: () => reason,
+    crashRunTab: () => relay.crashRunTab(),
+    viewport: () => relay.viewport(),
+    uploadOnChooser: (file, open, choose) =>
+      relay.uploadOnChooser([file], open, choose),
+    startRecording: (salt) => relay.startRecording(salt, { mode: 'runner' }),
+    stopRecording: () => relay.stopRecording(),
+    onRecorderBatch: (fn) => relay.onRecorderBatch(fn),
     close,
   };
 }

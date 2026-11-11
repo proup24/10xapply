@@ -11,7 +11,10 @@ import { join } from 'node:path';
 import {
   ensureToken,
   installExtension,
+  installPracticeFile,
+  PRACTICE_FILE,
   windowsExtensionDir,
+  windowsPracticeFile,
 } from './install.js';
 
 const tmp = () => mkdtempSync(join(tmpdir(), 'inst-'));
@@ -113,5 +116,44 @@ describe('installExtension', () => {
     const cfg = readFileSync(join(target, 'config.js'), 'utf8');
     expect(cfg).toContain('RELAY_PORT = 9444');
     expect(cfg).toContain('TOKEN = "tok"');
+  });
+});
+
+describe('the practice upload file', () => {
+  it('is copied beside the extension folder, outside the extension', () => {
+    const root = tmp();
+    const ext = join(root, 'bridge-extension');
+    mkdirSync(ext);
+    const src = join(tmp(), 'resume.pdf');
+    writeFileSync(src, '%');
+    installPracticeFile(src, ext);
+    expect(readFileSync(join(root, PRACTICE_FILE), 'utf8')).toBe('%');
+    expect(existsSync(join(ext, PRACTICE_FILE))).toBe(false);
+  });
+
+  it('is given to Chrome as a Windows path', () => {
+    const root = tmp();
+    mkdirSync(join(root, '10xapply'));
+    writeFileSync(join(root, '10xapply', PRACTICE_FILE), '%');
+    const calls: string[][] = [];
+    const answers = ['C:\\L\r\n', `${root}\n`, 'C:\\L\\10xapply\\x.pdf\n'];
+    const path = windowsPracticeFile((cmd, args) => {
+      calls.push([cmd, ...args]);
+      return answers.shift() ?? '';
+    });
+    expect(path).toBe('C:\\L\\10xapply\\x.pdf');
+    expect(calls[2]).toEqual([
+      'wslpath',
+      '-w',
+      join(root, '10xapply', PRACTICE_FILE),
+    ]);
+  });
+
+  it('asks for bridge install when the file is missing', () => {
+    const root = tmp();
+    const answers = ['C:\\L\r\n', `${root}\n`];
+    expect(() => windowsPracticeFile(() => answers.shift() ?? '')).toThrow(
+      /bridge-install/,
+    );
   });
 });

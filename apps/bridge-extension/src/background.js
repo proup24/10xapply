@@ -8,17 +8,61 @@ const send = (msg) => {
   if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg));
 };
 
-const core = createBridgeCore(
-  { windows: chrome.windows, tabs: chrome.tabs, debugger: chrome.debugger },
-  send,
-);
-
-function setBadge(on) {
-  chrome.action?.setBadgeText?.({ text: on ? 'on' : '' });
+// The real browser version, so Browser.getVersion is not a bridge giveaway.
+async function version() {
+  const userAgent = navigator.userAgent;
+  let full = '';
+  try {
+    const { fullVersionList = [] } =
+      await navigator.userAgentData.getHighEntropyValues(['fullVersionList']);
+    const entry =
+      fullVersionList.find((b) => b.brand === 'Google Chrome') ??
+      fullVersionList.find((b) => b.brand === 'Chromium');
+    full = entry?.version ?? '';
+  } catch {
+    // fall through to the user agent
+  }
+  if (!full) full = /Chrome\/([\d.]+)/.exec(userAgent)?.[1] ?? '';
+  return { userAgent, product: `Chrome/${full}` };
 }
 
-// A restarted service worker starts disconnected: clear a stale "on".
+const core = createBridgeCore(
+  {
+    windows: chrome.windows,
+    tabs: chrome.tabs,
+    debugger: chrome.debugger,
+    scripting: chrome.scripting,
+  },
+  send,
+  { version, onRecording: () => updateBadge() },
+);
+
+let connected = false;
+
+// "rec" while recording, "on" while connected, empty otherwise.
+function updateBadge() {
+  const text = !connected ? '' : core.isRecording() ? 'rec' : 'on';
+  chrome.action?.setBadgeText?.({ text });
+}
+
+function setBadge(on) {
+  connected = on;
+  updateBadge();
+}
+
+// A restarted service worker starts disconnected: clear a stale "on", and any
+// recorder script left registered from before the restart.
 setBadge(false);
+chrome.scripting
+  .unregisterContentScripts({ ids: ['pace-recorder'] })
+  .catch(() => undefined);
+
+// Recorder content scripts connect here. Only 'recorder' ports, only while
+// recording. The salt goes to the page's content script in memory; batches are
+// forwarded to the relay untouched.
+chrome.runtime.onConnect.addListener((port) =>
+  core.onConnect(port, chrome.runtime.id),
+);
 
 function connect() {
   if (
@@ -32,6 +76,8 @@ function connect() {
   ws = sock;
   sock.onopen = () => {
     if (ws !== sock) return;
+    // A recorder left on by an earlier socket has no sitting now.
+    void core.onRelayOpened();
     setBadge(true);
     clearInterval(pingTimer);
     pingTimer = setInterval(() => send({ method: 'ping', params: {} }), 20_000);
@@ -47,6 +93,11 @@ function connect() {
     void core.handleCommand(msg);
   };
   sock.onclose = () => {
+    // Before the guard: a socket that was CLOSING when a reconnect replaced
+    // it still stops the recorder, unless the newer socket is already open.
+    void core.onRelayClosed({
+      newerOpen: ws !== sock && ws?.readyState === WebSocket.OPEN,
+    });
     if (ws !== sock) return;
     setBadge(false);
     clearInterval(pingTimer);

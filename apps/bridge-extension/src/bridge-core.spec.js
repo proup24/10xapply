@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { createBridgeCore } from './bridge-core.js';
+import { RECORDER_MATCHES } from './recorder-matches.js';
 
 function setup() {
   const calls = [];
@@ -14,6 +15,14 @@ function setup() {
     tabs: {
       remove: async (id) => {
         calls.push(['tabs.remove', id]);
+      },
+    },
+    scripting: {
+      registerContentScripts: async (scripts) => {
+        calls.push(['scripting.register', scripts]);
+      },
+      unregisterContentScripts: async (filter) => {
+        calls.push(['scripting.unregister', filter]);
       },
     },
     debugger: {
@@ -57,6 +66,16 @@ describe('bridge core', () => {
     expect(sent[0]).toEqual({ id: 1, result: { tabId: 42, windowId: 7 } });
     expect(core.ownsTab(42)).toBe(true);
     expect(core.ownsTab(1)).toBe(false);
+  });
+
+  it('browser.version answers from the injected provider', async () => {
+    const sent = [];
+    const version = { userAgent: 'UA', product: 'Chrome/157.0.1.2' };
+    const core = createBridgeCore({}, (m) => sent.push(m), {
+      version: async () => version,
+    });
+    await core.handleCommand({ id: 1, method: 'browser.version', params: {} });
+    expect(sent[0]).toEqual({ id: 1, result: version });
   });
 
   it('refuses tabs it did not create', async () => {
@@ -367,5 +386,442 @@ describe('bridge core', () => {
         params: { tabId: 42, windowId: 7, state: 'minimized' },
       },
     ]);
+  });
+
+  it('recorder.start registers the content script with the fixed matches', async () => {
+    const { core, calls, sent } = setup();
+    await core.handleCommand({
+      id: 1,
+      method: 'recorder.start',
+      params: { salt: 's1', matches: ['https://evil.example/*'] },
+    });
+    expect(calls).toEqual([
+      [
+        'scripting.register',
+        [
+          {
+            id: 'pace-recorder',
+            js: ['recorder-capture.js', 'recorder-content.js'],
+            matches: RECORDER_MATCHES,
+            world: 'ISOLATED',
+            runAt: 'document_start',
+            persistAcrossSessions: false,
+            allFrames: false,
+          },
+        ],
+      ],
+    ]);
+    expect(calls[0][1][0].matches).toContain('https://www.linkedin.com/*');
+    expect(sent[0]).toEqual({ id: 1, result: {} });
+    expect(core.isRecording()).toBe(true);
+    expect(core.recorderSalt()).toBe('s1');
+  });
+
+  it('recorder.start refuses a missing salt', async () => {
+    const { core, calls, sent } = setup();
+    await core.handleCommand({ id: 1, method: 'recorder.start', params: {} });
+    expect(sent[0]).toEqual({ id: 1, error: 'recorder.start needs a salt' });
+    expect(calls).toEqual([]);
+    expect(core.isRecording()).toBe(false);
+  });
+
+  it('recorder.stop unregisters and forgets the salt', async () => {
+    const { core, calls } = setup();
+    await core.handleCommand({
+      id: 1,
+      method: 'recorder.start',
+      params: { salt: 's1' },
+    });
+    await core.handleCommand({ id: 2, method: 'recorder.stop', params: {} });
+    expect(calls[1]).toEqual([
+      'scripting.unregister',
+      { ids: ['pace-recorder'] },
+    ]);
+    expect(core.isRecording()).toBe(false);
+    expect(core.recorderSalt()).toBeNull();
+  });
+
+  it('recorder.start twice is idempotent', async () => {
+    const { core, calls, sent } = setup();
+    await core.handleCommand({
+      id: 1,
+      method: 'recorder.start',
+      params: { salt: 's1' },
+    });
+    await core.handleCommand({
+      id: 2,
+      method: 'recorder.start',
+      params: { salt: 's2' },
+    });
+    expect(calls.filter((c) => c[0] === 'scripting.register')).toHaveLength(1);
+    expect(sent[1]).toEqual({ id: 2, result: {} });
+    expect(core.recorderSalt()).toBe('s1');
+  });
+
+  it('tells the host when recording starts and stops', async () => {
+    const seen = [];
+    const core = createBridgeCore(
+      {
+        scripting: {
+          registerContentScripts: async () => undefined,
+          unregisterContentScripts: async () => undefined,
+        },
+      },
+      () => undefined,
+      { onRecording: (on) => seen.push(on) },
+    );
+    await core.handleCommand({
+      id: 1,
+      method: 'recorder.start',
+      params: { salt: 's' },
+    });
+    await core.stopRecorder();
+    expect(seen).toEqual([true, false]);
+  });
+
+  const makePort = (name = 'recorder', id = 'ext', tabId = 99) => {
+    const p = {
+      name,
+      sender: { id, tab: { id: tabId } },
+      disconnected: false,
+      posted: [],
+      drop: null,
+      onMsg: null,
+    };
+    p.disconnect = () => (p.disconnected = true);
+    p.postMessage = (m) => p.posted.push(m);
+    p.onDisconnect = { addListener: (f) => (p.drop = f) };
+    p.onMessage = { addListener: (f) => (p.onMsg = f) };
+    return p;
+  };
+
+  it('onConnect refuses ports when not recording, with the wrong name or from another extension', async () => {
+    const { core } = setup();
+    const idle = makePort();
+    core.onConnect(idle, 'ext');
+    expect(idle.disconnected).toBe(true);
+    await core.handleCommand({
+      id: 1,
+      method: 'recorder.start',
+      params: { salt: 's1' },
+    });
+    const wrongName = makePort('other');
+    const foreign = makePort('recorder', 'someone-else');
+    core.onConnect(wrongName, 'ext');
+    core.onConnect(foreign, 'ext');
+    expect(wrongName.disconnected).toBe(true);
+    expect(foreign.disconnected).toBe(true);
+  });
+
+  it('onConnect gives the salt and forwards batches as recorder.batch', async () => {
+    const { core, sent } = setup();
+    await core.handleCommand({
+      id: 1,
+      method: 'recorder.start',
+      params: { salt: 's1' },
+    });
+    const port = makePort();
+    core.onConnect(port, 'ext');
+    expect(port.disconnected).toBe(false);
+    expect(port.posted).toEqual([{ salt: 's1' }]);
+    port.onMsg({ pageId: 'p', jobKey: null, events: [] });
+    port.onMsg('not an object');
+    expect(sent.slice(1)).toEqual([
+      {
+        method: 'recorder.batch',
+        params: { pageId: 'p', jobKey: null, events: [] },
+      },
+    ]);
+  });
+
+  it('stop disconnects open recorder ports and forwards nothing from them after', async () => {
+    const { core, sent } = setup();
+    await core.handleCommand({
+      id: 1,
+      method: 'recorder.start',
+      params: { salt: 's1' },
+    });
+    const a = makePort();
+    const b = makePort();
+    core.onConnect(a, 'ext');
+    core.onConnect(b, 'ext');
+    b.drop(); // b closed on its own: not disconnected again
+    await core.handleCommand({ id: 2, method: 'recorder.stop', params: {} });
+    expect(a.disconnected).toBe(true);
+    expect(b.disconnected).toBe(false);
+    await core.handleCommand({
+      id: 3,
+      method: 'recorder.start',
+      params: { salt: 's2' },
+    });
+    const before = sent.length;
+    a.onMsg({ pageId: 'old', jobKey: 'oldsalt', events: [] });
+    expect(sent.length).toBe(before);
+  });
+
+  it('runner mode accepts only ports from tabs the bridge opened', async () => {
+    const { core, sent } = setup();
+    await open(core); // owns tab 42
+    await core.handleCommand({
+      id: 2,
+      method: 'recorder.start',
+      params: { salt: 's1', mode: 'runner' },
+    });
+    expect(sent[1]).toEqual({ id: 2, result: {} });
+    const runTab = makePort('recorder', 'ext', 42);
+    const ownBrowsing = makePort('recorder', 'ext', 99);
+    const noTab = makePort('recorder', 'ext', undefined);
+    core.onConnect(runTab, 'ext');
+    core.onConnect(ownBrowsing, 'ext');
+    core.onConnect(noTab, 'ext');
+    expect(runTab.disconnected).toBe(false);
+    expect(runTab.posted).toEqual([{ salt: 's1' }]);
+    expect(ownBrowsing.disconnected).toBe(true);
+    expect(ownBrowsing.posted).toEqual([]);
+    expect(noTab.disconnected).toBe(true);
+  });
+
+  it('without a mode, ports from any tab are accepted (the author sitting)', async () => {
+    const { core } = setup();
+    await core.handleCommand({
+      id: 1,
+      method: 'recorder.start',
+      params: { salt: 's1' },
+    });
+    const anyTab = makePort('recorder', 'ext', 99);
+    core.onConnect(anyTab, 'ext');
+    expect(anyTab.disconnected).toBe(false);
+  });
+
+  it('runner mode keeps the fixed matches and refuses an unknown mode', async () => {
+    const { core, calls, sent } = setup();
+    await core.handleCommand({
+      id: 1,
+      method: 'recorder.start',
+      params: { salt: 's1', mode: 'everything' },
+    });
+    expect(sent[0]).toEqual({ id: 1, error: 'recorder.start: unknown mode' });
+    expect(calls).toEqual([]);
+    await core.handleCommand({
+      id: 2,
+      method: 'recorder.start',
+      params: { salt: 's1', mode: 'runner', matches: ['https://evil/*'] },
+    });
+    expect(calls[0][1][0].matches).toEqual(RECORDER_MATCHES);
+  });
+
+  it('runner mode narrows a sitting already on and is not widened by a plain start', async () => {
+    const { core } = setup();
+    await open(core);
+    await core.handleCommand({
+      id: 2,
+      method: 'recorder.start',
+      params: { salt: 's1' },
+    });
+    const runTab = makePort('recorder', 'ext', 42);
+    const ownBrowsing = makePort('recorder', 'ext', 99);
+    core.onConnect(runTab, 'ext');
+    core.onConnect(ownBrowsing, 'ext');
+    await core.handleCommand({
+      id: 3,
+      method: 'recorder.start',
+      params: { salt: 's1', mode: 'runner' },
+    });
+    expect(ownBrowsing.disconnected).toBe(true);
+    expect(runTab.disconnected).toBe(false);
+    await core.handleCommand({
+      id: 4,
+      method: 'recorder.start',
+      params: { salt: 's1' },
+    });
+    const later = makePort('recorder', 'ext', 99);
+    core.onConnect(later, 'ext');
+    expect(later.disconnected).toBe(true);
+  });
+
+  it('a stop ends runner mode for the next sitting', async () => {
+    const { core } = setup();
+    await core.handleCommand({
+      id: 1,
+      method: 'recorder.start',
+      params: { salt: 's1', mode: 'runner' },
+    });
+    await core.stopRecorder();
+    await core.handleCommand({
+      id: 2,
+      method: 'recorder.start',
+      params: { salt: 's2' },
+    });
+    const anyTab = makePort('recorder', 'ext', 99);
+    core.onConnect(anyTab, 'ext');
+    expect(anyTab.disconnected).toBe(false);
+  });
+
+  it('a new relay socket opening stops a recorder left on', async () => {
+    const { core, calls } = setup();
+    await core.handleCommand({
+      id: 1,
+      method: 'recorder.start',
+      params: { salt: 's1' },
+    });
+    const port = makePort();
+    core.onConnect(port, 'ext');
+    await core.onRelayOpened();
+    expect(core.isRecording()).toBe(false);
+    expect(core.recorderSalt()).toBeNull();
+    expect(port.disconnected).toBe(true);
+    expect(calls.at(-1)).toEqual([
+      'scripting.unregister',
+      { ids: ['pace-recorder'] },
+    ]);
+  });
+
+  it('a relay socket closing stops the recorder unless a newer socket is open', async () => {
+    const { core } = setup();
+    await core.handleCommand({
+      id: 1,
+      method: 'recorder.start',
+      params: { salt: 's1' },
+    });
+    // The replaced socket's late close, after the newer one opened and
+    // started its own sitting: that sitting stays on.
+    await core.onRelayClosed({ newerOpen: true });
+    expect(core.isRecording()).toBe(true);
+    // The replaced socket's close while the newer one is still connecting,
+    // or the current socket's close: the recorder stops.
+    await core.onRelayClosed({ newerOpen: false });
+    expect(core.isRecording()).toBe(false);
+    await core.handleCommand({
+      id: 2,
+      method: 'recorder.start',
+      params: { salt: 's2' },
+    });
+    await core.onRelayClosed();
+    expect(core.isRecording()).toBe(false);
+  });
+
+  const tick = () => new Promise((r) => setTimeout(r, 0));
+
+  function gated() {
+    const calls = [];
+    let release;
+    const gate = new Promise((r) => (release = r));
+    const core = createBridgeCore(
+      {
+        scripting: {
+          registerContentScripts: async () => {
+            calls.push('register');
+            await gate;
+          },
+          unregisterContentScripts: async () => {
+            calls.push('unregister');
+          },
+        },
+      },
+      () => undefined,
+    );
+    return { core, calls, release };
+  }
+
+  it('a stop during an in-flight start leaves nothing registered and recording off', async () => {
+    const { core, calls, release } = gated();
+    const start = core.handleCommand({
+      id: 1,
+      method: 'recorder.start',
+      params: { salt: 's1' },
+    });
+    await tick();
+    await core.stopRecorder();
+    release();
+    await start;
+    expect(core.isRecording()).toBe(false);
+    expect(core.recorderSalt()).toBeNull();
+    expect(calls).toEqual(['register', 'unregister', 'unregister']);
+  });
+
+  it('reports the failed start to the relay', async () => {
+    const sent = [];
+    let release;
+    const gate = new Promise((r) => (release = r));
+    const core = createBridgeCore(
+      {
+        scripting: {
+          registerContentScripts: () => gate,
+          unregisterContentScripts: async () => undefined,
+        },
+      },
+      (m) => sent.push(m),
+    );
+    const start = core.handleCommand({
+      id: 1,
+      method: 'recorder.start',
+      params: { salt: 's1' },
+    });
+    await core.stopRecorder();
+    release();
+    await start;
+    expect(sent[0]).toEqual({ id: 1, error: 'recorder stopped during start' });
+  });
+
+  it('a concurrent second start shares the first and registers once', async () => {
+    const { core, calls, release } = gated();
+    const one = core.handleCommand({
+      id: 1,
+      method: 'recorder.start',
+      params: { salt: 's1' },
+    });
+    const two = core.handleCommand({
+      id: 2,
+      method: 'recorder.start',
+      params: { salt: 's2' },
+    });
+    await tick();
+    release();
+    await Promise.all([one, two]);
+    expect(calls).toEqual(['register']);
+    expect(core.isRecording()).toBe(true);
+    expect(core.recorderSalt()).toBe('s1');
+  });
+
+  it('a start after a stop waits for the stale attempt, which cannot unregister the new registration', async () => {
+    const calls = [];
+    const gates = [];
+    const core = createBridgeCore(
+      {
+        scripting: {
+          registerContentScripts: () => {
+            calls.push('register');
+            return new Promise((r) => gates.push(r));
+          },
+          unregisterContentScripts: async () => {
+            calls.push('unregister');
+          },
+        },
+      },
+      () => undefined,
+    );
+    const first = core.handleCommand({
+      id: 1,
+      method: 'recorder.start',
+      params: { salt: 's1' },
+    });
+    await tick();
+    await core.stopRecorder();
+    const second = core.handleCommand({
+      id: 2,
+      method: 'recorder.start',
+      params: { salt: 's2' },
+    });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(calls).toEqual(['register', 'unregister']); // second has not registered yet
+    gates[0](); // the stale register settles; it unregisters itself
+    await first;
+    await new Promise((r) => setTimeout(r, 0));
+    expect(calls).toEqual(['register', 'unregister', 'unregister', 'register']);
+    gates[1]();
+    await second;
+    expect(calls.at(-1)).toBe('register'); // nothing unregistered after the new register
+    expect(core.isRecording()).toBe(true);
+    expect(core.recorderSalt()).toBe('s2');
   });
 });

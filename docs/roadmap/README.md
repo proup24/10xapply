@@ -96,7 +96,7 @@ The author gives the runner one LinkedIn job URL. A real Chrome window on the au
 ### 03b Human pace from the author's own applications
 
 - **Scope:**
-  - A recorder in the bridge extension, switched on by the author. It records only timings: page load, scroll, dwell on the description, mouse path and speed, gaps between keystrokes, time per form step, and time from opening the form to Submit. It never records what is typed, which keys, or page text. It listens from an isolated content-script world and changes nothing on the page. Recordings go to `private/`.
+  - A recorder in the bridge extension, switched on by the author. It records only timings: page load, scroll, dwell on the description, mouse path and speed, gaps between keystrokes, time per form step, and time from opening the form to Submit. It never records what is typed, which keys, or page text. It listens from an isolated content-script world and changes nothing on the page. Recordings go to `pace-recordings/` (Claude-readable, git-ignored), not `private/`.
   - The author applies to 5–10 jobs by hand with it on.
   - The pace module all later slices use, built from those ranges _(user: "should look human, but also, should be random, not repeatable / robotic")_:
     - every delay drawn fresh from the recorded ranges, with occasional long pauses;
@@ -107,7 +107,9 @@ The author gives the runner one LinkedIn job URL. A real Chrome window on the au
     - typing with per-key timing from the recordings;
     - fresh randomness every run, never a fixed seed;
     - no fake typos, because a typo left on a form would be a wrong answer.
-  - It is checked against deviceandbrowserinfo's behaviour test.
+  - It is proved three ways: public behaviour-test pages (deviceandbrowserinfo and incolumitas, several runs in a row), `runner pace compare` of the runner against the author's recordings, and the author watching it.
+  - Only the pace module acts on a page; ESLint bans input methods elsewhere.
+- **Spec:** [slice 03b spec](../superpowers/specs/2026-11-11-human-pace-design.md).
 - **Spec answers:** whether adding a content script changes the extension's visibility (it adds no `web_accessible_resources`, so the reported probe still can't see it); how ranges are stored; how many recordings are enough.
 
 ### 04 Fact bank file
@@ -125,7 +127,7 @@ The author gives the runner one LinkedIn job URL. A real Chrome window on the au
 
 ### 06 Walk the form without submitting
 
-- **Scope:** `apply <job-url> --dry-run`: open the job, confirm it is Easy Apply and not already applied to, open the form, read each step's questions into a structured list, answer them through slice 05, fill them in, move through the steps and stop on the review page before Submit. Print and save (under `private/`) a run report: each question, the answer, its confidence and source.
+- **Scope:** `apply <job-url> --dry-run`: open the job, confirm it is Easy Apply and not already applied to, open the form, read each step's questions into a structured list, answer them through slice 05, fill them in, move through the steps and stop on the review page before Submit. It acts on the page only through the pace module. Print and save (under `private/`) a run report: each question, the answer, its confidence and source.
 - **Locked:** the safety stops listed at the top. Only Easy Apply; any other kind of job is reported and skipped.
 - **Spec answers:** which field types are supported at first and how an unknown one is detected; how the runner recognises each step and the review page; how many dry runs on real jobs are enough before slice 07 turns on submit.
 

@@ -1,6 +1,8 @@
 import { isRefusedOnSession } from './policy.js';
+import { RECORDER_MATCHES } from './recorder-matches.js';
 
 const NOT_OWNED = 'not a bridge tab';
+const RECORDER_ID = 'pace-recorder';
 
 /**
  * Wire logic of the bridge, kept free of real chrome.* so it can be tested.
@@ -10,17 +12,82 @@ const NOT_OWNED = 'not a bridge tab';
  * Only tabs created by run.createWindow are owned. Everything else is refused
  * here, independently of the relay.
  *
+ * The optional third argument is `{ version, onRecording }`: a provider for
+ * browser.version, and a callback `onRecording(on)` for the timing recorder
+ * starting or stopping. chromeApi.scripting registers the recorder's content
+ * script, which is on only while recording and only on the fixed
+ * RECORDER_MATCHES. The salt from recorder.start lives in memory only.
+ * recorder.start with `mode: 'runner'` narrows a sitting to the tabs this
+ * bridge opened: pages in any other tab (the author's own browsing) are not
+ * recorded. A mode can only narrow; the match list never changes.
+ *
  * onWindowChanged(win) takes `{ id, state }` (a chrome Window works) and sends
  * window.state when win.id is the window of an owned tab.
  */
-export function createBridgeCore(chromeApi, send) {
+export function createBridgeCore(
+  chromeApi,
+  send,
+  { version, onRecording } = {},
+) {
   const owned = new Map(); // tabId -> windowId (until the tab is removed)
   const attached = new Set(); // tabIds with a live debugger
   const detached = new Set(); // tabIds whose debugger detached; never re-attached
 
+  let recording = false;
+  let ownTabsOnly = false; // runner mode: only owned tabs' pages connect
+  let salt = null;
+  let generation = 0; // bumped by every stop, so a start in flight can tell
+  let starting = null; // the start in flight, shared by a concurrent start
+  let lastAttempt = Promise.resolve(); // survives stop: a new start waits for it
+  const ports = new Set(); // accepted recorder ports, dropped on stop
+
   const ownsTab = (tabId) => owned.has(tabId);
 
+  async function stopRecorder() {
+    const was = recording;
+    recording = false;
+    ownTabsOnly = false;
+    salt = null;
+    generation++;
+    starting = null;
+    // Open pages keep their old salt; cut them off so it cannot reach a new sitting.
+    for (const port of ports) {
+      try {
+        port.disconnect();
+      } catch {
+        // already closed
+      }
+    }
+    ports.clear();
+    try {
+      await chromeApi.scripting.unregisterContentScripts({
+        ids: [RECORDER_ID],
+      });
+    } catch {
+      // nothing was registered
+    }
+    if (was) onRecording?.(false);
+  }
+
+  function narrowToOwnTabs() {
+    ownTabsOnly = true;
+    for (const port of ports) {
+      if (ownsTab(port.sender?.tab?.id)) continue;
+      ports.delete(port);
+      try {
+        port.disconnect();
+      } catch {
+        // already closed
+      }
+    }
+  }
+
   const commands = {
+    async 'browser.version'() {
+      if (!version) throw new Error('no version provider');
+      return version();
+    },
+
     async 'run.createWindow'(params) {
       const win = await chromeApi.windows.create({
         url: params?.url,
@@ -33,6 +100,66 @@ export function createBridgeCore(chromeApi, send) {
       }
       owned.set(tabId, win.id);
       return { tabId, windowId: win.id };
+    },
+
+    // Any match list in params is ignored: the pages are fixed.
+    async 'recorder.start'(params) {
+      if (typeof params?.salt !== 'string' || params.salt === '') {
+        throw new Error('recorder.start needs a salt');
+      }
+      if (params.mode !== undefined && params.mode !== 'runner') {
+        throw new Error('recorder.start: unknown mode');
+      }
+      // Narrowing applies at once, also to a sitting already on or starting;
+      // a start without a mode never widens it again (only a stop does).
+      if (params.mode === 'runner') narrowToOwnTabs();
+      if (recording) return {};
+      if (starting) return starting;
+      const gen = generation;
+      const previous = lastAttempt;
+      const attempt = (async () => {
+        // A stale attempt may still unregister after its generation check;
+        // let it settle first so it cannot remove this sitting's registration.
+        await previous.catch(() => undefined);
+        await chromeApi.scripting.registerContentScripts([
+          {
+            id: RECORDER_ID,
+            js: ['recorder-capture.js', 'recorder-content.js'],
+            matches: [...RECORDER_MATCHES],
+            world: 'ISOLATED',
+            runAt: 'document_start',
+            persistAcrossSessions: false,
+            allFrames: false,
+          },
+        ]);
+        if (gen !== generation) {
+          // A stop (or socket close) ran while the register was pending.
+          try {
+            await chromeApi.scripting.unregisterContentScripts({
+              ids: [RECORDER_ID],
+            });
+          } catch {
+            // nothing was registered
+          }
+          throw new Error('recorder stopped during start');
+        }
+        recording = true;
+        salt = params.salt;
+        onRecording?.(true);
+        return {};
+      })();
+      starting = attempt;
+      lastAttempt = attempt;
+      try {
+        return await attempt;
+      } finally {
+        if (starting === attempt) starting = null;
+      }
+    },
+
+    async 'recorder.stop'() {
+      await stopRecorder();
+      return {};
     },
 
     async 'tabs.remove'(params) {
@@ -132,6 +259,42 @@ export function createBridgeCore(chromeApi, send) {
 
   return {
     handleCommand,
+    isRecording: () => recording,
+    // chrome.runtime.onConnect handler. Accepts only 'recorder' ports from
+    // this extension while recording, and in runner mode only from a tab this
+    // bridge opened; stop disconnects every accepted port. Gives the page its
+    // salt and forwards its batches to the relay.
+    onConnect(port, extensionId) {
+      if (
+        port.name !== 'recorder' ||
+        port.sender?.id !== extensionId ||
+        !recording ||
+        (ownTabsOnly && !ownsTab(port.sender?.tab?.id))
+      ) {
+        port.disconnect();
+        return;
+      }
+      ports.add(port);
+      port.onDisconnect.addListener(() => ports.delete(port));
+      port.onMessage.addListener((batch) => {
+        if (!ports.has(port)) return;
+        if (batch && typeof batch === 'object') {
+          send({ method: 'recorder.batch', params: batch });
+        }
+      });
+      port.postMessage({ salt });
+    },
+    recorderSalt: () => salt,
+    stopRecorder,
+    // The relay socket's lifecycle. A recorder still on belongs to no sitting
+    // once a new socket opens, or once a socket closes, unless a newer socket
+    // is already open: that one stopped it on opening, and what it records
+    // now is its own sitting.
+    onRelayOpened: () => stopRecorder(),
+    onRelayClosed({ newerOpen = false } = {}) {
+      if (newerOpen) return Promise.resolve();
+      return stopRecorder();
+    },
     ownsTab,
     ownedWindowIds,
     onDebuggerEvent,

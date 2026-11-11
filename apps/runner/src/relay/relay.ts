@@ -8,9 +8,12 @@
 // the spec's additions: a token on both sides, one client of each kind, the
 // refused-method policy and method-name-only logging.
 import { createHash, timingSafeEqual } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
+import { fileURLToPath } from 'node:url';
 import { WebSocket, WebSocketServer, type RawData } from 'ws';
+import type { RecorderBatch } from '../pace/recording.js';
 import { BrowserModel, type Json } from './browser-model.js';
 import { isRefused, isRefusedOnSession } from './policy.js';
 
@@ -29,6 +32,32 @@ export interface Relay {
   cdpUrl: string; // ws://127.0.0.1:<port>/cdp?token=<token>
   waitForExtension(timeoutMs: number): Promise<boolean>;
   onEvent(fn: (e: BridgeEvent) => void): () => void;
+  /**
+   * Crashes the run tab through the extension, for `bridge check --crash`.
+   * Patchright cannot do it: its CDP session needs Target.attachToBrowserTarget,
+   * which the relay refuses.
+   */
+  crashRunTab(): Promise<void>;
+  /** The run tab's viewport in CSS px (Page.getLayoutMetrics), or null. */
+  viewport(): Promise<{ width: number; height: number } | null>;
+  /**
+   * Runs `open` (a click that opens the run tab's file chooser), awaits
+   * `choose` once it has opened, then sets `files` (paths on the Chrome
+   * side) on the chooser's input, in-process.
+   */
+  uploadOnChooser(
+    files: string[],
+    open: () => Promise<void>,
+    choose: () => Promise<void>,
+  ): Promise<void>;
+  /**
+   * Starts the extension's timing-only recorder; `salt` stays in memory.
+   * `mode: 'runner'` narrows it to the tabs the bridge opened, so the
+   * author's own browsing during a runner sitting is not recorded.
+   */
+  startRecording(salt: string, opts?: { mode?: 'runner' }): Promise<void>;
+  stopRecording(): Promise<void>;
+  onRecorderBatch(fn: (b: RecorderBatch) => void): () => void;
   stop(): Promise<void>;
 }
 
@@ -40,12 +69,40 @@ export class RelayPortInUseError extends Error {
 }
 
 const HOST = '127.0.0.1';
+/** How long an upload waits for the file chooser after the click. */
+const CHOOSER_TIMEOUT_MS = 10_000;
 const CLOSE_UNAUTHORIZED = 4401;
 const CLOSE_CONFLICT = 4409;
 
 interface Pending {
   resolve: (result: unknown) => void;
   reject: (error: Error) => void;
+}
+
+// The practice and typing pages: a fixed set, read once at start. A request
+// path is only ever compared against these keys, never used to build a path.
+const STATIC_PAGES: ReadonlyMap<string, Buffer> = new Map(
+  ['practice', 'typing'].map((name) => [
+    `/${name}/`,
+    readFileSync(
+      fileURLToPath(new URL(`./static/${name}/index.html`, import.meta.url)),
+    ),
+  ]),
+);
+
+/** Splits a request target without `URL`, which throws on targets like `//`. */
+function parseTarget(target: string | undefined): {
+  pathname: string;
+  search: string; // raw, with the leading '?', or ''
+  params: URLSearchParams;
+} {
+  const [beforeFragment = ''] = (target ?? '/').split('#');
+  const q = beforeFragment.indexOf('?');
+  return {
+    pathname: q < 0 ? beforeFragment : beforeFragment.slice(0, q),
+    search: q < 0 ? '' : beforeFragment.slice(q),
+    params: new URLSearchParams(q < 0 ? '' : beforeFragment.slice(q + 1)),
+  };
 }
 
 function digest(value: string): Buffer {
@@ -84,6 +141,7 @@ export async function startRelay(opts: RelayOptions): Promise<Relay> {
   const pending = new Map<number, Pending>();
   const listeners = new Set<(e: BridgeEvent) => void>();
   const extWaiters = new Set<(ok: boolean) => void>();
+  const batchListeners = new Set<(b: RecorderBatch) => void>();
 
   // ─── Outputs ───────────────────────────────────────────────────────────
 
@@ -115,6 +173,35 @@ export async function startRelay(opts: RelayOptions): Promise<Relay> {
     );
   }
 
+  // Asked once per extension connection, on the first Browser.getVersion.
+  let versionAnswer: Promise<Json | null> | null = null;
+
+  function browserVersion(): Promise<Json> {
+    versionAnswer ??= callExtension('browser.version', {}).then(
+      (v) => {
+        const r = (v ?? {}) as Json;
+        return typeof r.userAgent === 'string' && typeof r.product === 'string'
+          ? {
+              protocolVersion: '1.3',
+              product: r.product,
+              userAgent: r.userAgent,
+              revision: '',
+              jsVersion: '',
+            }
+          : null;
+      },
+      () => null,
+    );
+    return versionAnswer.then(
+      (v) =>
+        v ?? {
+          protocolVersion: '1.3',
+          product: 'Chrome/Extension-Bridge',
+          userAgent: 'CDP-Bridge-Server/1.0.0',
+        },
+    );
+  }
+
   const model = new BrowserModel(callExtension, sendToCdp);
 
   // ─── CDP client → relay ────────────────────────────────────────────────
@@ -132,11 +219,7 @@ export async function startRelay(opts: RelayOptions): Promise<Relay> {
     if (sessionId === undefined) {
       switch (method) {
         case 'Browser.getVersion':
-          return {
-            protocolVersion: '1.3',
-            product: 'Chrome/Extension-Bridge',
-            userAgent: 'CDP-Bridge-Server/1.0.0',
-          };
+          return browserVersion();
         case 'Browser.setDownloadBehavior':
           return {};
       }
@@ -201,6 +284,19 @@ export async function startRelay(opts: RelayOptions): Promise<Relay> {
           emit({ kind: 'window-minimized', tabId });
         }
         return;
+      case 'recorder.batch': {
+        // Only the method name is logged: batches are the author's timing data.
+        log(`<- ext ${logName(method)}`);
+        if (!Array.isArray(params.events)) return;
+        for (const fn of batchListeners) {
+          try {
+            fn(params as unknown as RecorderBatch);
+          } catch {
+            // A listener's failure must not break the relay.
+          }
+        }
+        return;
+      }
       // 'ping' keeps the socket alive and needs no answer.
     }
   }
@@ -223,6 +319,7 @@ export async function startRelay(opts: RelayOptions): Promise<Relay> {
 
   function acceptExtension(ws: WebSocket): void {
     ext = ws;
+    versionAnswer = null;
     ws.on('message', onExtensionMessage);
     ws.on('error', () => undefined);
     ws.on('close', () => {
@@ -255,14 +352,35 @@ export async function startRelay(opts: RelayOptions): Promise<Relay> {
     });
   }
 
-  const server = http.createServer((_req, res) => {
-    res.statusCode = 404;
-    res.end();
+  const server = http.createServer((req, res) => {
+    const { pathname, search } = parseTarget(req.url);
+    const live = req.method === 'GET' && !stopped;
+    const page = live ? STATIC_PAGES.get(pathname) : undefined;
+    const slashed = `${pathname}/`;
+    if (live && !page && STATIC_PAGES.has(slashed)) {
+      // `/typing` -> `/typing/`, keeping the query (printable ASCII only).
+      res.writeHead(301, {
+        location: slashed + (/^[\x21-\x7e]*$/.test(search) ? search : ''),
+      });
+      res.end();
+      return;
+    }
+    if (!page) {
+      res.statusCode = 404;
+      res.end();
+      return;
+    }
+    res.writeHead(200, {
+      'content-type': 'text/html; charset=utf-8',
+      'cache-control': 'no-store',
+      'x-content-type-options': 'nosniff',
+    });
+    res.end(page);
   });
   const wss = new WebSocketServer({ noServer: true });
 
   server.on('upgrade', (req, socket, head) => {
-    const url = new URL(req.url ?? '/', `http://${HOST}`);
+    const url = parseTarget(req.url);
     const kind =
       url.pathname === '/cdp'
         ? 'cdp'
@@ -274,7 +392,7 @@ export async function startRelay(opts: RelayOptions): Promise<Relay> {
       return;
     }
     wss.handleUpgrade(req, socket, head, (ws) => {
-      if (!tokenMatches(url.searchParams.get('token'), expectedToken)) {
+      if (!tokenMatches(url.params.get('token'), expectedToken)) {
         ws.close(CLOSE_UNAUTHORIZED, 'unauthorized');
         return;
       }
@@ -319,10 +437,46 @@ export async function startRelay(opts: RelayOptions): Promise<Relay> {
       return () => listeners.delete(fn);
     },
 
+    async crashRunTab(): Promise<void> {
+      await model.crashRunTab();
+    },
+
+    viewport(): Promise<{ width: number; height: number } | null> {
+      return model.viewport();
+    },
+
+    uploadOnChooser(
+      files: string[],
+      open: () => Promise<void>,
+      choose: () => Promise<void>,
+    ): Promise<void> {
+      return model.uploadOnChooser(files, open, choose, CHOOSER_TIMEOUT_MS);
+    },
+
+    async startRecording(
+      salt: string,
+      opts: { mode?: 'runner' } = {},
+    ): Promise<void> {
+      await callExtension(
+        'recorder.start',
+        opts.mode ? { salt, mode: opts.mode } : { salt },
+      );
+    },
+
+    async stopRecording(): Promise<void> {
+      await callExtension('recorder.stop', {});
+    },
+
+    onRecorderBatch(fn: (b: RecorderBatch) => void): () => void {
+      batchListeners.add(fn);
+      return () => batchListeners.delete(fn);
+    },
+
     async stop(): Promise<void> {
       if (stopped) return;
       stopped = true;
       listeners.clear();
+      batchListeners.clear();
       for (const resolve of [...extWaiters]) resolve(false);
       for (const ws of wss.clients) ws.terminate();
       await new Promise<void>((resolve) => wss.close(() => resolve()));

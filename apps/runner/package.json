@@ -19,6 +19,13 @@
           "command": "tsx src/main.ts bot-check"
         }
       },
+      "bot-check-repeat": {
+        "executor": "nx:run-commands",
+        "options": {
+          "cwd": "apps/runner",
+          "command": "tsx src/main.ts bot-check --repeat 3 --record"
+        }
+      },
       "bridge-install": {
         "executor": "nx:run-commands",
         "options": {
@@ -31,6 +38,55 @@
         "options": {
           "cwd": "apps/runner",
           "command": "tsx src/main.ts bridge check"
+        }
+      },
+      "bridge-check-crash": {
+        "executor": "nx:run-commands",
+        "options": {
+          "cwd": "apps/runner",
+          "command": "tsx src/main.ts bridge check --crash"
+        }
+      },
+      "pace-record": {
+        "executor": "nx:run-commands",
+        "options": {
+          "cwd": "apps/runner",
+          "command": "tsx src/main.ts pace record"
+        }
+      },
+      "pace-record-typing": {
+        "executor": "nx:run-commands",
+        "options": {
+          "cwd": "apps/runner",
+          "command": "tsx src/main.ts pace record --typing"
+        }
+      },
+      "pace-practice": {
+        "executor": "nx:run-commands",
+        "options": {
+          "cwd": "apps/runner",
+          "command": "tsx src/main.ts pace practice --runs 5 --record"
+        }
+      },
+      "pace-build": {
+        "executor": "nx:run-commands",
+        "options": {
+          "cwd": "apps/runner",
+          "command": "tsx src/main.ts pace build"
+        }
+      },
+      "pace-summary": {
+        "executor": "nx:run-commands",
+        "options": {
+          "cwd": "apps/runner",
+          "command": "tsx src/main.ts pace summary"
+        }
+      },
+      "pace-compare": {
+        "executor": "nx:run-commands",
+        "options": {
+          "cwd": "apps/runner",
+          "command": "tsx src/main.ts pace compare"
         }
       }
     }

@@ -420,6 +420,7 @@ test('runner (real name): non-dry launches blocked', () => {
     'cd apps/runner && pnpm exec tsx src/main.ts apply x',
     'tsx apps/runner/src/main.ts apply x',
     'node apps/runner/src/main.ts apply x',
+    'cd apps/runner && tsx src/main.ts apply https://example.com/job',
     'node dist/apps/runner/main.js apply x',
   ]) {
     const r = bash(command);
@@ -432,8 +433,12 @@ test('runner (real name): safe commands pass', () => {
   for (const command of [
     'pnpm nx run runner:session',
     'pnpm nx run runner:bot-check',
+    'pnpm nx run runner:bot-check-repeat',
     'pnpm nx run runner:bridge-install',
     'pnpm nx run runner:bridge-check',
+    'pnpm nx run runner:bridge-check-crash',
+    'pnpm nx run runner:pace-record',
+    'tsx apps/runner/src/main.ts pace compare',
     'tsx apps/runner/src/main.ts bridge check',
     'pnpm nx run runner:apply --dry-run',
   ]) {

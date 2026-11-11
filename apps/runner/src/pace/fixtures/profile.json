@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "builtAt": "2026-01-01T00:00:00.000Z",
+  "sources": { "applications": 2, "practice": 1 },
+  "samples": {
+    "pressRelease": [60, 70, 80, 90],
+    "moveDuration": [300, 420, 380, 510],
+    "keyHold": [60, 70, 80],
+    "readDwell": [4000, 6000, 9000]
+  },
+  "fitts": { "a": 80, "b": 120, "residuals": [-20, 5, 10, 25] },
+  "reading": { "base": 2000, "perChar": 3, "residuals": [-300, 100, 200] },
+  "wheel": { "deltaY": 100, "deltaMode": 0 },
+  "practice": { "stepTime": [5000, 6000], "appTime": [20000] }
+}
