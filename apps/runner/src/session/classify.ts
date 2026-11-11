@@ -2,7 +2,12 @@ export type PageResult =
   'signed-in' | 'signed-out' | 'security-check' | 'unexpected-page';
 export type SessionResult = PageResult | 'stopped' | 'bridge-unavailable';
 
-export const SIGN_IN_FORM = 'input#username, input[name="session_key"]';
+// LinkedIn's login page (2026-11) has generated input ids and no <form>, so
+// the old `#username` / `session_key` hooks match nothing; a password field
+// is the stable sign. The old hooks stay for older layouts.
+export const SIGN_IN_FORM =
+  'input[type="password"], input[autocomplete="current-password"], ' +
+  'input#username, input[name="session_key"]';
 export const CHALLENGE =
   'iframe[src*="captcha"], #captcha-internal, form[action*="checkpoint"]';
 
