@@ -307,6 +307,116 @@ describe('relay', () => {
     expect(ctx.ext.commands.length).toBe(before);
   });
 
+  it('allows only the empty utility-world script', async () => {
+    const ctx = await connected();
+    const { sessionId } = await openTarget(ctx);
+    const method = 'Page.addScriptToEvaluateOnNewDocument';
+    const ok = await ctx.call(
+      method,
+      { source: '', worldName: 'util' },
+      sessionId,
+    );
+    expect(ok.result).toEqual({});
+    const sent = ctx.ext.commands.find(
+      (c) => (c.params as Json).method === method,
+    );
+    expect(sent?.params).toEqual({
+      target: { tabId: 42 },
+      method,
+      params: { source: '', worldName: 'util' },
+    });
+    const before = ctx.ext.commands.length;
+    const bad = await ctx.call(method, { source: 'alert(1)' }, sessionId);
+    expect((bad.error as Json).message).toBe(`refused: ${method}`);
+    expect(ctx.ext.commands.length).toBe(before);
+  });
+
+  it('never forwards root Target methods through a tab', async () => {
+    const ctx = await connected();
+    await openTarget(ctx);
+    const before = ctx.ext.commands.length;
+    for (const method of [
+      'Target.getTargets',
+      'Target.attachToTarget',
+      'Target.setDiscoverTargets',
+      'Target.getBrowserContexts',
+      'Target.getTargetInfo',
+      'Target.createBrowserContext',
+      'Target.attachToBrowserTarget',
+    ]) {
+      const reply = await ctx.call(method, { targetId: 'X' });
+      if (reply.error) {
+        expect((reply.error as Json).message).toBe(
+          `not supported by the bridge: ${method}`,
+        );
+      }
+    }
+    expect(ctx.ext.commands.length).toBe(before);
+    const contexts = await ctx.call('Target.getBrowserContexts');
+    expect(contexts.result).toEqual({ browserContextIds: [] });
+    const getTargets = await ctx.call('Target.getTargets');
+    expect((getTargets.error as Json).message).toBe(
+      'not supported by the bridge: Target.getTargets',
+    );
+    // Non-Target browser-scoped commands still go through the tab.
+    await ctx.call('Browser.grantPermissions', { permissions: [] });
+    expect(ctx.ext.commands.at(-1)).toMatchObject({
+      method: 'debugger.send',
+      params: { target: { tabId: 42 }, method: 'Browser.grantPermissions' },
+    });
+  });
+
+  it('learns child sessions only from the tab tree', async () => {
+    const ctx = await connected();
+    const { sessionId } = await openTarget(ctx);
+    // An attach announced on an unknown session is not adopted.
+    ctx.ext.send({
+      method: 'debugger.event',
+      params: {
+        source: { tabId: 42, sessionId: 'STRANGER' },
+        method: 'Target.attachedToTarget',
+        params: {
+          sessionId: 'ROGUE',
+          targetInfo: { targetId: 'R', type: 'page' },
+        },
+      },
+    });
+    // A nested attach on a known child is adopted.
+    ctx.ext.send({
+      method: 'debugger.event',
+      params: {
+        source: { tabId: 42 },
+        method: 'Target.attachedToTarget',
+        params: {
+          sessionId: 'CHILD',
+          targetInfo: { targetId: 'F', type: 'iframe' },
+        },
+      },
+    });
+    ctx.ext.send({
+      method: 'debugger.event',
+      params: {
+        source: { tabId: 42, sessionId: 'CHILD' },
+        method: 'Target.attachedToTarget',
+        params: {
+          sessionId: 'GRANDCHILD',
+          targetInfo: { targetId: 'G', type: 'iframe' },
+        },
+      },
+    });
+    await ctx.cdp.next(
+      (m) => (m.params as Json | undefined)?.sessionId === 'GRANDCHILD',
+    );
+    const rogue = await ctx.call('Runtime.enable', {}, 'ROGUE');
+    expect((rogue.error as Json).message).toBe('No target for this session');
+    const grand = await ctx.call('Runtime.enable', {}, 'GRANDCHILD');
+    expect(grand.result).toEqual({});
+    expect(ctx.ext.commands.at(-1)?.params).toMatchObject({
+      target: { tabId: 42, sessionId: 'GRANDCHILD' },
+    });
+    expect(sessionId).toBeTruthy();
+  });
+
   it('emits bridge events', async () => {
     const ctx = await connected();
     const events: BridgeEvent[] = [];

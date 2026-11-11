@@ -42,14 +42,23 @@ export class BrowserModel {
     if (sessionId === undefined) {
       switch (method) {
         case 'Target.setAutoAttach':
+        case 'Target.setDiscoverTargets':
+        case 'Target.getTargetInfo':
           return {};
+        case 'Target.getBrowserContexts':
+          return { browserContextIds: [] };
         case 'Target.createTarget':
           return this.createTarget(p.url);
         case 'Target.closeTarget':
           return this.closeTarget(p.targetId);
       }
-      // Browser-scoped commands go through any attached tab, as Playwright
-      // does; with none attached they are answered with {}.
+      // Any other root Target.* would act on the tab's target through
+      // chrome.debugger (attach, discover, list), so it never goes there.
+      if (method.startsWith('Target.')) {
+        throw new Error(`not supported by the bridge: ${method}`);
+      }
+      // Other browser-scoped commands go through any attached tab, as
+      // Playwright does; with none attached they are answered with {}.
       const tab = [...this.tabs.values()].find(
         (t) => t.attached && t.sessionId,
       );
@@ -85,14 +94,17 @@ export class BrowserModel {
         ? this.tabs.get(source.tabId)
         : undefined;
     if (!tab?.attached || !tab.sessionId) return;
+    // Events come from the tab's own session or a child it auto-attached;
+    // anything else is dropped, so it can't introduce a session either.
+    const fromChild = typeof source.sessionId === 'string';
+    if (fromChild && !tab.childSessions.has(source.sessionId as string)) return;
     const child = (params as Json | undefined)?.sessionId;
     if (typeof child === 'string') {
       if (method === 'Target.attachedToTarget') tab.childSessions.add(child);
       else if (method === 'Target.detachedFromTarget')
         tab.childSessions.delete(child);
     }
-    const sessionId =
-      typeof source.sessionId === 'string' ? source.sessionId : tab.sessionId;
+    const sessionId = fromChild ? (source.sessionId as string) : tab.sessionId;
     this.sendToCdp({ sessionId, method, params });
   }
 

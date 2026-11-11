@@ -124,7 +124,7 @@ export async function startRelay(opts: RelayOptions): Promise<Relay> {
     params: unknown,
     sessionId: string | undefined,
   ): Promise<unknown> {
-    if (isRefused(method)) throw new Error(`refused: ${method}`);
+    if (isRefused(method, params)) throw new Error(`refused: ${method}`);
     if (sessionId === undefined) {
       switch (method) {
         case 'Browser.getVersion':

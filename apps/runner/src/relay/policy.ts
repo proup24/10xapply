@@ -22,6 +22,17 @@ export const REFUSED_METHODS: readonly string[] = Object.freeze([
   'Page.addScriptToEvaluateOnNewDocument',
 ]);
 
-export function isRefused(method: string): boolean {
+// Page.addScriptToEvaluateOnNewDocument is refused unless its source is
+// exactly '': Patchright creates its utility world that way on every page
+// (FrameSession._initialize), and an empty script runs nothing in the page.
+/** Whether the bridge refuses this CDP command. */
+export function isRefused(method: string, params?: unknown): boolean {
+  if (method === 'Page.addScriptToEvaluateOnNewDocument') {
+    return !(
+      typeof params === 'object' &&
+      params !== null &&
+      (params as { source?: unknown }).source === ''
+    );
+  }
   return REFUSED_METHODS.includes(method);
 }

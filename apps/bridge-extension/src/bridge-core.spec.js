@@ -87,6 +87,26 @@ describe('bridge core', () => {
     expect(calls.some((c) => c[0] === 'debugger.sendCommand')).toBe(false);
   });
 
+  it('allows the empty utility-world script and refuses any other', async () => {
+    const { core, calls, sent } = setup();
+    await open(core);
+    await attach(core);
+    sent.length = 0;
+    const method = 'Page.addScriptToEvaluateOnNewDocument';
+    await core.handleCommand({
+      id: 20,
+      method: 'debugger.send',
+      params: { target: { tabId: 42 }, method, params: { source: '', worldName: 'w' } },
+    });
+    expect(calls).toContainEqual(['debugger.sendCommand', { tabId: 42 }, method, { source: '', worldName: 'w' }]);
+    const before = calls.length;
+    for (const [i, params] of [{ source: 'alert(1)' }, {}, { source: 0 }, undefined].entries()) {
+      await core.handleCommand({ id: 21 + i, method: 'debugger.send', params: { target: { tabId: 42 }, method, params } });
+      expect(sent.at(-1)).toEqual({ id: 21 + i, error: `refused: ${method}` });
+    }
+    expect(calls.length).toBe(before);
+  });
+
   it('forwards allowed commands, with sessionId when given', async () => {
     const { core, calls, sent } = setup();
     await open(core);
