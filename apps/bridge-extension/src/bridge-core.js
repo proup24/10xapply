@@ -55,13 +55,18 @@ export function createBridgeCore(chromeApi, send) {
       if (!ownsTab(target?.tabId)) throw new Error(NOT_OWNED);
       const method = params.method;
       if (typeof method !== 'string') throw new Error('bad method');
-      if (isRefused(method, params.params)) throw new Error(`refused: ${method}`);
+      if (isRefused(method, params.params))
+        throw new Error(`refused: ${method}`);
       if (!attached.has(target.tabId)) throw new Error('debugger not attached');
       const chromeTarget =
         target.sessionId === undefined
           ? { tabId: target.tabId }
           : { tabId: target.tabId, sessionId: target.sessionId };
-      return chromeApi.debugger.sendCommand(chromeTarget, method, params.params);
+      return chromeApi.debugger.sendCommand(
+        chromeTarget,
+        method,
+        params.params,
+      );
     },
   };
 
@@ -88,7 +93,10 @@ export function createBridgeCore(chromeApi, send) {
 
   function onDebuggerDetach(source, reason) {
     if (!ownsTab(source?.tabId)) return;
-    send({ method: 'debugger.detach', params: { tabId: source.tabId, reason } });
+    send({
+      method: 'debugger.detach',
+      params: { tabId: source.tabId, reason },
+    });
     attached.delete(source.tabId);
     detached.add(source.tabId);
   }
@@ -104,12 +112,23 @@ export function createBridgeCore(chromeApi, send) {
   function onWindowChanged(win) {
     for (const [tabId, windowId] of owned) {
       if (windowId === win?.id) {
-        send({ method: 'window.state', params: { tabId, windowId, state: win.state } });
+        send({
+          method: 'window.state',
+          params: { tabId, windowId, state: win.state },
+        });
       }
     }
   }
 
   const ownedWindowIds = () => [...new Set(owned.values())];
 
-  return { handleCommand, ownsTab, ownedWindowIds, onDebuggerEvent, onDebuggerDetach, onTabRemoved, onWindowChanged };
+  return {
+    handleCommand,
+    ownsTab,
+    ownedWindowIds,
+    onDebuggerEvent,
+    onDebuggerDetach,
+    onTabRemoved,
+    onWindowChanged,
+  };
 }

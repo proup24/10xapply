@@ -18,8 +18,14 @@ function setBadge(on) {
 }
 
 function connect() {
-  if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return;
-  const sock = new WebSocket(`ws://127.0.0.1:${RELAY_PORT}/extension?token=${encodeURIComponent(TOKEN)}`);
+  if (
+    ws &&
+    (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)
+  )
+    return;
+  const sock = new WebSocket(
+    `ws://127.0.0.1:${RELAY_PORT}/extension?token=${encodeURIComponent(TOKEN)}`,
+  );
   ws = sock;
   sock.onopen = () => {
     if (ws !== sock) return;
