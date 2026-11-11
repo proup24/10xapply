@@ -337,8 +337,16 @@ function ghProblem(command) {
 
 // The runner applies to jobs from a user's real LinkedIn account. Claude may
 // develop it freely but may only launch it as a dry run. Slice 03 names it.
-export const RUNNER_NAME = '';
-export const RUNNER_SAFE_SUBCOMMANDS = [];
+export const RUNNER_NAME = 'runner';
+// Nx target names are listed as well as CLI words: the guard reads an Nx
+// target as the subcommand.
+export const RUNNER_SAFE_SUBCOMMANDS = [
+  'bridge',
+  'bridge-install',
+  'bridge-check',
+  'bot-check',
+  'session',
+];
 export const DEV_TARGETS = ['build', 'test', 'lint', 'typecheck'];
 
 const NODE_RUNNERS = ['node', 'tsx', 'ts-node'];

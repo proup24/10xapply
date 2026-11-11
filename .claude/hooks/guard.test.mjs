@@ -410,3 +410,47 @@ test('reasons', () => {
   });
   assert.match(secret.reason, /\/repo\/\.env/);
 });
+
+const bash = (command) =>
+  evaluate({ tool_name: 'Bash', tool_input: { command } });
+
+test('runner (real name): non-dry launches blocked', () => {
+  for (const command of [
+    'pnpm nx run runner:apply',
+    'cd apps/runner && pnpm exec tsx src/main.ts apply x',
+    'tsx apps/runner/src/main.ts apply x',
+    'node apps/runner/src/main.ts apply x',
+  ]) {
+    assert.equal(bash(command).block, true, command);
+  }
+});
+
+test('runner (real name): safe commands pass', () => {
+  for (const command of [
+    'pnpm nx run runner:session',
+    'pnpm nx run runner:bot-check',
+    'pnpm nx run runner:bridge-install',
+    'pnpm nx run runner:bridge-check',
+    'tsx apps/runner/src/main.ts bridge check',
+    'pnpm nx run runner:apply --dry-run',
+  ]) {
+    assert.equal(bash(command).block, false, command);
+  }
+});
+
+test('runner (real name): no false positives', () => {
+  for (const command of [
+    'ls apps/runner',
+    'cat apps/runner/src/main.ts',
+    'pnpm nx test runner',
+    'pnpm nx lint runner',
+    'pnpm nx run-many -t lint test build typecheck',
+    'pnpm nx affected -t test',
+    'grep -rn runner docs',
+    'echo "test runner"',
+    'git commit -m "runner: add relay"',
+    'pnpm vitest run --reporter verbose',
+  ]) {
+    assert.equal(bash(command).block, false, command);
+  }
+});
