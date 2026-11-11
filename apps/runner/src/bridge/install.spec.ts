@@ -1,3 +1,4 @@
+import { loadConfig } from '../config.js';
 import {
   existsSync,
   mkdirSync,
@@ -32,7 +33,28 @@ describe('windowsExtensionDir', () => {
   });
 });
 
+describe('windowsExtensionDir failures', () => {
+  it('rejects an unexpanded %LOCALAPPDATA%', () => {
+    expect(() => windowsExtensionDir(() => '%LOCALAPPDATA%\r\n')).toThrow(
+      /LOCALAPPDATA/,
+    );
+  });
+  it('rejects a relative wslpath result', () => {
+    const answers = ['C:\\Users\\u\n', 'Users/u\n'];
+    expect(() => windowsExtensionDir(() => answers.shift() ?? '')).toThrow(
+      /non-absolute/,
+    );
+  });
+});
+
 describe('ensureToken', () => {
+  it('reads a quoted value with a trailing comment like loadConfig', () => {
+    const file = join(tmp(), 'runner-env-test');
+    writeFileSync(file, 'RUNNER_BRIDGE_TOKEN="abc" # note\n');
+    expect(ensureToken(file)).toBe('abc');
+    expect(loadConfig({}, file).token).toBe('abc');
+  });
+
   it('is stable, long enough, and keeps other keys', () => {
     const file = join(tmp(), 'runner-env-test');
     writeFileSync(file, 'OTHER=1');

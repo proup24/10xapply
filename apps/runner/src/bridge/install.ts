@@ -8,26 +8,32 @@ import {
   rmSync,
   writeFileSync,
 } from 'node:fs';
-import { join } from 'node:path';
+import { isAbsolute, join } from 'node:path';
+import { parseEnv } from 'node:util';
 
 export type Exec = (cmd: string, args: string[]) => string;
 
 /** The Windows folder the extension is installed to, as a WSL path. */
 export function windowsExtensionDir(exec: Exec): string {
   const win = exec('cmd.exe', ['/c', 'echo %LOCALAPPDATA%']).trim();
-  if (!win) throw new Error('could not read %LOCALAPPDATA% from Windows');
+  // An unset variable is echoed back literally.
+  if (!/^[A-Za-z]:\\/.test(win)) {
+    throw new Error(
+      `could not read %LOCALAPPDATA% from Windows (got "${win}")`,
+    );
+  }
   const local = exec('wslpath', ['-u', win]).trim();
+  if (!isAbsolute(local)) {
+    throw new Error(`wslpath gave a non-absolute path for "${win}"`);
+  }
   return join(local, '10xapply', 'bridge-extension');
 }
-
-const TOKEN_LINE = /^RUNNER_BRIDGE_TOKEN=(.*)$/m;
 
 /** Reuses RUNNER_BRIDGE_TOKEN from envFile, or writes a new one. */
 export function ensureToken(envFile: string): string {
   const text = existsSync(envFile) ? readFileSync(envFile, 'utf8') : '';
-  const existing = TOKEN_LINE.exec(text)?.[1]
-    ?.trim()
-    .replace(/^["']|["']$/g, '');
+  // Same parser as loadConfig, so both sides see the same token.
+  const existing = parseEnv(text).RUNNER_BRIDGE_TOKEN;
   if (existing) return existing;
   const token = randomBytes(32).toString('base64url');
   const prefix = text === '' || text.endsWith('\n') ? '' : '\n';

@@ -1,7 +1,7 @@
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { ConfigError, loadConfig } from './config.js';
+import { ConfigError, loadConfig, resolveRelayPort } from './config.js';
 
 function envFile(text: string): string {
   const file = join(mkdtempSync(join(tmpdir(), 'cfg-')), 'runner-env-test');
@@ -41,5 +41,25 @@ describe('loadConfig', () => {
   it('rejects a bad port', () => {
     const f = envFile('RUNNER_BRIDGE_TOKEN=a\nRUNNER_RELAY_PORT=nope\n');
     expect(() => loadConfig({}, f)).toThrow(ConfigError);
+  });
+});
+
+describe('resolveRelayPort', () => {
+  it('reads a port set only in the file', () => {
+    expect(resolveRelayPort({}, envFile('RUNNER_RELAY_PORT=9555\n'))).toBe(
+      9555,
+    );
+  });
+  it('defaults, lets env win, and rejects a bad value', () => {
+    expect(resolveRelayPort({}, envFile(''))).toBe(9333);
+    expect(
+      resolveRelayPort(
+        { RUNNER_RELAY_PORT: '9600' },
+        envFile('RUNNER_RELAY_PORT=9555\n'),
+      ),
+    ).toBe(9600);
+    expect(() =>
+      resolveRelayPort({}, envFile('RUNNER_RELAY_PORT=nope\n')),
+    ).toThrow(ConfigError);
   });
 });

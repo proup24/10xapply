@@ -24,25 +24,41 @@ export class ConfigError extends Error {
 
 export const DEFAULT_RELAY_PORT = 9333;
 
-export function loadConfig(
-  env: NodeJS.ProcessEnv = process.env,
-  envFile: string = ENV_FILE,
-): RunnerConfig {
+function mergedEnv(env: NodeJS.ProcessEnv, envFile: string) {
   // Like process.loadEnvFile, but into a copy: variables already set win.
   const file = existsSync(envFile)
     ? parseEnv(readFileSync(envFile, 'utf8'))
     : {};
-  const merged = { ...file, ...env };
+  return { ...file, ...env };
+}
+
+function portFrom(merged: NodeJS.ProcessEnv): number {
+  const raw = merged.RUNNER_RELAY_PORT;
+  const port = raw ? Number(raw) : DEFAULT_RELAY_PORT;
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    throw new ConfigError(`invalid RUNNER_RELAY_PORT: ${raw}`);
+  }
+  return port;
+}
+
+/** The relay port, resolved exactly as loadConfig does. */
+export function resolveRelayPort(
+  env: NodeJS.ProcessEnv = process.env,
+  envFile: string = ENV_FILE,
+): number {
+  return portFrom(mergedEnv(env, envFile));
+}
+
+export function loadConfig(
+  env: NodeJS.ProcessEnv = process.env,
+  envFile: string = ENV_FILE,
+): RunnerConfig {
+  const merged = mergedEnv(env, envFile);
   const token = merged.RUNNER_BRIDGE_TOKEN;
   if (!token) {
     throw new ConfigError(
       'no bridge token: run `pnpm nx run runner:bridge-install` first',
     );
   }
-  const raw = merged.RUNNER_RELAY_PORT;
-  const relayPort = raw ? Number(raw) : DEFAULT_RELAY_PORT;
-  if (!Number.isInteger(relayPort) || relayPort < 1 || relayPort > 65535) {
-    throw new ConfigError(`invalid RUNNER_RELAY_PORT: ${raw}`);
-  }
-  return { relayPort, token };
+  return { relayPort: portFrom(merged), token };
 }

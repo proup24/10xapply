@@ -8,7 +8,7 @@ import {
   windowsExtensionDir,
   type Exec,
 } from '../bridge/install.js';
-import { ENV_FILE, loadConfig, DEFAULT_RELAY_PORT } from '../config.js';
+import { ENV_FILE, loadConfig, resolveRelayPort } from '../config.js';
 
 const realExec: Exec = (cmd, args) =>
   execFileSync(cmd, args, { encoding: 'utf8' });
@@ -25,7 +25,7 @@ const SOURCE_DIR = join(
 
 export function bridgeInstall(exec: Exec = realExec): number {
   const token = ensureToken(ENV_FILE);
-  const port = Number(process.env.RUNNER_RELAY_PORT) || DEFAULT_RELAY_PORT;
+  const port = resolveRelayPort();
   const targetDir = windowsExtensionDir(exec);
   installExtension({ sourceDir: SOURCE_DIR, targetDir, port, token });
   const winPath = exec('wslpath', ['-w', targetDir]).trim();
