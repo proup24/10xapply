@@ -10,8 +10,13 @@ import {
 } from '../bridge/install.js';
 import { ENV_FILE, loadConfig, resolveRelayPort } from '../config.js';
 
+// cmd.exe warns "UNC paths are not supported" when started from a WSL
+// folder, so it runs from the Windows drive instead.
 const realExec: Exec = (cmd, args) =>
-  execFileSync(cmd, args, { encoding: 'utf8' });
+  execFileSync(cmd, args, {
+    encoding: 'utf8',
+    cwd: cmd === 'cmd.exe' ? '/mnt/c' : undefined,
+  });
 
 /** apps/bridge-extension/src, resolved from this file, not the cwd. */
 const SOURCE_DIR = join(
