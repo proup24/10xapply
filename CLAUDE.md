@@ -30,7 +30,7 @@ Failure even if it technically works:
 
 ## Stack
 
-- Nx 24 monorepo with pnpm, TypeScript strict with nodenext. The workspace is empty so far.
+- Nx 24 monorepo with pnpm, TypeScript strict with nodenext. Two apps so far: the runner (`apps/runner`, a Node CLI) and the bridge extension (`apps/bridge-extension`, plain-JS MV3).
 - Expected, mirroring 10xjobs, **not built yet**: NestJS API (webhook intake) and workers (browser runs), Next.js web app, Supabase (Auth and Postgres with per-user row-level security), Prisma, Redis queues, LLMs through OpenRouter, browsers on our own server. Each piece is decided in its own slice.
 - **Set up** (slice 02): ESLint, Vitest and Prettier, all run through Nx.
 - **Set up** (slice 03): Patchright (Playwright API) through our own bridge extension in the author's everyday Chrome (`apps/bridge-extension`, and the runner in `apps/runner`).
@@ -73,7 +73,7 @@ See [docs/roadmap/README.md](docs/roadmap/README.md): phases, slice order and th
 - Claude may start a `--dry-run` against a real job only when the author asks in that session, and only a few a day.
 - `guard.mjs` blocks runner launches without `--dry-run` (after the target or file, not in front of it). In `guard.mjs`, `RUNNER_NAME = 'runner'` and `RUNNER_SAFE_SUBCOMMANDS = ['bridge', 'bridge-install', 'bridge-check', 'bot-check', 'session']`.
 - Claude may run `runner:session` only when the author asks in that session. `bridge-install`, `bridge-check` and `bot-check` never touch LinkedIn and need no ask.
-- No scripts run in LinkedIn's page; the runner reads through locators only. An ESLint rule in `apps/runner` bans `evaluate`, `evaluateHandle`, `$eval`, `$$eval`, `evaluateAll`, `exposeFunction`, `exposeBinding` and `addInitScript`. The relay and extension also refuse cookie and storage reads, `Browser.close`, `Runtime.addBinding`, and `Page.addScriptToEvaluateOnNewDocument` (except Patchright's own empty-source utility-world script).
+- No scripts run in LinkedIn's page; the runner reads through locators only. An ESLint rule in `apps/runner` bans `evaluate`, `evaluateHandle`, `$eval`, `$$eval`, `evaluateAll`, `exposeFunction`, `exposeBinding` and `addInitScript`. The relay and extension also refuse cookie and storage reads, `Browser.close`, `Runtime.addBinding`, and `Page.addScriptToEvaluateOnNewDocument` (except Patchright's own empty-source utility-world script). On a run tab's sessions they pass only three `Target.*` methods: `setAutoAttach`, `detachFromTarget` and `getTargetInfo`.
 - From slice 07, a real submit also asks for a typed confirmation at the keyboard. Slice 14 removes that prompt when the runner goes unattended, and relaxes the guard's runner rule.
 
 <!-- nx configuration start-->
