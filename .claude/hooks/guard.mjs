@@ -353,6 +353,7 @@ export const RUNNER_SAFE_SUBCOMMANDS = [
   'pace-practice',
   'pace-compare',
   'bot-check',
+  'bot-check-repeat',
   'session',
 ];
 export const DEV_TARGETS = ['build', 'test', 'lint', 'typecheck'];

@@ -72,6 +72,18 @@ describe('extractMeasures on the made-up LinkedIn application', () => {
     expect(m.pageToFirstAction).toEqual([1160]);
   });
 
+  it('readDwell falls back to the first recorded event when there are no description events', () => {
+    const noDesc = structuredClone(app);
+    for (const e of noDesc.events) delete e.target.inDescription;
+    for (const p of noDesc.pages) (p as { desc?: unknown }).desc = undefined;
+    const first = Math.min(...noDesc.events.map((e) => e.t));
+    const r = extractMeasures([noDesc]);
+    // Apply's press is where the original read ends: 3000 + 4200.
+    expect(r.readDwell).toEqual([7200 - first]);
+    expect(r.readChars).toEqual([]);
+    expect(r.models.reading).toEqual([{ chars: null, dwell: 7200 - first }]);
+  });
+
   it('wheel gaps, bursts and deltas', () => {
     expect(m.wheelGap).toEqual([120, 140, 100]);
     expect(m.wheelBurst).toEqual([3, 2]);

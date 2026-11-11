@@ -433,6 +433,7 @@ test('runner (real name): safe commands pass', () => {
   for (const command of [
     'pnpm nx run runner:session',
     'pnpm nx run runner:bot-check',
+    'pnpm nx run runner:bot-check-repeat',
     'pnpm nx run runner:bridge-install',
     'pnpm nx run runner:bridge-check',
     'pnpm nx run runner:bridge-check-crash',

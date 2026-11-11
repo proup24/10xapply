@@ -10,6 +10,8 @@ import type { PageInfo, RecordedEvent, Recording } from './recording.js';
 
 export const MEASURE_NAMES = [
   'pageToFirstAction',
+  // readDwell: first description event to Apply's press; with no description
+  // events (LinkedIn's newer layout), the job's first event to Apply's press.
   'readDwell',
   'readChars',
   'expandRate',
@@ -359,11 +361,14 @@ function measureApplication(
       ? applyDown.t
       : events[first].t;
 
-  // Reading: from the first description-phase event to Apply's press.
-  const firstRead = events.find(
-    (e) =>
-      e.t < applyT && phaseOf(e, rec.pages, context).phase === 'description',
-  );
+  // Reading: from the first description-phase event to Apply's press. A
+  // layout with no description element has no such events; then it runs from
+  // the job's first recorded event instead, and `chars` stays null.
+  const firstRead =
+    events.find(
+      (e) =>
+        e.t < applyT && phaseOf(e, rec.pages, context).phase === 'description',
+    ) ?? (events[0] && events[0].t < applyT ? events[0] : undefined);
   if (firstRead) {
     const dwell = applyT - firstRead.t;
     const page = [...rec.pages]
