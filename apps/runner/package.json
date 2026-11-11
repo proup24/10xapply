@@ -1,0 +1,47 @@
+{
+  "name": "@xapply/runner",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "nx": {
+    "targets": {
+      "session": {
+        "executor": "nx:run-commands",
+        "options": {
+          "cwd": "apps/runner",
+          "command": "tsx src/main.ts session"
+        }
+      },
+      "bot-check": {
+        "executor": "nx:run-commands",
+        "options": {
+          "cwd": "apps/runner",
+          "command": "tsx src/main.ts bot-check"
+        }
+      },
+      "bridge-install": {
+        "executor": "nx:run-commands",
+        "options": {
+          "cwd": "apps/runner",
+          "command": "tsx src/main.ts bridge install"
+        }
+      },
+      "bridge-check": {
+        "executor": "nx:run-commands",
+        "options": {
+          "cwd": "apps/runner",
+          "command": "tsx src/main.ts bridge check"
+        }
+      }
+    }
+  },
+  "dependencies": {
+    "patchright-core": "1.64.3",
+    "ws": "^8.22.2"
+  },
+  "devDependencies": {
+    "@types/ws": "^8.18.1",
+    "linkedom": "^0.18.15",
+    "tsx": "^4.23.15"
+  }
+}
