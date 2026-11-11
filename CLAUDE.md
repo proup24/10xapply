@@ -48,7 +48,16 @@ Build in small slices, one per session: brainstorm, then spec (`docs/superpowers
 - `pnpm nx run runner:bridge-install` copies the bridge extension to the Windows side and creates the token.
 - `pnpm nx run runner:bridge-check` starts the relay and opens and closes one blank window. It never touches LinkedIn.
 - `pnpm nx run runner:bot-check` loads three public bot-detection pages and prints a pass/fail table. It never touches LinkedIn.
+- `pnpm nx run runner:bot-check-repeat` runs `bot-check` three times in a row and records the runs. It never touches LinkedIn.
+- `pnpm nx run runner:bridge-check-crash` runs the bridge check and then simulates a crash, to confirm the run window closes. It never touches LinkedIn.
+- `pnpm nx run runner:pace-record` records the author's own timing while they browse by hand. It only listens.
+- `pnpm nx run runner:pace-record-typing` serves a local page of text boxes so the author can record typing gaps. The text is never kept.
+- `pnpm nx run runner:pace-summary` prints how much recorded data there is per pace input, and "enough" or "short" for each.
+- `pnpm nx run runner:pace-build` builds the pace profile from the recordings.
+- `pnpm nx run runner:pace-practice` has the runner fill the local practice page five times, recorded for the comparison.
+- `pnpm nx run runner:pace-compare` compares the runner's recordings with the author's and writes a report.
 - `pnpm nx run runner:session` loads LinkedIn's feed once and reports whether the session is signed in.
+- `bridge-install` also copies a 1-byte practice PDF next to the extension, for the upload check.
 - The runner's local config (the token, and an optional `RUNNER_RELAY_PORT`, default 9333) lives in the untracked `apps/runner/.env.local`, written by `bridge-install`.
 - CI runs `nx affected` for lint, test, build and typecheck, and only on code changes.
 
@@ -63,6 +72,8 @@ See [docs/roadmap/README.md](docs/roadmap/README.md): phases, slice order and th
 - Credentials go only in untracked `.env*` files; personal data (resumes, facts) only in the untracked `private/` folder. Never commit either.
 - Never commit or log LinkedIn session cookies or proxy credentials.
 - `run-reports/` holds redacted run reports (no personal facts, no cookies). It is git-ignored and Claude may read it.
+- `pace-recordings/` holds timing-only recordings and the pace profile. It is git-ignored, Claude may read it, and it is never committed.
+- Known guard false positive: any Bash command whose text names the `pace-recordings/runner/` folder is blocked as a runner launch. Use a glob.
 - Personal overrides go in `.claude/settings.local.json`.
 - Prettier runs automatically on files Claude edits or writes.
 
@@ -71,9 +82,14 @@ See [docs/roadmap/README.md](docs/roadmap/README.md): phases, slice order and th
 - The author runs every real submit and takes over when a form goes wrong.
 - Claude debugs from `run-reports/` and from scrubbed page snapshots committed as fixtures.
 - Claude may start a `--dry-run` against a real job only when the author asks in that session, and only a few a day.
-- `guard.mjs` blocks runner launches without `--dry-run` (after the target or file, not in front of it). In `guard.mjs`, `RUNNER_NAME = 'runner'` and `RUNNER_SAFE_SUBCOMMANDS = ['bridge', 'bridge-install', 'bridge-check', 'bot-check', 'session']`.
-- Claude may run `runner:session` only when the author asks in that session. `bridge-install`, `bridge-check` and `bot-check` never touch LinkedIn and need no ask.
+- `guard.mjs` blocks runner launches without `--dry-run` (after the target or file, not in front of it). In `guard.mjs`, `RUNNER_NAME = 'runner'` and `RUNNER_SAFE_SUBCOMMANDS = ['bridge', 'bridge-install', 'bridge-check', 'bridge-check-crash', 'pace', 'pace-record', 'pace-record-typing', 'pace-summary', 'pace-build', 'pace-practice', 'pace-compare', 'bot-check', 'bot-check-repeat', 'session']`.
+- Claude may run `runner:session` only when the author asks in that session. Every other safe subcommand (the bridge, `pace` and bot-check ones) never touches LinkedIn and needs no ask.
 - No scripts run in LinkedIn's page; the runner reads through locators only. An ESLint rule in `apps/runner` bans `evaluate`, `evaluateHandle`, `$eval`, `$$eval`, `evaluateAll`, `exposeFunction`, `exposeBinding` and `addInitScript`. The relay and extension also refuse cookie and storage reads, `Browser.close`, `Runtime.addBinding`, and `Page.addScriptToEvaluateOnNewDocument` (except Patchright's own empty-source utility-world script). On a run tab's sessions they pass only three `Target.*` methods: `setAutoAttach`, `detachFromTarget` and `getTargetInfo`.
+- Only `apps/runner/src/pace/` may click, type, scroll or move the mouse; ESLint bans input methods elsewhere.
+- The runner's file uploads go through the relay (`DOM.setFileInputFiles` on a Windows-side path), not Patchright's setFiles.
+- The recorder's LinkedIn match is `https://www.linkedin.com/*`, because LinkedIn is a single-page app. It records only on `/jobs/` paths.
+- The recorder captures timing and event shape plus numbers only (target box size, press offset, option counts, description length, window geometry). It never captures text or keys.
+- The recorder's content script exists only while a recording command runs.
 - From slice 07, a real submit also asks for a typed confirmation at the keyboard. Slice 14 removes that prompt when the runner goes unattended, and relaxes the guard's runner rule.
 
 <!-- nx configuration start-->
