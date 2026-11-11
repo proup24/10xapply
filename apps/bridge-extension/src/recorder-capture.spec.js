@@ -10,6 +10,7 @@ const {
   jobIdOf,
   jobKeyOf,
   findDescEl,
+  makeRecorder,
 } = globalThis.__paceCapture;
 
 function dom(html, pathname = '/jobs/view/4012345678/') {
@@ -379,5 +380,308 @@ describe('pageInfo', () => {
     const info = pageInfo(fakeWin, document, el);
     expect(info.desc).toEqual({ chars: 11, height: 321 });
     expect(JSON.stringify(info)).not.toContain('Hello');
+  });
+});
+
+// A fake event that crosses shadow roots the way a real one does: target is
+// retargeted to the outermost host, composedPath()[0] is the real target.
+function composedEv(type, real, extra = {}) {
+  const path = [];
+  for (let n = real; n;) {
+    path.push(n);
+    if (n.parentNode) n = n.parentNode;
+    else n = n.host ?? null;
+  }
+  let target = real;
+  for (const n of path) if (n.host) target = n.host;
+  return { ...ev(type, target, extra), composedPath: () => path };
+}
+
+function shadowDom(
+  inner,
+  outer = '<div role="dialog"><div id="host"></div></div>',
+) {
+  const d = dom(outer);
+  const root = d.document.getElementById('host').attachShadow({ mode: 'open' });
+  root.innerHTML = inner;
+  return { ...d, root };
+}
+
+describe('shadow DOM', () => {
+  it('a target inside an open shadow root in a dialog gives dialog, kind and shadow', () => {
+    const { root, ctxOf } = shadowDom('<button><span>Next</span></button>');
+    const out = capture(
+      composedEv('click', root.querySelector('span')),
+      ctxOf,
+      null,
+    );
+    expect(out.target.kind).toBe('button');
+    expect(out.target.shadow).toBe(true);
+    expect(out.ctx.dialog).toBe(true);
+    expect(JSON.stringify(out)).not.toContain('Next');
+  });
+
+  it('a light-DOM target has no shadow field', () => {
+    const { document, ctxOf } = dom('<button>b</button>');
+    const out = capture(
+      composedEv('click', document.querySelector('button')),
+      ctxOf,
+      null,
+    );
+    expect(out.target).not.toHaveProperty('shadow');
+  });
+
+  it('a dialog inside the shadow root counts too', () => {
+    const { root, ctxOf } = shadowDom(
+      '<div aria-modal="true"><input type="text"></div>',
+      '<div id="host"></div>',
+    );
+    const out = capture(
+      composedEv('focusin', root.querySelector('input')),
+      ctxOf,
+      null,
+    );
+    expect(out.target.kind).toBe('text');
+    expect(out.ctx.dialog).toBe(true);
+  });
+
+  it('dialog[open] and [role=alertdialog] are dialogs', () => {
+    const { document, ctxOf } = dom(
+      '<dialog open><button>a</button></dialog><div role="alertdialog"><button>b</button></div>',
+    );
+    for (const b of document.querySelectorAll('button'))
+      expect(capture(ev('click', b), ctxOf, null).ctx.dialog).toBe(true);
+  });
+
+  it('inDescription crosses shadow roots', () => {
+    const { document, ctxOf } = dom(
+      '<div id="job-details"><div id="host"></div></div>',
+    );
+    const root = document.getElementById('host').attachShadow({ mode: 'open' });
+    root.innerHTML = '<a>x</a>';
+    const out = capture(
+      composedEv('click', root.querySelector('a')),
+      ctxOf,
+      findDescEl(document),
+    );
+    expect(out.target.inDescription).toBe(true);
+  });
+
+  it('radio groups count within the shadow root', () => {
+    const { root, ctxOf } = shadowDom(
+      '<input type="radio" name="g"><input type="radio" name="g">',
+    );
+    const r = root.querySelectorAll('input')[1];
+    expect(capture(composedEv('change', r), ctxOf, null).target).toMatchObject({
+      kind: 'radio',
+      options: 2,
+      picked: 1,
+    });
+  });
+});
+
+describe('progress', () => {
+  it('a <progress value=50 max=100> in the dialog gives 50', () => {
+    const { document, ctxOf } = dom(
+      '<div role="dialog"><progress value="50" max="100"></progress><button>n</button></div>',
+    );
+    expect(
+      capture(ev('click', document.querySelector('button')), ctxOf, null).ctx
+        .progress,
+    ).toBe(50);
+  });
+
+  it('a <progress> without max uses max 1', () => {
+    const { document, ctxOf } = dom(
+      '<div role="dialog"><progress value="0.25"></progress><button>n</button></div>',
+    );
+    expect(
+      capture(ev('click', document.querySelector('button')), ctxOf, null).ctx
+        .progress,
+    ).toBe(25);
+  });
+
+  it("a progress in the dialog host's shadow tree counts", () => {
+    const { document, ctxOf } = dom('<div role="dialog" id="d"></div>');
+    const root = document.getElementById('d').attachShadow({ mode: 'open' });
+    root.innerHTML =
+      '<progress value="3" max="4"></progress><button>n</button>';
+    expect(
+      capture(composedEv('click', root.querySelector('button')), ctxOf, null)
+        .ctx.progress,
+    ).toBe(75);
+  });
+});
+
+describe('findDescEl', () => {
+  it('tries the selectors in order', () => {
+    expect(
+      findDescEl(
+        dom('<article></article><div class="x-job-details-y"></div>').document,
+      ).tagName,
+    ).toBe('DIV');
+    expect(
+      findDescEl(
+        dom(
+          '<article></article><section data-testid="JobDescription"></section>',
+        ).document,
+      ).tagName,
+    ).toBe('SECTION');
+  });
+
+  it('searches the given shadow roots', () => {
+    const { root, document } = shadowDom('<div id="job-details">x</div>');
+    expect(findDescEl(document)).toBeNull();
+    expect(findDescEl(document, [root])).toBe(root.firstChild);
+  });
+});
+
+describe('makeRecorder', () => {
+  function setup(
+    html = '<button>b</button>',
+    path = '/jobs/search-results/',
+    search = '?currentJobId=111111',
+    hash = async (id) => `k${id}`,
+  ) {
+    const d = dom(html, path);
+    d.fakeWin.location.hostname = 'www.linkedin.com';
+    d.fakeWin.location.search = search;
+    const rec = makeRecorder({
+      win: d.fakeWin,
+      doc: d.document,
+      pageId: 'p1',
+      hash,
+    });
+    return { ...d, rec, loc: d.fakeWin.location };
+  }
+
+  it('captures nothing off /jobs/ on linkedin', async () => {
+    const { rec, loc, document } = setup('<button>b</button>', '/feed/', '');
+    rec.onEvent(ev('click', document.querySelector('button')));
+    expect(await rec.flush()).toEqual([]);
+    expect(rec.flushNow()).toEqual([]);
+    loc.pathname = '/jobs/collections/';
+    rec.onEvent(ev('click', document.querySelector('button')));
+    const batches = await rec.flush();
+    expect(batches).toHaveLength(1);
+    expect(batches[0].events).toHaveLength(1);
+  });
+
+  it('captures on the other recorder pages whatever the path', async () => {
+    const { rec, loc, document } = setup(
+      '<button>b</button>',
+      '/practice',
+      '?run=r1',
+    );
+    loc.hostname = '127.0.0.1';
+    rec.onEvent(ev('click', document.querySelector('button')));
+    const [b] = await rec.flush();
+    expect(b).toMatchObject({ pageId: 'p1', jobKey: 'kr1' });
+    expect(b.events).toHaveLength(1);
+  });
+
+  it('sends a page first, then again on a jobKey change', async () => {
+    const { rec, loc } = setup();
+    const first = await rec.flush();
+    expect(first).toHaveLength(1);
+    expect(first[0]).toMatchObject({ jobKey: 'k111111', events: [] });
+    expect(first[0].page.ctx.path).toBe('/jobs/search-results/');
+    expect(await rec.flush()).toEqual([]);
+    loc.search = '?currentJobId=222222';
+    const second = await rec.flush();
+    expect(second).toHaveLength(1);
+    expect(second[0].jobKey).toBe('k222222');
+    expect(second[0].page).toBeDefined();
+  });
+
+  it('sends a page again on a path pattern change', async () => {
+    const { rec, loc } = setup('', '/jobs/view/4012345678/', '');
+    await rec.flush();
+    loc.pathname = '/jobs/view/4012345678/apply/';
+    const [b] = await rec.flush();
+    expect(b.page.ctx.path).toBe('/jobs/view/:id/apply/');
+  });
+
+  it('sends a page when the description appears, and finds it again each flush', async () => {
+    const { rec, document } = setup('<div id="pane"></div>');
+    const [first] = await rec.flush();
+    expect(first.page.desc).toBeNull();
+    const desc = document.createElement('div');
+    desc.setAttribute('id', 'job-details');
+    desc.textContent = 'About the job';
+    desc.getBoundingClientRect = () => ({ height: 400 });
+    document.getElementById('pane').appendChild(desc);
+    const [second] = await rec.flush();
+    expect(second.page.desc).toEqual({ chars: 13, height: 400 });
+    expect(JSON.stringify(second)).not.toContain('About');
+    expect(await rec.flush()).toEqual([]);
+    desc.getBoundingClientRect = () => ({ height: 600 });
+    const [third] = await rec.flush();
+    expect(third.page.desc.height).toBe(600);
+  });
+
+  it('finds a description inside a shadow root seen on an event path', async () => {
+    const { rec, document } = setup('<div id="host"></div>');
+    const root = document.getElementById('host').attachShadow({ mode: 'open' });
+    root.innerHTML = '<div class="jobs-description__content">x</div><a>y</a>';
+    root.firstChild.getBoundingClientRect = () => ({ height: 50 });
+    const [first] = await rec.flush();
+    expect(first.page.desc).toBeNull();
+    rec.onEvent(composedEv('pointermove', root.querySelector('a')));
+    const [second] = await rec.flush();
+    expect(second.page.desc).toEqual({ chars: 1, height: 50 });
+    expect(second.events[0].target.shadow).toBe(true);
+  });
+
+  it('splits a batch whose events straddle a job change', async () => {
+    const { rec, loc, document } = setup();
+    await rec.flush();
+    const b = document.querySelector('button');
+    rec.onEvent(ev('click', b));
+    loc.search = '?currentJobId=222222';
+    rec.onEvent(ev('click', b));
+    rec.onEvent(ev('keydown', b, { key: 'x' }));
+    const batches = await rec.flush();
+    expect(batches.map((x) => [x.jobKey, x.events.length, !!x.page])).toEqual([
+      ['k111111', 1, false],
+      ['k222222', 2, true],
+    ]);
+  });
+
+  it('flushNow sends cached keys only, split by job', async () => {
+    const { rec, loc, document } = setup();
+    await rec.flush();
+    const b = document.querySelector('button');
+    rec.onEvent(ev('click', b));
+    loc.search = '?currentJobId=333333';
+    rec.onEvent(ev('click', b));
+    expect(rec.flushNow().map((x) => [x.jobKey, x.events.length])).toEqual([
+      ['k111111', 1],
+      [null, 1],
+    ]);
+    expect(rec.flushNow()).toEqual([]);
+  });
+
+  it('the batches carry no text, ids or classes', async () => {
+    const { rec, root } = (() => {
+      const s = setup(
+        '<div role="dialog" class="secret-cls"><div id="host"></div></div><div id="job-details">Secret words</div>',
+        '/jobs/search-results/',
+        '?currentJobId=111111',
+        (id) => jobKeyOf('salt', id),
+      );
+      const root = s.document
+        .getElementById('host')
+        .attachShadow({ mode: 'open' });
+      root.innerHTML =
+        '<label>Secret label<input type="text" id="secret-id" value="Secret value"></label>';
+      return { ...s, root };
+    })();
+    const input = root.querySelector('input');
+    input.value = 'Secret value';
+    rec.onEvent(composedEv('focusin', input));
+    rec.onEvent(composedEv('keydown', input, { key: 'S' }));
+    const json = JSON.stringify(await rec.flush());
+    expect(json).not.toMatch(/secret|Secret|111111|"S"/);
   });
 });

@@ -16,6 +16,7 @@ export interface Target {
   options?: number; // select / radio group
   picked?: number; // on change
   inDescription?: boolean; // inside the measured description element
+  shadow?: boolean; // true when the real target is inside a shadow root
   w?: number; // target box width, CSS px, integer (down/up/click/pointerover)
   h?: number; // target box height, CSS px, integer
 }

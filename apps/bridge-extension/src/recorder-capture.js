@@ -1,6 +1,11 @@
-// Pure capture helpers for the timing recorder. They turn DOM events into
-// timing-and-shape records. They never copy typed text, key values, page
-// text, labels, option labels, element ids or classes, or full URLs.
+// Capture helpers for the timing recorder. They turn DOM events into
+// timing-and-shape records, and makeRecorder batches them per job. They never
+// copy typed text, key values, page text, labels, option labels, element ids
+// or classes, or full URLs. They only read the DOM, never write to it.
+//
+// LinkedIn renders parts of the job pane and the Easy Apply modal inside open
+// shadow roots, so the real target is composedPath()[0] and every ancestor
+// walk crosses shadow roots (closestAcross).
 //
 // This file is a classic content script (content scripts cannot import ESM)
 // and is also imported by Vitest. Either way it exposes its functions on one
@@ -11,6 +16,7 @@
 //     pointerType?, dy?, dm?, key?: 'space'|'backspace'|'other',
 //     ox?, oy?,  (press point inside the target box, 0..1, 3 decimals)
 //     target: { kind, hasValue?, options?, picked?, inDescription?,
+//       shadow?,  (true when the real target is inside a shadow root)
 //       w?, h? },  (target box size, CSS px, integers)
 //     ctx: { path, dialog, progress } }
 //   PageInfo { t, ctx, desc: { chars, height } | null, win, screen, dpr }
@@ -34,11 +40,43 @@
   const DESC_SELECTORS = [
     '#job-details',
     '[class*="jobs-description"]',
+    '[class*="job-details"]',
+    '[data-testid*="description" i]',
     'article',
   ];
   const INTERACTIVE = 'a,button,[role="button"],input,textarea,select';
+  const DIALOG =
+    '[role="dialog"],[role="alertdialog"],dialog[open],[aria-modal="true"]';
 
   const isElement = (n) => !!n && typeof n.tagName === 'string';
+  const isShadowRoot = (n) => !!n && n.nodeType === 11 && isElement(n.host);
+
+  /** The parent element, stepping from a shadow root's top to its host. */
+  function parentAcross(el) {
+    if (el.parentElement) return el.parentElement;
+    const root = el.getRootNode?.();
+    return isShadowRoot(root) ? root.host : null;
+  }
+
+  /** Like el.closest(), but crosses open shadow roots. `test` is a selector or a predicate. */
+  function closestAcross(el, test) {
+    const match = typeof test === 'string' ? (n) => n.matches(test) : test;
+    for (let n = el; n; n = parentAcross(n)) if (match(n)) return n;
+    return null;
+  }
+
+  /** The element the event really hit: composedPath()[0], not the retargeted host. */
+  function realTarget(event) {
+    const path =
+      typeof event.composedPath === 'function' ? event.composedPath() : [];
+    return isElement(path[0]) ? path[0] : event.target;
+  }
+
+  /** True when this page may be recorded: on LinkedIn, only under /jobs/. Checked per event. */
+  function recordable(loc) {
+    if (loc.hostname !== 'www.linkedin.com') return true;
+    return String(loc.pathname ?? '').startsWith('/jobs/');
+  }
 
   /** Path with the query and hash dropped and id-like segments as :id. */
   function pathPattern(pathname) {
@@ -69,32 +107,44 @@
       .slice(0, 12);
   }
 
-  function findDescEl(doc) {
+  /** The job description element in the document or the given shadow roots, or null. */
+  function findDescEl(doc, roots = []) {
     for (const sel of DESC_SELECTORS) {
-      const el = doc.querySelector(sel);
-      if (el) return el;
+      for (const scope of [doc, ...roots]) {
+        const el = scope.querySelector(sel);
+        if (el) return el;
+      }
     }
     return null;
   }
 
-  /** ctxOf(target) => { path, dialog, progress } for an event target. */
+  /** Percent done of the dialog's progress bar (light DOM or its shadow tree), or null. */
+  function progressOf(dialog) {
+    for (const scope of [dialog, dialog.shadowRoot]) {
+      if (!scope) continue;
+      const bar = scope.querySelector('[role="progressbar"][aria-valuenow]');
+      const now = Number(bar?.getAttribute('aria-valuenow'));
+      if (bar && Number.isFinite(now)) return now;
+      const meter = scope.querySelector('progress[value]');
+      const value = Number(meter?.getAttribute('value'));
+      if (meter && Number.isFinite(value)) {
+        const max = Number(meter.getAttribute('max'));
+        return Math.round((value / (max || 1)) * 100);
+      }
+    }
+    return null;
+  }
+
+  /** ctxOf(target) => { path, dialog, progress } for an event's real target. */
   function makeCtxOf(win) {
     return (target) => {
       const path = pathPattern(win.location.pathname);
-      const dialog = isElement(target)
-        ? (target.closest('[role="dialog"]') ?? null)
-        : null;
-      let progress = null;
-      const bar = dialog?.querySelector('[role="progressbar"]');
-      const now = Number(bar?.getAttribute('aria-valuenow'));
-      if (
-        bar &&
-        bar.getAttribute('aria-valuenow') !== null &&
-        Number.isFinite(now)
-      ) {
-        progress = now;
-      }
-      return { path, dialog: dialog !== null, progress };
+      const dialog = isElement(target) ? closestAcross(target, DIALOG) : null;
+      return {
+        path,
+        dialog: dialog !== null,
+        progress: dialog ? progressOf(dialog) : null,
+      };
     };
   }
 
@@ -118,7 +168,8 @@
   }
 
   function radioGroup(el) {
-    const root = el.form ?? el.ownerDocument;
+    const tree = el.getRootNode?.();
+    const root = el.form ?? (isShadowRoot(tree) ? tree : el.ownerDocument);
     const name = el.getAttribute('name');
     return [...root.querySelectorAll('input')].filter(
       (i) =>
@@ -132,7 +183,7 @@
 
   /** The interactive element an event targets, or null for a non-element. */
   const interactiveOf = (raw) =>
-    isElement(raw) ? (raw.closest(INTERACTIVE) ?? raw) : null;
+    isElement(raw) ? (closestAcross(raw, INTERACTIVE) ?? raw) : null;
 
   /** Box size and press offset: numbers only, and only for the listed types. */
   function boxOf(el, event) {
@@ -154,7 +205,7 @@
 
   function targetOf(raw, type, descEl) {
     if (!isElement(raw)) return { kind: 'other' };
-    const el = raw.closest(INTERACTIVE) ?? raw;
+    const el = interactiveOf(raw);
     const kind = kindOf(el);
     const target = { kind };
     if (
@@ -171,7 +222,9 @@
       target.options = group.length;
       if (type === 'change') target.picked = group.indexOf(el);
     }
-    if (descEl?.contains(el)) target.inDescription = true;
+    if (descEl && closestAcross(el, (n) => n === descEl))
+      target.inDescription = true;
+    if (isShadowRoot(raw.getRootNode?.())) target.shadow = true;
     return target;
   }
 
@@ -204,9 +257,10 @@
     } else if (type === 'keydown' || type === 'keyup') {
       out.key = keyClass(event.key);
     }
-    out.target = targetOf(event.target, type, descEl);
+    const raw = realTarget(event);
+    out.target = targetOf(raw, type, descEl);
     if (BOX_TYPES.test(type)) {
-      const el = interactiveOf(event.target);
+      const el = interactiveOf(raw);
       const box = el ? boxOf(el, event) : null;
       if (box) {
         out.target.w = box.w;
@@ -217,7 +271,7 @@
         }
       }
     }
-    out.ctx = ctxOf(event.target);
+    out.ctx = ctxOf(raw);
     return out;
   }
 
@@ -248,6 +302,125 @@
     };
   }
 
+  /**
+   * The recorder's state for one document: buffers captured events with the
+   * job id current when each was captured, and turns them into batches split
+   * by job. A page record goes out first, and again when the path pattern or
+   * the job changes, when the description appears, or when its height changes
+   * by more than 20%. The description is looked up again on every flush, in
+   * the document and in the open shadow roots that recent events passed
+   * through (at most MAX_ROOTS). `hash(id)` gives the jobKey for a job id; job
+   * ids never leave this object.
+   */
+  function makeRecorder({ win, doc, pageId, hash }) {
+    const MAX_BUFFER = 5000;
+    const MAX_ROOTS = 8;
+    const MAX_KEYS = 200;
+    const ctxOf = makeCtxOf(win);
+    const keys = new Map(); // job id -> jobKey
+    let roots = []; // open shadow roots seen on event paths, newest last
+    let buffer = []; // { id, rec }
+    let descEl = null;
+    let last = null; // { path, id, height } of the last page record sent
+
+    const jobId = () => jobIdOf(win.location.pathname, win.location.search);
+
+    function noteRoots(event) {
+      if (typeof event.composedPath !== 'function') return;
+      for (const n of event.composedPath()) {
+        if (!isShadowRoot(n) || roots.includes(n)) continue;
+        roots.push(n);
+        if (roots.length > MAX_ROOTS) roots.shift();
+      }
+    }
+
+    function onEvent(event) {
+      if (!recordable(win.location) || buffer.length >= MAX_BUFFER) return;
+      noteRoots(event);
+      const rec = capture(event, ctxOf, descEl);
+      if (rec) buffer.push({ id: jobId(), rec });
+    }
+
+    /** { id, info } when a page record is due, else null. */
+    function pageIfChanged() {
+      if (!recordable(win.location)) return null;
+      roots = roots.filter((r) => r.host.isConnected !== false);
+      descEl = findDescEl(doc, roots);
+      const info = pageInfo(win, doc, descEl);
+      const id = jobId();
+      const h = info.desc?.height ?? null;
+      const due =
+        last === null ||
+        last.path !== info.ctx.path ||
+        last.id !== id ||
+        (last.height === null && h !== null) ||
+        (last.height !== null &&
+          h !== null &&
+          Math.abs(h - last.height) > last.height * 0.2);
+      if (!due) {
+        if (h === null) last.height = null;
+        return null;
+      }
+      last = { path: info.ctx.path, id, height: h };
+      return { id, info };
+    }
+
+    /** Consecutive buffered events grouped by job id, oldest first. */
+    function takeGroups() {
+      const groups = [];
+      for (const { id, rec } of buffer) {
+        const g = groups.at(-1);
+        if (g && g.id === id) g.events.push(rec);
+        else groups.push({ id, events: [rec] });
+      }
+      buffer = [];
+      return groups;
+    }
+
+    async function keyOf(id) {
+      if (id === null) return null;
+      if (!keys.has(id)) {
+        if (keys.size >= MAX_KEYS) keys.clear();
+        keys.set(id, await hash(id));
+      }
+      return keys.get(id);
+    }
+
+    /** All due batches, split by job. */
+    async function flush() {
+      const groups = takeGroups();
+      const page = pageIfChanged();
+      if (page) {
+        const g = groups.at(-1);
+        if (g && g.id === page.id) g.page = page.info;
+        else groups.push({ id: page.id, events: [], page: page.info });
+      }
+      const batches = [];
+      for (const g of groups) {
+        const batch = { pageId, jobKey: await keyOf(g.id), events: g.events };
+        if (g.page) batch.page = g.page;
+        batches.push(batch);
+      }
+      return batches;
+    }
+
+    /** Buffered events now, without hashing: jobKeys come from the cache, else null. */
+    function flushNow() {
+      return takeGroups().map((g) => ({
+        pageId,
+        jobKey: g.id !== null && keys.has(g.id) ? keys.get(g.id) : null,
+        events: g.events,
+      }));
+    }
+
+    function clear() {
+      buffer = [];
+      roots = [];
+    }
+
+    return { onEvent, flush, flushNow, clear };
+  }
+
   globalThis.__paceCapture = Object.freeze({
     EVENT_TYPES,
     capture,
@@ -257,5 +430,6 @@
     jobKeyOf,
     findDescEl,
     makeCtxOf,
+    makeRecorder,
   });
 })();

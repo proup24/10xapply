@@ -411,6 +411,7 @@ describe('bridge core', () => {
         ],
       ],
     ]);
+    expect(calls[0][1][0].matches).toContain('https://www.linkedin.com/*');
     expect(sent[0]).toEqual({ id: 1, result: {} });
     expect(core.isRecording()).toBe(true);
     expect(core.recorderSalt()).toBe('s1');

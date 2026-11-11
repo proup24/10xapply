@@ -5,7 +5,7 @@
   "description": "Lets the local 10xapply runner drive windows this extension opens itself.",
   "permissions": ["debugger", "tabs", "alarms", "scripting"],
   "host_permissions": [
-    "https://www.linkedin.com/jobs/*",
+    "https://www.linkedin.com/*",
     "https://deviceandbrowserinfo.com/are_you_a_bot_interactions*",
     "https://bot.incolumitas.com/*",
     "http://127.0.0.1/*"
