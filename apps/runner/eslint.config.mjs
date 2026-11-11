@@ -18,7 +18,8 @@ export default [
     rules: { 'no-restricted-syntax': ['error', noPageScripts] },
   },
   // A later no-restricted-syntax replaces the earlier one for the same files,
-  // so this block repeats the page-script ban next to the input ban.
+  // so this block repeats the page-script ban next to the input ban. Calls on
+  // the pace object itself (`pace.click`, `pace.type`) are the allowed route.
   {
     files,
     ignores: ['src/pace/**'],
@@ -28,11 +29,20 @@ export default [
         noPageScripts,
         {
           selector:
-            'CallExpression > MemberExpression.callee[property.name=/^(click|dblclick|fill|type|press|pressSequentially|check|uncheck|selectOption|setInputFiles|hover|tap|dragTo)$/]',
+            "CallExpression > MemberExpression.callee[property.name=/^(click|dblclick|fill|type|press|pressSequentially|check|uncheck|selectOption|setInputFiles|hover|tap|dragTo)$/]:not([object.name='pace'])",
           message: inputMessage,
         },
         {
           selector: 'MemberExpression[property.name=/^(mouse|keyboard)$/]',
+          message: inputMessage,
+        },
+        {
+          selector:
+            'MemberExpression[computed=true][property.value=/^(mouse|keyboard)$/]',
+          message: inputMessage,
+        },
+        {
+          selector: 'ObjectPattern > Property[key.name=/^(mouse|keyboard)$/]',
           message: inputMessage,
         },
       ],

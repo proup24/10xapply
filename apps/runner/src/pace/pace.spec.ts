@@ -19,7 +19,16 @@ type Ev =
 
 const VIEW = { width: 1280, height: 800 };
 
-function fake(opts: { moveLag?: number } = {}) {
+type View = { width: number; height: number } | null;
+interface Opts {
+  moveLag?: number;
+  /** What `page.viewportSize()` returns (default VIEW). */
+  view?: View;
+  /** `deps.viewport`, when given. */
+  depView?: () => Promise<View>;
+}
+
+function fake(opts: Opts = {}) {
   let t = 1000;
   const log: Ev[] = [];
   const clock = {
@@ -45,7 +54,7 @@ function fake(opts: { moveLag?: number } = {}) {
       insertText: async (key: string) =>
         void log.push({ kind: 'text', t, key }),
     },
-    viewportSize: () => VIEW,
+    viewportSize: () => (opts.view === undefined ? VIEW : opts.view),
     waitForEvent: vi.fn(async (event: string) => {
       log.push({ kind: 'chooser', t, arg: event });
       // The chooser arrives once the button is pressed.
@@ -80,13 +89,14 @@ const BOX: Box = { x: 700, y: 500, width: 120, height: 36 };
 function setup(
   profile: PaceProfile = testProfile(),
   seed = 1,
-  opts: { moveLag?: number } = {},
+  opts: Opts = {},
 ) {
   const f = fake(opts);
   const pace = createPace(f.page, profile, {
     rng: seededRng(seed),
     sleep: f.clock.sleep,
     now: f.clock.now,
+    ...(opts.depView ? { viewport: opts.depView } : {}),
   });
   return { ...f, pace };
 }
@@ -133,7 +143,8 @@ describe('createPace', () => {
     expect(inside(last, BOX)).toBe(true);
     const [down] = of(ev, 'down');
     const [up] = of(ev, 'up');
-    expect(ev.indexOf(down)).toBe(ev.indexOf(last) + 1);
+    const between = ev.slice(ev.indexOf(last) + 1, ev.indexOf(down));
+    expect(between.map((e) => e.kind)).toEqual(['box']);
     expect(down.t - last.t).toBeCloseTo(150, 6);
     expect(up.t - down.t).toBeCloseTo(90, 6);
     expect(ev.at(-1)).toBe(up);
@@ -144,11 +155,86 @@ describe('createPace', () => {
     const { pace, log, locator } = setup();
     await pace.click(locator([BOX, moved]));
     const ev = afterBox(log);
-    expect(of(ev, 'box')).toHaveLength(2);
+    expect(of(ev, 'box').length).toBeGreaterThanOrEqual(2);
     const second = ev.indexOf(of(ev, 'box')[1]);
     expect(of(ev.slice(0, second), 'move').length).toBeGreaterThan(0);
     const last = of(ev, 'move').at(-1);
     expect(last && inside(last, moved)).toBe(true);
+    expect(of(ev, 'down')).toHaveLength(1);
+  });
+
+  it('click re-reads the box right before the press and re-approaches once', async () => {
+    const moved: Box = { x: 200, y: 150, width: 80, height: 30 };
+    const { pace, log, locator } = setup();
+    // Arrives on BOX; the press-time read finds it moved.
+    await pace.click(locator([BOX, BOX, moved]));
+    const [down] = of(log, 'down');
+    const before = of(log.slice(0, log.indexOf(down)), 'move').at(-1);
+    expect(before && inside(before, moved)).toBe(true);
+  });
+
+  it('click refuses to press a target that keeps moving', async () => {
+    const boxes: Box[] = [0, 1, 2, 3, 4, 5].map((i) => ({
+      x: 100 + i * 150,
+      y: 100 + i * 80,
+      width: 60,
+      height: 24,
+    }));
+    const { pace, log, locator } = setup();
+    // Each read pair puts the target somewhere new.
+    await expect(
+      pace.click(
+        locator([
+          boxes[0],
+          boxes[0],
+          boxes[1],
+          boxes[1],
+          boxes[1],
+          boxes[2],
+          boxes[3],
+        ]),
+      ),
+    ).rejects.toThrow(/keeps moving/);
+    expect(of(log, 'down')).toHaveLength(0);
+  });
+
+  it('every input action refuses to move when the viewport is unknown', async () => {
+    const { pace, log, locator } = setup(testProfile(), 1, { view: null });
+    const loc = locator([BOX]);
+    const actions: (() => Promise<void>)[] = [
+      () => pace.click(loc),
+      () => pace.type(loc, 'x'),
+      () => pace.glance(loc),
+      () => pace.pick(loc, 0),
+      () => pace.upload(loc, '/tmp/f.pdf'),
+      () => pace.scroll(loc, 1),
+    ];
+    for (const act of actions) {
+      await expect(act()).rejects.toThrow(/viewport unknown/);
+    }
+    expect(of(log, 'move')).toHaveLength(0);
+    expect(of(log, 'down')).toHaveLength(0);
+    expect(of(log, 'wheel')).toHaveLength(0);
+  });
+
+  it('uses deps.viewport when the page reports none', async () => {
+    const small = { width: 640, height: 400 };
+    const depView = vi.fn(async () => small);
+    const { pace, log, locator } = setup(testProfile(), 1, {
+      view: null,
+      depView,
+    });
+    await pace.click(locator([{ x: 300, y: 200, width: 60, height: 24 }]));
+    expect(depView).toHaveBeenCalled();
+    for (const m of of(log, 'move')) {
+      expect(m.x).toBeLessThan(small.width);
+      expect(m.y).toBeLessThan(small.height);
+    }
+    // Below the reported viewport: refused.
+    await expect(
+      pace.click(locator([{ x: 300, y: 450, width: 60, height: 24 }])),
+    ).rejects.toThrow(/off-screen/);
+    expect(of(log, 'down')).toHaveLength(1);
   });
 
   it('click refuses a target outside the viewport', async () => {
@@ -346,32 +432,112 @@ describe('createPace', () => {
     expect(sel.arg).toEqual({ index: 2 });
   });
 
-  it("pick on a radio group clicks the nth radio's label", async () => {
-    const f = setup();
-    const labels: Box[] = [
+  describe('pick on a radio group', () => {
+    const labelBoxes: Box[] = [
       { x: 300, y: 300, width: 60, height: 20 },
       { x: 300, y: 340, width: 60, height: 20 },
     ];
-    const radios = labels.map((b) => ({ radio: b }));
-    const group = f.locator([BOX], {
-      locator: (sel: string) =>
-        sel === 'input[type="radio"]'
-          ? {
+    const radioBoxes: Box[] = [
+      { x: 280, y: 302, width: 14, height: 14 },
+      { x: 280, y: 342, width: 14, height: 14 },
+    ];
+
+    /**
+     * A fieldset fake: each radio has an id (or none), an optional
+     * `label[for]` in the group, and an optional wrapping label.
+     */
+    function group(
+      f: ReturnType<typeof setup>,
+      radios: { id: string | null; forLabel: boolean; wrapped: boolean }[],
+      selectors: string[],
+    ) {
+      const none = { count: async () => 0 };
+      const found = (box: Box) => {
+        const l = f.locator([box]);
+        return Object.assign(l, { count: async () => 1, first: () => l });
+      };
+      const radioLocs = radios.map((r, i) =>
+        Object.assign(f.locator([radioBoxes[i]]), {
+          getAttribute: async (name: string) => (name === 'id' ? r.id : null),
+          locator: (sel: string) => {
+            selectors.push(sel);
+            return sel === 'xpath=ancestor::label' && r.wrapped
+              ? found(labelBoxes[i])
+              : { first: () => none };
+          },
+        }),
+      );
+      return f.locator([BOX], {
+        locator: (sel: string) => {
+          selectors.push(sel);
+          if (sel === 'input[type="radio"]') {
+            return {
               count: async () => radios.length,
-              nth: (i: number) => radios[i],
-            }
-          : {
-              filter: ({ has }: { has: { radio: Box } }) =>
-                Object.assign(f.locator([has.radio]), {
-                  count: async () => 1,
-                }),
-            },
+              nth: (i: number) => radioLocs[i],
+            };
+          }
+          const m = /^label\[for="(.*)"\]$/.exec(sel);
+          const i = radios.findIndex(
+            (r) =>
+              r.forLabel &&
+              r.id !== null &&
+              m?.[1] === r.id.replace(/["\\]/g, '\\$&'),
+          );
+          return { first: () => (i >= 0 ? found(labelBoxes[i]) : none) };
+        },
+      });
+    }
+
+    const lastMove = (f: ReturnType<typeof setup>) => of(f.log, 'move').at(-1);
+
+    it("clicks the nth radio's label[for]", async () => {
+      const f = setup();
+      const sel: string[] = [];
+      const g = group(
+        f,
+        [
+          { id: 'auth-yes', forLabel: true, wrapped: false },
+          { id: 'a"b', forLabel: true, wrapped: false },
+        ],
+        sel,
+      );
+      await f.pace.pick(g, 1);
+      expect(sel).toContain('label[for="a\\"b"]');
+      const last = lastMove(f);
+      expect(last && inside(last, labelBoxes[1])).toBe(true);
+      expect(of(f.log, 'select')).toHaveLength(0);
+      expect(of(f.log, 'down')).toHaveLength(1);
     });
-    await f.pace.pick(group, 1);
-    const last = of(f.log, 'move').at(-1);
-    expect(last && inside(last, labels[1])).toBe(true);
-    expect(of(f.log, 'select')).toHaveLength(0);
-    expect(of(f.log, 'down')).toHaveLength(1);
+
+    it('falls back to the wrapping label', async () => {
+      const f = setup();
+      const g = group(
+        f,
+        [
+          { id: null, forLabel: false, wrapped: true },
+          { id: null, forLabel: false, wrapped: true },
+        ],
+        [],
+      );
+      await f.pace.pick(g, 0);
+      const last = lastMove(f);
+      expect(last && inside(last, labelBoxes[0])).toBe(true);
+    });
+
+    it('falls back to the radio itself', async () => {
+      const f = setup();
+      const g = group(
+        f,
+        [
+          { id: 'x', forLabel: false, wrapped: false },
+          { id: 'y', forLabel: false, wrapped: false },
+        ],
+        [],
+      );
+      await f.pace.pick(g, 1);
+      const last = lastMove(f);
+      expect(last && inside(last, radioBoxes[1])).toBe(true);
+    });
   });
 
   it('maybe follows the profile rates', () => {

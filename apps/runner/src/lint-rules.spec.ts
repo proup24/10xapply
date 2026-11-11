@@ -61,11 +61,27 @@ describe('runner lint rules', () => {
     'page.mouse.move(1, 2);',
     "page.keyboard.down('a');",
     'const m = page.mouse;',
+    "page['mouse'].move(1, 2);",
+    "void page['keyboard'];",
+    'const { mouse } = page; void mouse;',
+    'const { keyboard: kb } = page; void kb;',
   ])('bans input outside src/pace: %s', async (code) => {
     const errors = await lint(code, 'src/commands/x.ts');
     expect(errors.length).toBeGreaterThanOrEqual(1);
     expect(await lint(code, 'src/pace/x.ts')).toHaveLength(0);
   });
+
+  it.each(['await pace.click(loc);', "await pace.type(loc, 'x');"])(
+    'allows calls on the pace object in src/commands: %s',
+    async (code) => {
+      expect(await lint(code, 'src/commands/x.ts')).toHaveLength(0);
+      const direct = await lint(
+        "await page.locator('a').click();",
+        'src/commands/x.ts',
+      );
+      expect(direct).toHaveLength(1);
+    },
+  );
 
   it('allows locator reads', async () => {
     expect(await lint("await page.locator('a').count();")).toHaveLength(0);
