@@ -436,6 +436,24 @@ describe('createPace', () => {
     });
   });
 
+  it('never sends a move to where the pointer already is (Chrome reports it as a zero-movement pointermove)', async () => {
+    // A box at the window's corner: overshoot and bulge points get clamped.
+    const corner: Box = { x: VIEW.width - 30, y: 0, width: 30, height: 20 };
+    for (const seed of [1, 2, 3, 4, 5, 6, 7, 8]) {
+      const { pace, log, locator } = setup(testProfile(), seed);
+      await pace.click(locator([BOX]));
+      await pace.click(locator([corner]));
+      await pace.click(locator([BOX]));
+      const moves = of(log, 'move');
+      expect(moves.length).toBeGreaterThan(10);
+      for (let i = 1; i < moves.length; i++) {
+        const same =
+          moves[i].x === moves[i - 1].x && moves[i].y === moves[i - 1].y;
+        expect(same, `seed ${seed}, move ${i}`).toBe(false);
+      }
+    }
+  });
+
   it('lagging moves skip points instead of slowing the move', async () => {
     const quick = setup(testProfile(), 3);
     await quick.pace.click(quick.locator([BOX]));

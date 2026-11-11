@@ -126,7 +126,10 @@ export function createPace(
   /**
    * Sends each point when its time comes; points already overdue are
    * skipped. Points are kept inside the viewport (a bulge or overshoot near
-   * an edge never leaves the window).
+   * an edge never leaves the window). A point where the pointer already is
+   * (whole-pixel rounding at the slow start and end of a stroke, or edge
+   * clamping) is not sent: Chrome would report it as a pointermove with no
+   * movement, which a real mouse at rest never sends.
    */
   async function emit(
     points: TimedPt[],
@@ -135,11 +138,13 @@ export function createPace(
   ): Promise<void> {
     for (let i = 0; i < points.length; i++) {
       const p = points[i];
+      const x = Math.min(view.width - 1, Math.max(0, p.x));
+      const y = Math.min(view.height - 1, Math.max(0, p.y));
+      // Not waited for either: the pointer stopped at the last move sent.
+      if (pos && pos.x === x && pos.y === y) continue;
       await wait(start + p.at - now());
       const next = points[i + 1];
       if (next && now() >= start + next.at) continue;
-      const x = Math.min(view.width - 1, Math.max(0, p.x));
-      const y = Math.min(view.height - 1, Math.max(0, p.y));
       await page.mouse.move(x, y);
       pos = { x, y };
     }
