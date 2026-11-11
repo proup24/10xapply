@@ -60,26 +60,9 @@ chrome.scripting
 // Recorder content scripts connect here. Only 'recorder' ports, only while
 // recording. The salt goes to the page's content script in memory; batches are
 // forwarded to the relay untouched.
-chrome.runtime.onConnect.addListener((port) => {
-  if (
-    port.name !== 'recorder' ||
-    port.sender?.id !== chrome.runtime.id ||
-    !core.isRecording()
-  ) {
-    port.disconnect();
-    return;
-  }
-  port.onMessage.addListener((batch) => {
-    if (!core.isRecording()) {
-      port.disconnect();
-      return;
-    }
-    if (batch && typeof batch === 'object') {
-      send({ method: 'recorder.batch', params: batch });
-    }
-  });
-  port.postMessage({ salt: core.recorderSalt() });
-});
+chrome.runtime.onConnect.addListener((port) =>
+  core.onConnect(port, chrome.runtime.id),
+);
 
 function connect() {
   if (

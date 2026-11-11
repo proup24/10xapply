@@ -34,6 +34,7 @@ export function createBridgeCore(
   let salt = null;
   let generation = 0; // bumped by every stop, so a start in flight can tell
   let starting = null; // the start in flight, shared by a concurrent start
+  let lastAttempt = Promise.resolve(); // survives stop: a new start waits for it
   const ports = new Set(); // accepted recorder ports, dropped on stop
 
   const ownsTab = (tabId) => owned.has(tabId);
@@ -91,7 +92,11 @@ export function createBridgeCore(
       if (recording) return {};
       if (starting) return starting;
       const gen = generation;
+      const previous = lastAttempt;
       const attempt = (async () => {
+        // A stale attempt may still unregister after its generation check;
+        // let it settle first so it cannot remove this sitting's registration.
+        await previous.catch(() => undefined);
         await chromeApi.scripting.registerContentScripts([
           {
             id: RECORDER_ID,
@@ -120,6 +125,7 @@ export function createBridgeCore(
         return {};
       })();
       starting = attempt;
+      lastAttempt = attempt;
       try {
         return await attempt;
       } finally {
@@ -230,12 +236,27 @@ export function createBridgeCore(
   return {
     handleCommand,
     isRecording: () => recording,
-    // Accepts a recorder port only while recording; stop disconnects it.
-    trackPort(port) {
-      if (!recording) return false;
+    // chrome.runtime.onConnect handler. Accepts only 'recorder' ports from
+    // this extension while recording; stop disconnects every accepted port.
+    // Gives the page its salt and forwards its batches to the relay.
+    onConnect(port, extensionId) {
+      if (
+        port.name !== 'recorder' ||
+        port.sender?.id !== extensionId ||
+        !recording
+      ) {
+        port.disconnect();
+        return;
+      }
       ports.add(port);
       port.onDisconnect.addListener(() => ports.delete(port));
-      return true;
+      port.onMessage.addListener((batch) => {
+        if (!ports.has(port)) return;
+        if (batch && typeof batch === 'object') {
+          send({ method: 'recorder.batch', params: batch });
+        }
+      });
+      port.postMessage({ salt });
     },
     recorderSalt: () => salt,
     stopRecorder,

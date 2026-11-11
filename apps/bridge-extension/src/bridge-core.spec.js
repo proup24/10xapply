@@ -478,15 +478,63 @@ describe('bridge core', () => {
     expect(seen).toEqual([true, false]);
   });
 
-  it('stop disconnects open recorder ports and refuses ports when not recording', async () => {
-    const { core } = setup();
-    const makePort = () => {
-      const p = { disconnected: false, drop: null };
-      p.disconnect = () => (p.disconnected = true);
-      p.onDisconnect = { addListener: (f) => (p.drop = f) };
-      return p;
+  const makePort = (name = 'recorder', id = 'ext') => {
+    const p = {
+      name,
+      sender: { id },
+      disconnected: false,
+      posted: [],
+      drop: null,
+      onMsg: null,
     };
-    expect(core.trackPort(makePort())).toBe(false);
+    p.disconnect = () => (p.disconnected = true);
+    p.postMessage = (m) => p.posted.push(m);
+    p.onDisconnect = { addListener: (f) => (p.drop = f) };
+    p.onMessage = { addListener: (f) => (p.onMsg = f) };
+    return p;
+  };
+
+  it('onConnect refuses ports when not recording, with the wrong name or from another extension', async () => {
+    const { core } = setup();
+    const idle = makePort();
+    core.onConnect(idle, 'ext');
+    expect(idle.disconnected).toBe(true);
+    await core.handleCommand({
+      id: 1,
+      method: 'recorder.start',
+      params: { salt: 's1' },
+    });
+    const wrongName = makePort('other');
+    const foreign = makePort('recorder', 'someone-else');
+    core.onConnect(wrongName, 'ext');
+    core.onConnect(foreign, 'ext');
+    expect(wrongName.disconnected).toBe(true);
+    expect(foreign.disconnected).toBe(true);
+  });
+
+  it('onConnect gives the salt and forwards batches as recorder.batch', async () => {
+    const { core, sent } = setup();
+    await core.handleCommand({
+      id: 1,
+      method: 'recorder.start',
+      params: { salt: 's1' },
+    });
+    const port = makePort();
+    core.onConnect(port, 'ext');
+    expect(port.disconnected).toBe(false);
+    expect(port.posted).toEqual([{ salt: 's1' }]);
+    port.onMsg({ pageId: 'p', jobKey: null, events: [] });
+    port.onMsg('not an object');
+    expect(sent.slice(1)).toEqual([
+      {
+        method: 'recorder.batch',
+        params: { pageId: 'p', jobKey: null, events: [] },
+      },
+    ]);
+  });
+
+  it('stop disconnects open recorder ports and forwards nothing from them after', async () => {
+    const { core, sent } = setup();
     await core.handleCommand({
       id: 1,
       method: 'recorder.start',
@@ -494,13 +542,23 @@ describe('bridge core', () => {
     });
     const a = makePort();
     const b = makePort();
-    expect(core.trackPort(a)).toBe(true);
-    expect(core.trackPort(b)).toBe(true);
+    core.onConnect(a, 'ext');
+    core.onConnect(b, 'ext');
     b.drop(); // b closed on its own: not disconnected again
     await core.handleCommand({ id: 2, method: 'recorder.stop', params: {} });
     expect(a.disconnected).toBe(true);
     expect(b.disconnected).toBe(false);
+    await core.handleCommand({
+      id: 3,
+      method: 'recorder.start',
+      params: { salt: 's2' },
+    });
+    const before = sent.length;
+    a.onMsg({ pageId: 'old', jobKey: 'oldsalt', events: [] });
+    expect(sent.length).toBe(before);
   });
+
+  const tick = () => new Promise((r) => setTimeout(r, 0));
 
   function gated() {
     const calls = [];
@@ -530,7 +588,7 @@ describe('bridge core', () => {
       method: 'recorder.start',
       params: { salt: 's1' },
     });
-    await Promise.resolve();
+    await tick();
     await core.stopRecorder();
     release();
     await start;
@@ -575,11 +633,53 @@ describe('bridge core', () => {
       method: 'recorder.start',
       params: { salt: 's2' },
     });
-    await Promise.resolve();
+    await tick();
     release();
     await Promise.all([one, two]);
     expect(calls).toEqual(['register']);
     expect(core.isRecording()).toBe(true);
     expect(core.recorderSalt()).toBe('s1');
+  });
+
+  it('a start after a stop waits for the stale attempt, which cannot unregister the new registration', async () => {
+    const calls = [];
+    const gates = [];
+    const core = createBridgeCore(
+      {
+        scripting: {
+          registerContentScripts: () => {
+            calls.push('register');
+            return new Promise((r) => gates.push(r));
+          },
+          unregisterContentScripts: async () => {
+            calls.push('unregister');
+          },
+        },
+      },
+      () => undefined,
+    );
+    const first = core.handleCommand({
+      id: 1,
+      method: 'recorder.start',
+      params: { salt: 's1' },
+    });
+    await tick();
+    await core.stopRecorder();
+    const second = core.handleCommand({
+      id: 2,
+      method: 'recorder.start',
+      params: { salt: 's2' },
+    });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(calls).toEqual(['register', 'unregister']); // second has not registered yet
+    gates[0](); // the stale register settles; it unregisters itself
+    await first;
+    await new Promise((r) => setTimeout(r, 0));
+    expect(calls).toEqual(['register', 'unregister', 'unregister', 'register']);
+    gates[1]();
+    await second;
+    expect(calls.at(-1)).toBe('register'); // nothing unregistered after the new register
+    expect(core.isRecording()).toBe(true);
+    expect(core.recorderSalt()).toBe('s2');
   });
 });
