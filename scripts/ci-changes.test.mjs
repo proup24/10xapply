@@ -30,8 +30,10 @@ test('any hooks file sets hooks, even a markdown one', () => {
 });
 test('no files', () =>
   assert.deepEqual(classify([]), { hooks: false, code: false }));
-test('diff lists both sides of a rename, against the merge base', () =>
+test('diff lists both sides of a rename, against the merge base, unquoted paths', () =>
   assert.deepEqual(gitDiffArgs('b', 'h'), [
+    '-c',
+    'core.quotePath=false',
     'diff',
     '--name-only',
     '--no-renames',

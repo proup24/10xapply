@@ -16,7 +16,14 @@ export function classify(files) {
 }
 
 export function gitDiffArgs(base, head) {
-  return ['diff', '--name-only', '--no-renames', `${base}...${head}`];
+  return [
+    '-c',
+    'core.quotePath=false',
+    'diff',
+    '--name-only',
+    '--no-renames',
+    `${base}...${head}`,
+  ];
 }
 
 export function areasFor(base, head, listFiles) {

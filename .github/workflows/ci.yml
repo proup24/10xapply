@@ -7,7 +7,7 @@ on:
     branches: [main]
 
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
+  group: ci-${{ github.workflow }}-${{ github.event_name == 'push' && github.sha || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
@@ -59,9 +59,9 @@ jobs:
       - run: pnpm install --frozen-lockfile
 
       # Sets NX_BASE and NX_HEAD for `nx affected` and `nx format:check`
-      - uses: nrwl/nx-set-shas@3e9ad7370203c1e93d109be57f3b72eb0eb511b1 # v4.4.0
+      - uses: nrwl/nx-set-shas@e602fada7ad5987b0f7b1905e7a99ea1c661514c # v5.1.0
 
-      - uses: actions/cache@v4
+      - uses: actions/cache@v5
         with:
           path: .nx/cache
           key: nx-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}-${{ github.sha }}
@@ -71,13 +71,13 @@ jobs:
 
       - run: pnpm nx format:check --base="$NX_BASE" --head="$NX_HEAD"
 
-      - if: needs.changes.outputs.hooks == 'true' || github.event_name == 'push'
+      - if: needs.changes.outputs.hooks != 'false' || github.event_name == 'push'
         run: pnpm test:hooks
 
-      - if: needs.changes.outputs.code == 'true'
+      - if: needs.changes.outputs.code != 'false' || github.event_name == 'push'
         run: pnpm test:scripts
 
-      - if: needs.changes.outputs.code == 'true'
+      - if: needs.changes.outputs.code != 'false' || github.event_name == 'push'
         run: pnpm nx affected -t lint test build typecheck
 
   ci-ok:
