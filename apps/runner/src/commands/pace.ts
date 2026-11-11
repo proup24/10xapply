@@ -1,8 +1,22 @@
 import { randomBytes } from 'node:crypto';
 import { EventEmitter } from 'node:events';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { UNAVAILABLE_MESSAGE, EXTENSION_TIMEOUT_MS } from '../bridge/bridge.js';
 import { loadConfig, type RunnerConfig } from '../config.js';
+import {
+  extractMeasures,
+  KEY_MEASURES,
+  MEASURE_NAMES,
+  MINIMUMS,
+  NOT_RECORDED,
+  PRACTICE_MINIMUMS,
+  type MeasureName,
+  type Measures,
+} from '../pace/measures.js';
 import { PACE_DIR } from '../pace/paths.js';
+import { isApplication } from '../pace/phases.js';
+import type { Recording } from '../pace/recording.js';
 import { createWriter, type Writer } from '../pace/writer.js';
 import { startRelay, type Relay } from '../relay/relay.js';
 
@@ -119,4 +133,130 @@ export async function recordCommand(
     await finish(1, true).catch(() => undefined);
     throw e;
   }
+}
+
+/** Every author recording under `dir/author/`, skipping unreadable files. */
+function readRecordings(dir: string, out: (t: string) => void): Recording[] {
+  const root = join(dir, 'author');
+  if (!existsSync(root)) return [];
+  const recs: Recording[] = [];
+  const files = readdirSync(root, { recursive: true, encoding: 'utf8' })
+    .filter((f) => f.endsWith('.json'))
+    .sort();
+  for (const f of files) {
+    try {
+      const r = JSON.parse(readFileSync(join(root, f), 'utf8')) as Recording;
+      if (
+        r.version !== 1 ||
+        !Array.isArray(r.events) ||
+        !Array.isArray(r.pages)
+      )
+        throw new Error('not a version 1 recording');
+      recs.push(r);
+    } catch (e) {
+      out(`skipped ${f}: ${e instanceof Error ? e.message : String(e)}\n`);
+    }
+  }
+  return recs;
+}
+
+type Status = 'enough' | 'short' | 'not recorded';
+
+/** Prints one table and returns the measures that are short. */
+function table(
+  title: string,
+  m: Measures,
+  names: readonly MeasureName[],
+  minimums: Partial<Record<MeasureName, number>>,
+  out: (t: string) => void,
+): MeasureName[] {
+  const short: MeasureName[] = [];
+  out(`\n${title}\n`);
+  out(
+    `  ${'measure'.padEnd(24)}${'count'.padStart(7)}${'minimum'.padStart(9)}  status\n`,
+  );
+  for (const n of names) {
+    const count = m[n].length;
+    const notRecorded = NOT_RECORDED.includes(n);
+    const min = minimums[n] ?? 1;
+    const status: Status = notRecorded
+      ? 'not recorded'
+      : count >= min
+        ? 'enough'
+        : 'short';
+    if (status === 'short') short.push(n);
+    const minText = notRecorded ? '-' : String(min);
+    out(
+      `  ${n.padEnd(24)}${String(count).padStart(7)}${minText.padStart(9)}  ${status}\n`,
+    );
+  }
+  return short;
+}
+
+/**
+ * Prints how many samples each measure has against the minimum it needs,
+ * and how to fill what is short. Only reads files.
+ */
+export function summaryCommand(
+  opts: { dir?: string; out?: (text: string) => void } = {},
+): number {
+  const dir = opts.dir ?? PACE_DIR;
+  const out = opts.out ?? ((t: string) => void process.stdout.write(t));
+  const recs = readRecordings(dir, out);
+  const main = recs.filter(
+    (r) => r.source === 'linkedin' || r.source === 'typing',
+  );
+  const practice = recs.filter((r) => r.source === 'practice');
+  if (main.length === 0 && practice.length === 0) {
+    out(
+      `no recordings under ${join(dir, 'author')}: run pnpm nx run runner:pace-record\n`,
+    );
+    return 1;
+  }
+
+  const apps = main.filter((r) => r.source === 'linkedin' && isApplication(r));
+  const practiceApps = practice.filter(isApplication);
+  const typing = main.filter((r) => r.source === 'typing').length;
+  const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? '' : 's'}`;
+  out(
+    `pace summary: ${plural(apps.length, 'application')}, ${practiceApps.length} practice, ${plural(typing, 'typing recording')}\n`,
+  );
+
+  const short = table(
+    'LinkedIn (and typing page for key measures)',
+    extractMeasures(main),
+    MEASURE_NAMES,
+    MINIMUMS,
+    out,
+  );
+  const practiceShort = table(
+    'practice',
+    extractMeasures(practice),
+    ['stepTime', 'appTime'],
+    PRACTICE_MINIMUMS,
+    out,
+  );
+
+  const keys = short.filter((n) => KEY_MEASURES.includes(n));
+  const rest = short.filter((n) => !KEY_MEASURES.includes(n));
+  out('\n');
+  if (keys.length > 0) {
+    out(
+      `short: ${keys.join(', ')}\n  fix: type on the typing page: pnpm nx run runner:pace-record-typing\n`,
+    );
+  }
+  if (rest.length > 0) {
+    out(
+      `short: ${rest.join(', ')}\n  fix: apply to a few more jobs while recording: pnpm nx run runner:pace-record\n`,
+    );
+  }
+  if (practiceShort.length > 0) {
+    out(
+      `short (practice): ${practiceShort.join(', ')}\n  fix: fill a few more practice runs (/practice/?run=<n>) while recording: pnpm nx run runner:pace-record\n`,
+    );
+  }
+  if (short.length === 0 && practiceShort.length === 0) {
+    out('every measure has enough samples\n');
+  }
+  return 0;
 }

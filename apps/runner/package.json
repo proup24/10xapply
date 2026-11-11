@@ -53,6 +53,13 @@
           "cwd": "apps/runner",
           "command": "tsx src/main.ts pace record --typing"
         }
+      },
+      "pace-summary": {
+        "executor": "nx:run-commands",
+        "options": {
+          "cwd": "apps/runner",
+          "command": "tsx src/main.ts pace summary"
+        }
       }
     }
   },

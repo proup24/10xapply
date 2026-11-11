@@ -1,0 +1,975 @@
+{
+  "version": 1,
+  "actor": "author",
+  "source": "practice",
+  "sittingId": "20990101T000000Z",
+  "jobKey": "bbbbbbbbbbbb",
+  "pages": [
+    {
+      "t": 500,
+      "ctx": {
+        "path": "/practice/",
+        "dialog": false,
+        "progress": null
+      },
+      "desc": {
+        "chars": 2500,
+        "height": 140
+      },
+      "win": {
+        "screenX": 0,
+        "screenY": 0,
+        "outerWidth": 1280,
+        "outerHeight": 800,
+        "innerWidth": 1264,
+        "innerHeight": 700
+      },
+      "screen": {
+        "width": 1600,
+        "height": 1000
+      },
+      "dpr": 1.25
+    }
+  ],
+  "events": [
+    {
+      "t": 800,
+      "type": "pointermove",
+      "trusted": true,
+      "x": 100,
+      "y": 100,
+      "sx": 100,
+      "sy": 200,
+      "mx": 0,
+      "my": 0,
+      "target": {
+        "kind": "other"
+      },
+      "ctx": {
+        "path": "/practice/",
+        "dialog": false,
+        "progress": null
+      },
+      "pointerType": "mouse"
+    },
+    {
+      "t": 800,
+      "type": "mousemove",
+      "trusted": true,
+      "x": 100,
+      "y": 100,
+      "sx": 100,
+      "sy": 200,
+      "mx": 0,
+      "my": 0,
+      "target": {
+        "kind": "other"
+      },
+      "ctx": {
+        "path": "/practice/",
+        "dialog": false,
+        "progress": null
+      }
+    },
+    {
+      "t": 850,
+      "type": "pointermove",
+      "trusted": true,
+      "x": 200,
+      "y": 100,
+      "sx": 200,
+      "sy": 200,
+      "mx": 125,
+      "my": 0,
+      "target": {
+        "kind": "other"
+      },
+      "ctx": {
+        "path": "/practice/",
+        "dialog": false,
+        "progress": null
+      },
+      "pointerType": "mouse"
+    },
+    {
+      "t": 850,
+      "type": "mousemove",
+      "trusted": true,
+      "x": 200,
+      "y": 100,
+      "sx": 200,
+      "sy": 200,
+      "mx": 125,
+      "my": 0,
+      "target": {
+        "kind": "other"
+      },
+      "ctx": {
+        "path": "/practice/",
+        "dialog": false,
+        "progress": null
+      }
+    },
+    {
+      "t": 1000,
+      "type": "pointerdown",
+      "trusted": true,
+      "x": 200,
+      "y": 100,
+      "sx": 200,
+      "sy": 200,
+      "mx": 0,
+      "my": 0,
+      "target": {
+        "kind": "button"
+      },
+      "ctx": {
+        "path": "/practice/",
+        "dialog": false,
+        "progress": null
+      },
+      "pointerType": "mouse",
+      "button": 0
+    },
+    {
+      "t": 1000,
+      "type": "mousedown",
+      "trusted": true,
+      "x": 200,
+      "y": 100,
+      "sx": 200,
+      "sy": 200,
+      "mx": 0,
+      "my": 0,
+      "target": {
+        "kind": "button"
+      },
+      "ctx": {
+        "path": "/practice/",
+        "dialog": false,
+        "progress": null
+      },
+      "button": 0
+    },
+    {
+      "t": 1080,
+      "type": "pointerup",
+      "trusted": true,
+      "x": 200,
+      "y": 100,
+      "sx": 200,
+      "sy": 200,
+      "mx": 0,
+      "my": 0,
+      "target": {
+        "kind": "button"
+      },
+      "ctx": {
+        "path": "/practice/",
+        "dialog": false,
+        "progress": null
+      },
+      "pointerType": "mouse",
+      "button": 0
+    },
+    {
+      "t": 1080,
+      "type": "mouseup",
+      "trusted": true,
+      "x": 200,
+      "y": 100,
+      "sx": 200,
+      "sy": 200,
+      "mx": 0,
+      "my": 0,
+      "target": {
+        "kind": "button"
+      },
+      "ctx": {
+        "path": "/practice/",
+        "dialog": false,
+        "progress": null
+      },
+      "button": 0
+    },
+    {
+      "t": 1080,
+      "type": "click",
+      "trusted": true,
+      "x": 200,
+      "y": 100,
+      "sx": 200,
+      "sy": 200,
+      "mx": 0,
+      "my": 0,
+      "target": {
+        "kind": "button"
+      },
+      "ctx": {
+        "path": "/practice/",
+        "dialog": false,
+        "progress": null
+      },
+      "button": 0
+    },
+    {
+      "t": 3800,
+      "type": "pointermove",
+      "trusted": true,
+      "x": 200,
+      "y": 100,
+      "sx": 200,
+      "sy": 200,
+      "mx": 0,
+      "my": 0,
+      "target": {
+        "kind": "other"
+      },
+      "ctx": {
+        "path": "/practice/",
+        "dialog": true,
+        "progress": 33
+      },
+      "pointerType": "mouse"
+    },
+    {
+      "t": 3800,
+      "type": "mousemove",
+      "trusted": true,
+      "x": 200,
+      "y": 100,
+      "sx": 200,
+      "sy": 200,
+      "mx": 0,
+      "my": 0,
+      "target": {
+        "kind": "other"
+      },
+      "ctx": {
+        "path": "/practice/",
+        "dialog": true,
+        "progress": 33
+      }
+    },
+    {
+      "t": 3850,
+      "type": "pointermove",
+      "trusted": true,
+      "x": 300,
+      "y": 100,
+      "sx": 300,
+      "sy": 200,
+      "mx": 125,
+      "my": 0,
+      "target": {
+        "kind": "other"
+      },
+      "ctx": {
+        "path": "/practice/",
+        "dialog": true,
+        "progress": 33
+      },
+      "pointerType": "mouse"
+    },
+    {
+      "t": 3850,
+      "type": "mousemove",
+      "trusted": true,
+      "x": 300,
+      "y": 100,
+      "sx": 300,
+      "sy": 200,
+      "mx": 125,
+      "my": 0,
+      "target": {
+        "kind": "other"
+      },
+      "ctx": {
+        "path": "/practice/",
+        "dialog": true,
+        "progress": 33
+      }
+    },
+    {
+      "t": 4000,
+      "type": "pointerdown",
+      "trusted": true,
+      "x": 300,
+      "y": 100,
+      "sx": 300,
+      "sy": 200,
+      "mx": 0,
+      "my": 0,
+      "target": {
+        "kind": "button"
+      },
+      "ctx": {
+        "path": "/practice/",
+        "dialog": true,
+        "progress": 33
+      },
+      "pointerType": "mouse",
+      "button": 0
+    },
+    {
+      "t": 4000,
+      "type": "mousedown",
+      "trusted": true,
+      "x": 300,
+      "y": 100,
+      "sx": 300,
+      "sy": 200,
+      "mx": 0,
+      "my": 0,
+      "target": {
+        "kind": "button"
+      },
+      "ctx": {
+        "path": "/practice/",
+        "dialog": true,
+        "progress": 33
+      },
+      "button": 0
+    },
+    {
+      "t": 4070,
+      "type": "pointerup",
+      "trusted": true,
+      "x": 300,
+      "y": 100,
+      "sx": 300,
+      "sy": 200,
+      "mx": 0,
+      "my": 0,
+      "target": {
+        "kind": "button"
+      },
+      "ctx": {
+        "path": "/practice/",
+        "dialog": true,
+        "progress": 33
+      },
+      "pointerType": "mouse",
+      "button": 0
+    },
+    {
+      "t": 4070,
+      "type": "mouseup",
+      "trusted": true,
+      "x": 300,
+      "y": 100,
+      "sx": 300,
+      "sy": 200,
+      "mx": 0,
+      "my": 0,
+      "target": {
+        "kind": "button"
+      },
+      "ctx": {
+        "path": "/practice/",
+        "dialog": true,
+        "progress": 33
+      },
+      "button": 0
+    },
+    {
+      "t": 4070,
+      "type": "click",
+      "trusted": true,
+      "x": 300,
+      "y": 100,
+      "sx": 300,
+      "sy": 200,
+      "mx": 0,
+      "my": 0,
+      "target": {
+        "kind": "button"
+      },
+      "ctx": {
+        "path": "/practice/",
+        "dialog": true,
+        "progress": 33
+      },
+      "button": 0
+    },
+    {
+      "t": 6800,
+      "type": "pointermove",
+      "trusted": true,
+      "x": 300,
+      "y": 100,
+      "sx": 300,
+      "sy": 200,
+      "mx": 0,
+      "my": 0,
+      "target": {
+        "kind": "other"
+      },
+      "ctx": {
+        "path": "/practice/",
+        "dialog": true,
+        "progress": 66
+      },
+      "pointerType": "mouse"
+    },
+    {
+      "t": 6800,
+      "type": "mousemove",
+      "trusted": true,
+      "x": 300,
+      "y": 100,
+      "sx": 300,
+      "sy": 200,
+      "mx": 0,
+      "my": 0,
+      "target": {
+        "kind": "other"
+      },
+      "ctx": {
+        "path": "/practice/",
+        "dialog": true,
+        "progress": 66
+      }
+    },
+    {
+      "t": 6850,
+      "type": "pointermove",
+      "trusted": true,
+      "x": 400,
+      "y": 100,
+      "sx": 400,
+      "sy": 200,
+      "mx": 125,
+      "my": 0,
+      "target": {
+        "kind": "other"
+      },
+      "ctx": {
+        "path": "/practice/",
+        "dialog": true,
+        "progress": 66
+      },
+      "pointerType": "mouse"
+    },
+    {
+      "t": 6850,
+      "type": "mousemove",
+      "trusted": true,
+      "x": 400,
+      "y": 100,
+      "sx": 400,
+      "sy": 200,
+      "mx": 125,
+      "my": 0,
+      "target": {
+        "kind": "other"
+      },
+      "ctx": {
+        "path": "/practice/",
+        "dialog": true,
+        "progress": 66
+      }
+    },
+    {
+      "t": 7000,
+      "type": "pointerdown",
+      "trusted": true,
+      "x": 400,
+      "y": 100,
+      "sx": 400,
+      "sy": 200,
+      "mx": 0,
+      "my": 0,
+      "target": {
+        "kind": "button"
+      },
+      "ctx": {
+        "path": "/practice/",
+        "dialog": true,
+        "progress": 66
+      },
+      "pointerType": "mouse",
+      "button": 0
+    },
+    {
+      "t": 7000,
+      "type": "mousedown",
+      "trusted": true,
+      "x": 400,
+      "y": 100,
+      "sx": 400,
+      "sy": 200,
+      "mx": 0,
+      "my": 0,
+      "target": {
+        "kind": "button"
+      },
+      "ctx": {
+        "path": "/practice/",
+        "dialog": true,
+        "progress": 66
+      },
+      "button": 0
+    },
+    {
+      "t": 7070,
+      "type": "pointerup",
+      "trusted": true,
+      "x": 400,
+      "y": 100,
+      "sx": 400,
+      "sy": 200,
+      "mx": 0,
+      "my": 0,
+      "target": {
+        "kind": "button"
+      },
+      "ctx": {
+        "path": "/practice/",
+        "dialog": true,
+        "progress": 66
+      },
+      "pointerType": "mouse",
+      "button": 0
+    },
+    {
+      "t": 7070,
+      "type": "mouseup",
+      "trusted": true,
+      "x": 400,
+      "y": 100,
+      "sx": 400,
+      "sy": 200,
+      "mx": 0,
+      "my": 0,
+      "target": {
+        "kind": "button"
+      },
+      "ctx": {
+        "path": "/practice/",
+        "dialog": true,
+        "progress": 66
+      },
+      "button": 0
+    },
+    {
+      "t": 7070,
+      "type": "click",
+      "trusted": true,
+      "x": 400,
+      "y": 100,
+      "sx": 400,
+      "sy": 200,
+      "mx": 0,
+      "my": 0,
+      "target": {
+        "kind": "button"
+      },
+      "ctx": {
+        "path": "/practice/",
+        "dialog": true,
+        "progress": 66
+      },
+      "button": 0
+    },
+    {
+      "t": 11800,
+      "type": "pointermove",
+      "trusted": true,
+      "x": 400,
+      "y": 100,
+      "sx": 400,
+      "sy": 200,
+      "mx": 0,
+      "my": 0,
+      "target": {
+        "kind": "other"
+      },
+      "ctx": {
+        "path": "/practice/",
+        "dialog": true,
+        "progress": 83
+      },
+      "pointerType": "mouse"
+    },
+    {
+      "t": 11800,
+      "type": "mousemove",
+      "trusted": true,
+      "x": 400,
+      "y": 100,
+      "sx": 400,
+      "sy": 200,
+      "mx": 0,
+      "my": 0,
+      "target": {
+        "kind": "other"
+      },
+      "ctx": {
+        "path": "/practice/",
+        "dialog": true,
+        "progress": 83
+      }
+    },
+    {
+      "t": 11850,
+      "type": "pointermove",
+      "trusted": true,
+      "x": 500,
+      "y": 100,
+      "sx": 500,
+      "sy": 200,
+      "mx": 125,
+      "my": 0,
+      "target": {
+        "kind": "other"
+      },
+      "ctx": {
+        "path": "/practice/",
+        "dialog": true,
+        "progress": 83
+      },
+      "pointerType": "mouse"
+    },
+    {
+      "t": 11850,
+      "type": "mousemove",
+      "trusted": true,
+      "x": 500,
+      "y": 100,
+      "sx": 500,
+      "sy": 200,
+      "mx": 125,
+      "my": 0,
+      "target": {
+        "kind": "other"
+      },
+      "ctx": {
+        "path": "/practice/",
+        "dialog": true,
+        "progress": 83
+      }
+    },
+    {
+      "t": 12000,
+      "type": "pointerdown",
+      "trusted": true,
+      "x": 500,
+      "y": 100,
+      "sx": 500,
+      "sy": 200,
+      "mx": 0,
+      "my": 0,
+      "target": {
+        "kind": "button"
+      },
+      "ctx": {
+        "path": "/practice/",
+        "dialog": true,
+        "progress": 83
+      },
+      "pointerType": "mouse",
+      "button": 0
+    },
+    {
+      "t": 12000,
+      "type": "mousedown",
+      "trusted": true,
+      "x": 500,
+      "y": 100,
+      "sx": 500,
+      "sy": 200,
+      "mx": 0,
+      "my": 0,
+      "target": {
+        "kind": "button"
+      },
+      "ctx": {
+        "path": "/practice/",
+        "dialog": true,
+        "progress": 83
+      },
+      "button": 0
+    },
+    {
+      "t": 12070,
+      "type": "pointerup",
+      "trusted": true,
+      "x": 500,
+      "y": 100,
+      "sx": 500,
+      "sy": 200,
+      "mx": 0,
+      "my": 0,
+      "target": {
+        "kind": "button"
+      },
+      "ctx": {
+        "path": "/practice/",
+        "dialog": true,
+        "progress": 83
+      },
+      "pointerType": "mouse",
+      "button": 0
+    },
+    {
+      "t": 12070,
+      "type": "mouseup",
+      "trusted": true,
+      "x": 500,
+      "y": 100,
+      "sx": 500,
+      "sy": 200,
+      "mx": 0,
+      "my": 0,
+      "target": {
+        "kind": "button"
+      },
+      "ctx": {
+        "path": "/practice/",
+        "dialog": true,
+        "progress": 83
+      },
+      "button": 0
+    },
+    {
+      "t": 12070,
+      "type": "click",
+      "trusted": true,
+      "x": 500,
+      "y": 100,
+      "sx": 500,
+      "sy": 200,
+      "mx": 0,
+      "my": 0,
+      "target": {
+        "kind": "button"
+      },
+      "ctx": {
+        "path": "/practice/",
+        "dialog": true,
+        "progress": 83
+      },
+      "button": 0
+    },
+    {
+      "t": 13800,
+      "type": "pointermove",
+      "trusted": true,
+      "x": 500,
+      "y": 100,
+      "sx": 500,
+      "sy": 200,
+      "mx": 0,
+      "my": 0,
+      "target": {
+        "kind": "other"
+      },
+      "ctx": {
+        "path": "/practice/",
+        "dialog": true,
+        "progress": 100
+      },
+      "pointerType": "mouse"
+    },
+    {
+      "t": 13800,
+      "type": "mousemove",
+      "trusted": true,
+      "x": 500,
+      "y": 100,
+      "sx": 500,
+      "sy": 200,
+      "mx": 0,
+      "my": 0,
+      "target": {
+        "kind": "other"
+      },
+      "ctx": {
+        "path": "/practice/",
+        "dialog": true,
+        "progress": 100
+      }
+    },
+    {
+      "t": 13850,
+      "type": "pointermove",
+      "trusted": true,
+      "x": 600,
+      "y": 100,
+      "sx": 600,
+      "sy": 200,
+      "mx": 125,
+      "my": 0,
+      "target": {
+        "kind": "other"
+      },
+      "ctx": {
+        "path": "/practice/",
+        "dialog": true,
+        "progress": 100
+      },
+      "pointerType": "mouse"
+    },
+    {
+      "t": 13850,
+      "type": "mousemove",
+      "trusted": true,
+      "x": 600,
+      "y": 100,
+      "sx": 600,
+      "sy": 200,
+      "mx": 125,
+      "my": 0,
+      "target": {
+        "kind": "other"
+      },
+      "ctx": {
+        "path": "/practice/",
+        "dialog": true,
+        "progress": 100
+      }
+    },
+    {
+      "t": 14000,
+      "type": "pointerdown",
+      "trusted": true,
+      "x": 600,
+      "y": 100,
+      "sx": 600,
+      "sy": 200,
+      "mx": 0,
+      "my": 0,
+      "target": {
+        "kind": "button"
+      },
+      "ctx": {
+        "path": "/practice/",
+        "dialog": true,
+        "progress": 100
+      },
+      "pointerType": "mouse",
+      "button": 0
+    },
+    {
+      "t": 14000,
+      "type": "mousedown",
+      "trusted": true,
+      "x": 600,
+      "y": 100,
+      "sx": 600,
+      "sy": 200,
+      "mx": 0,
+      "my": 0,
+      "target": {
+        "kind": "button"
+      },
+      "ctx": {
+        "path": "/practice/",
+        "dialog": true,
+        "progress": 100
+      },
+      "button": 0
+    },
+    {
+      "t": 14050,
+      "type": "pointerup",
+      "trusted": true,
+      "x": 600,
+      "y": 100,
+      "sx": 600,
+      "sy": 200,
+      "mx": 0,
+      "my": 0,
+      "target": {
+        "kind": "button"
+      },
+      "ctx": {
+        "path": "/practice/",
+        "dialog": true,
+        "progress": 100
+      },
+      "pointerType": "mouse",
+      "button": 0
+    },
+    {
+      "t": 14050,
+      "type": "mouseup",
+      "trusted": true,
+      "x": 600,
+      "y": 100,
+      "sx": 600,
+      "sy": 200,
+      "mx": 0,
+      "my": 0,
+      "target": {
+        "kind": "button"
+      },
+      "ctx": {
+        "path": "/practice/",
+        "dialog": true,
+        "progress": 100
+      },
+      "button": 0
+    },
+    {
+      "t": 14050,
+      "type": "click",
+      "trusted": true,
+      "x": 600,
+      "y": 100,
+      "sx": 600,
+      "sy": 200,
+      "mx": 0,
+      "my": 0,
+      "target": {
+        "kind": "button"
+      },
+      "ctx": {
+        "path": "/practice/",
+        "dialog": true,
+        "progress": 100
+      },
+      "button": 0
+    },
+    {
+      "t": 15000,
+      "type": "pointermove",
+      "trusted": true,
+      "x": 600,
+      "y": 150,
+      "sx": 600,
+      "sy": 250,
+      "mx": 0,
+      "my": 0,
+      "target": {
+        "kind": "other"
+      },
+      "ctx": {
+        "path": "/practice/",
+        "dialog": true,
+        "progress": 100
+      },
+      "pointerType": "mouse"
+    },
+    {
+      "t": 15000,
+      "type": "mousemove",
+      "trusted": true,
+      "x": 600,
+      "y": 150,
+      "sx": 600,
+      "sy": 250,
+      "mx": 0,
+      "my": 0,
+      "target": {
+        "kind": "other"
+      },
+      "ctx": {
+        "path": "/practice/",
+        "dialog": true,
+        "progress": 100
+      }
+    }
+  ]
+}

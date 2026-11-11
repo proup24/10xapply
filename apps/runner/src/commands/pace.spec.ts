@@ -1,8 +1,12 @@
 import { EventEmitter } from 'node:events';
-import { describe, expect, it, vi } from 'vitest';
+import { copyFileSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { BridgeEvent } from '../relay/relay.js';
 import type { Writer } from '../pace/writer.js';
-import { recordCommand, type RecordDeps } from './pace.js';
+import { recordCommand, summaryCommand, type RecordDeps } from './pace.js';
 
 function setup() {
   const listeners = new Set<(e: BridgeEvent) => void>();
@@ -93,5 +97,57 @@ describe('pace record', () => {
     t.relay.waitForExtension.mockResolvedValueOnce(false);
     expect(await recordCommand({ deps: t.deps })).toBe(2);
     expect(t.relay.startRecording).not.toHaveBeenCalled();
+  });
+});
+
+describe('pace summary', () => {
+  const fixtures = fileURLToPath(new URL('../pace/fixtures/', import.meta.url));
+  let dir: string | null = null;
+  afterEach(() => {
+    if (dir) rmSync(dir, { recursive: true, force: true });
+    dir = null;
+  });
+
+  function withFixtures(): string {
+    dir = mkdtempSync(join(tmpdir(), 'pace-summary-'));
+    for (const [source, file] of [
+      ['linkedin', 'linkedin-app-1.json'],
+      ['practice', 'practice-1.json'],
+    ]) {
+      mkdirSync(join(dir, 'author', source), { recursive: true });
+      copyFileSync(join(fixtures, file), join(dir, 'author', source, file));
+    }
+    return dir;
+  }
+
+  function run(d: string) {
+    let output = '';
+    const code = summaryCommand({ dir: d, out: (t) => void (output += t) });
+    return { code, output };
+  }
+
+  const row = (output: string, name: string) =>
+    output.split('\n').find((l) => l.trim().startsWith(`${name} `));
+
+  it('summary prints count, minimum and enough/short per measure', () => {
+    const { code, output } = run(withFixtures());
+    expect(code).toBe(0);
+    expect(output).toContain('1 application, 1 practice');
+    expect(row(output, 'keyGapInWord')).toMatch(
+      /^\s*keyGapInWord\s+2\s+300\s+short$/,
+    );
+    expect(row(output, 'pressRelease')).toMatch(/\s8\s+60\s+short$/);
+    expect(row(output, 'keyGapAroundBackspace')).toMatch(/\s2\s+1\s+enough$/);
+    expect(row(output, 'moveTargetSize')).toMatch(/not recorded$/);
+    expect(output).toMatch(/practice[\s\S]*stepTime\s+3\s+9\s+short/);
+    expect(output).toContain('pnpm nx run runner:pace-record-typing');
+    expect(output).toMatch(/keyGapInWord[^\n]*\n?[^\n]*pace-record-typing/);
+  });
+
+  it('summary with no recordings says how to record', () => {
+    dir = mkdtempSync(join(tmpdir(), 'pace-summary-'));
+    const { code, output } = run(dir);
+    expect(code).toBe(1);
+    expect(output).toContain('pnpm nx run runner:pace-record');
   });
 });
