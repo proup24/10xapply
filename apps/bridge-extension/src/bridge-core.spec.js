@@ -103,6 +103,68 @@ describe('bridge core', () => {
     expect(calls.some((c) => c[0] === 'debugger.sendCommand')).toBe(false);
   });
 
+  it('refuses Target methods off the allowlist, with or without a session', async () => {
+    const { core, calls, sent } = setup();
+    await open(core);
+    await attach(core);
+    sent.length = 0;
+    calls.length = 0;
+    let id = 100;
+    for (const sessionId of [undefined, 's1']) {
+      for (const method of [
+        'Target.attachToTarget',
+        'Target.createTarget',
+        'Target.getTargets',
+        'Target.setDiscoverTargets',
+        'Target.attachToBrowserTarget',
+      ]) {
+        id += 1;
+        await core.handleCommand({
+          id,
+          method: 'debugger.send',
+          params: { target: { tabId: 42, sessionId }, method, params: {} },
+        });
+        expect(sent.at(-1)).toEqual({ id, error: `refused: ${method}` });
+      }
+    }
+    expect(calls).toEqual([]);
+    for (const method of [
+      'Target.setAutoAttach',
+      'Target.detachFromTarget',
+      'Target.getTargetInfo',
+    ]) {
+      id += 1;
+      await core.handleCommand({
+        id,
+        method: 'debugger.send',
+        params: { target: { tabId: 42, sessionId: 's1' }, method, params: {} },
+      });
+      expect(sent.at(-1)).toEqual({ id, result: { ok: true } });
+    }
+    expect(calls).toHaveLength(3);
+  });
+
+  it('refuses storage reads', async () => {
+    const { core, calls, sent } = setup();
+    await open(core);
+    await attach(core);
+    sent.length = 0;
+    calls.length = 0;
+    for (const [i, method] of [
+      'DOMStorage.enable',
+      'IndexedDB.requestData',
+      'CacheStorage.requestCachedResponse',
+    ].entries()) {
+      await core.handleCommand({
+        id: 200 + i,
+        method: 'debugger.send',
+        params: { target: { tabId: 42 }, method, params: {} },
+      });
+      expect(sent.at(-1)).toEqual({ id: 200 + i, error: `refused: ${method}` });
+    }
+    expect(calls).toEqual([]);
+  });
+
   it('allows the empty utility-world script and refuses any other', async () => {
     const { core, calls, sent } = setup();
     await open(core);

@@ -1,6 +1,11 @@
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { REFUSED_METHODS, isRefused } from './policy.js';
+import {
+  REFUSED_METHODS,
+  SESSION_TARGET_METHODS,
+  isRefused,
+  isRefusedOnSession,
+} from './policy.js';
 
 const workspaceRoot = path.resolve(import.meta.dirname, '../../../..');
 
@@ -49,5 +54,59 @@ describe('policy', () => {
       ]);
     }
     expect(REFUSED_METHODS).toContain(addScript);
+  });
+
+  it('refuses storage reads that Patchright never sends', () => {
+    for (const method of [
+      'DOMStorage.enable',
+      'IndexedDB.requestData',
+      'CacheStorage.requestCachedResponse',
+    ]) {
+      expect([method, isRefused(method, {})]).toEqual([method, true]);
+    }
+  });
+
+  it('relay and extension allow the same session Target methods', async () => {
+    const ext = (await import(
+      pathToFileURL(
+        path.join(workspaceRoot, 'apps/bridge-extension/src/policy.js'),
+      ).href
+    )) as {
+      SESSION_TARGET_METHODS: readonly string[];
+      isRefusedOnSession: (method: string, params?: unknown) => boolean;
+    };
+    expect([...SESSION_TARGET_METHODS].sort()).toEqual(
+      [...ext.SESSION_TARGET_METHODS].sort(),
+    );
+    expect([...SESSION_TARGET_METHODS].sort()).toEqual([
+      'Target.detachFromTarget',
+      'Target.getTargetInfo',
+      'Target.setAutoAttach',
+    ]);
+    const cases: [string, unknown, boolean][] = [
+      ['Target.setAutoAttach', { autoAttach: true, flatten: true }, false],
+      ['Target.detachFromTarget', { sessionId: 's' }, false],
+      ['Target.getTargetInfo', {}, false],
+      ['Target.attachToTarget', { targetId: 'X' }, true],
+      ['Target.createTarget', { url: 'about:blank' }, true],
+      ['Target.getTargets', {}, true],
+      ['Target.setDiscoverTargets', { discover: true }, true],
+      ['Target.closeTarget', { targetId: 'X' }, true],
+      ['Target.attachToBrowserTarget', {}, true],
+      ['Page.enable', {}, false],
+      ['Network.getAllCookies', {}, true],
+      ['Page.addScriptToEvaluateOnNewDocument', { source: '' }, false],
+      ['Page.addScriptToEvaluateOnNewDocument', { source: 'x' }, true],
+    ];
+    for (const [method, params, refused] of cases) {
+      expect([method, isRefusedOnSession(method, params)]).toEqual([
+        method,
+        refused,
+      ]);
+      expect([method, ext.isRefusedOnSession(method, params)]).toEqual([
+        method,
+        refused,
+      ]);
+    }
   });
 });

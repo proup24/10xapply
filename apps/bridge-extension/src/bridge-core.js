@@ -1,4 +1,4 @@
-import { isRefused } from './policy.js';
+import { isRefusedOnSession } from './policy.js';
 
 const NOT_OWNED = 'not a bridge tab';
 
@@ -55,7 +55,7 @@ export function createBridgeCore(chromeApi, send) {
       if (!ownsTab(target?.tabId)) throw new Error(NOT_OWNED);
       const method = params.method;
       if (typeof method !== 'string') throw new Error('bad method');
-      if (isRefused(method, params.params))
+      if (isRefusedOnSession(method, params.params))
         throw new Error(`refused: ${method}`);
       if (!attached.has(target.tabId)) throw new Error('debugger not attached');
       const chromeTarget =

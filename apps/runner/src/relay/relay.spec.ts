@@ -366,6 +366,54 @@ describe('relay', () => {
     });
   });
 
+  it('refuses Target methods off the allowlist on tab and child sessions', async () => {
+    const ctx = await connected();
+    const { sessionId } = await openTarget(ctx);
+    ctx.ext.send({
+      method: 'debugger.event',
+      params: {
+        source: { tabId: 42 },
+        method: 'Target.attachedToTarget',
+        params: { sessionId: 'CHILD', targetInfo: { targetId: 'F' } },
+      },
+    });
+    await ctx.cdp.next(
+      (m) => (m.params as Json | undefined)?.sessionId === 'CHILD',
+    );
+    const before = ctx.ext.commands.length;
+    for (const sid of [sessionId, 'CHILD']) {
+      for (const method of [
+        'Target.attachToTarget',
+        'Target.createTarget',
+        'Target.getTargets',
+        'Target.setDiscoverTargets',
+      ]) {
+        const reply = await ctx.call(method, { targetId: 'X' }, sid);
+        expect((reply.error as Json).message).toBe(`refused: ${method}`);
+      }
+    }
+    expect(ctx.ext.commands.length).toBe(before);
+    for (const method of [
+      'Target.setAutoAttach',
+      'Target.detachFromTarget',
+      'Target.getTargetInfo',
+    ]) {
+      const reply = await ctx.call(method, {}, sessionId);
+      expect(reply.result).toEqual(
+        method === 'Target.getTargetInfo'
+          ? {
+              targetInfo: {
+                targetId: 'T-42',
+                type: 'page',
+                url: 'about:blank',
+              },
+            }
+          : {},
+      );
+    }
+    expect(ctx.ext.commands.length).toBe(before + 3);
+  });
+
   it('learns child sessions only from the tab tree', async () => {
     const ctx = await connected();
     const { sessionId } = await openTarget(ctx);

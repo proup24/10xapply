@@ -12,7 +12,7 @@ import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { WebSocket, WebSocketServer, type RawData } from 'ws';
 import { BrowserModel, type Json } from './browser-model.js';
-import { isRefused } from './policy.js';
+import { isRefused, isRefusedOnSession } from './policy.js';
 
 export type BridgeEvent =
   | { kind: 'detached'; tabId: number; reason: string }
@@ -125,6 +125,10 @@ export async function startRelay(opts: RelayOptions): Promise<Relay> {
     sessionId: string | undefined,
   ): Promise<unknown> {
     if (isRefused(method, params)) throw new Error(`refused: ${method}`);
+    // On a tab or child session only allowlisted Target.* methods pass.
+    if (sessionId !== undefined && isRefusedOnSession(method, params)) {
+      throw new Error(`refused: ${method}`);
+    }
     if (sessionId === undefined) {
       switch (method) {
         case 'Browser.getVersion':
