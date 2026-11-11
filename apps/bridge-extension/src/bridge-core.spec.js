@@ -477,4 +477,109 @@ describe('bridge core', () => {
     await core.stopRecorder();
     expect(seen).toEqual([true, false]);
   });
+
+  it('stop disconnects open recorder ports and refuses ports when not recording', async () => {
+    const { core } = setup();
+    const makePort = () => {
+      const p = { disconnected: false, drop: null };
+      p.disconnect = () => (p.disconnected = true);
+      p.onDisconnect = { addListener: (f) => (p.drop = f) };
+      return p;
+    };
+    expect(core.trackPort(makePort())).toBe(false);
+    await core.handleCommand({
+      id: 1,
+      method: 'recorder.start',
+      params: { salt: 's1' },
+    });
+    const a = makePort();
+    const b = makePort();
+    expect(core.trackPort(a)).toBe(true);
+    expect(core.trackPort(b)).toBe(true);
+    b.drop(); // b closed on its own: not disconnected again
+    await core.handleCommand({ id: 2, method: 'recorder.stop', params: {} });
+    expect(a.disconnected).toBe(true);
+    expect(b.disconnected).toBe(false);
+  });
+
+  function gated() {
+    const calls = [];
+    let release;
+    const gate = new Promise((r) => (release = r));
+    const core = createBridgeCore(
+      {
+        scripting: {
+          registerContentScripts: async () => {
+            calls.push('register');
+            await gate;
+          },
+          unregisterContentScripts: async () => {
+            calls.push('unregister');
+          },
+        },
+      },
+      () => undefined,
+    );
+    return { core, calls, release };
+  }
+
+  it('a stop during an in-flight start leaves nothing registered and recording off', async () => {
+    const { core, calls, release } = gated();
+    const start = core.handleCommand({
+      id: 1,
+      method: 'recorder.start',
+      params: { salt: 's1' },
+    });
+    await Promise.resolve();
+    await core.stopRecorder();
+    release();
+    await start;
+    expect(core.isRecording()).toBe(false);
+    expect(core.recorderSalt()).toBeNull();
+    expect(calls).toEqual(['register', 'unregister', 'unregister']);
+  });
+
+  it('reports the failed start to the relay', async () => {
+    const sent = [];
+    let release;
+    const gate = new Promise((r) => (release = r));
+    const core = createBridgeCore(
+      {
+        scripting: {
+          registerContentScripts: () => gate,
+          unregisterContentScripts: async () => undefined,
+        },
+      },
+      (m) => sent.push(m),
+    );
+    const start = core.handleCommand({
+      id: 1,
+      method: 'recorder.start',
+      params: { salt: 's1' },
+    });
+    await core.stopRecorder();
+    release();
+    await start;
+    expect(sent[0]).toEqual({ id: 1, error: 'recorder stopped during start' });
+  });
+
+  it('a concurrent second start shares the first and registers once', async () => {
+    const { core, calls, release } = gated();
+    const one = core.handleCommand({
+      id: 1,
+      method: 'recorder.start',
+      params: { salt: 's1' },
+    });
+    const two = core.handleCommand({
+      id: 2,
+      method: 'recorder.start',
+      params: { salt: 's2' },
+    });
+    await Promise.resolve();
+    release();
+    await Promise.all([one, two]);
+    expect(calls).toEqual(['register']);
+    expect(core.isRecording()).toBe(true);
+    expect(core.recorderSalt()).toBe('s1');
+  });
 });

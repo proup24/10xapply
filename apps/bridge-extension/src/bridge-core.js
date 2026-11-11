@@ -32,6 +32,9 @@ export function createBridgeCore(
 
   let recording = false;
   let salt = null;
+  let generation = 0; // bumped by every stop, so a start in flight can tell
+  let starting = null; // the start in flight, shared by a concurrent start
+  const ports = new Set(); // accepted recorder ports, dropped on stop
 
   const ownsTab = (tabId) => owned.has(tabId);
 
@@ -39,6 +42,17 @@ export function createBridgeCore(
     const was = recording;
     recording = false;
     salt = null;
+    generation++;
+    starting = null;
+    // Open pages keep their old salt; cut them off so it cannot reach a new sitting.
+    for (const port of ports) {
+      try {
+        port.disconnect();
+      } catch {
+        // already closed
+      }
+    }
+    ports.clear();
     try {
       await chromeApi.scripting.unregisterContentScripts({
         ids: [RECORDER_ID],
@@ -75,21 +89,42 @@ export function createBridgeCore(
         throw new Error('recorder.start needs a salt');
       }
       if (recording) return {};
-      await chromeApi.scripting.registerContentScripts([
-        {
-          id: RECORDER_ID,
-          js: ['recorder-capture.js', 'recorder-content.js'],
-          matches: [...RECORDER_MATCHES],
-          world: 'ISOLATED',
-          runAt: 'document_start',
-          persistAcrossSessions: false,
-          allFrames: false,
-        },
-      ]);
-      recording = true;
-      salt = params.salt;
-      onRecording?.(true);
-      return {};
+      if (starting) return starting;
+      const gen = generation;
+      const attempt = (async () => {
+        await chromeApi.scripting.registerContentScripts([
+          {
+            id: RECORDER_ID,
+            js: ['recorder-capture.js', 'recorder-content.js'],
+            matches: [...RECORDER_MATCHES],
+            world: 'ISOLATED',
+            runAt: 'document_start',
+            persistAcrossSessions: false,
+            allFrames: false,
+          },
+        ]);
+        if (gen !== generation) {
+          // A stop (or socket close) ran while the register was pending.
+          try {
+            await chromeApi.scripting.unregisterContentScripts({
+              ids: [RECORDER_ID],
+            });
+          } catch {
+            // nothing was registered
+          }
+          throw new Error('recorder stopped during start');
+        }
+        recording = true;
+        salt = params.salt;
+        onRecording?.(true);
+        return {};
+      })();
+      starting = attempt;
+      try {
+        return await attempt;
+      } finally {
+        if (starting === attempt) starting = null;
+      }
     },
 
     async 'recorder.stop'() {
@@ -195,6 +230,13 @@ export function createBridgeCore(
   return {
     handleCommand,
     isRecording: () => recording,
+    // Accepts a recorder port only while recording; stop disconnects it.
+    trackPort(port) {
+      if (!recording) return false;
+      ports.add(port);
+      port.onDisconnect.addListener(() => ports.delete(port));
+      return true;
+    },
     recorderSalt: () => salt,
     stopRecorder,
     ownsTab,
