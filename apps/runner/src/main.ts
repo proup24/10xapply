@@ -1,5 +1,6 @@
 import { pathToFileURL } from 'node:url';
 import { bridgeCheck, bridgeInstall } from './commands/bridge.js';
+import { sessionCommand } from './commands/session.js';
 import { ConfigError } from './config.js';
 import { RelayPortInUseError } from './relay/relay.js';
 
@@ -12,6 +13,7 @@ const USAGE = `usage: runner <command>
 export async function main(argv: string[]): Promise<number> {
   try {
     const [a, b] = argv;
+    if (a === 'session') return await sessionCommand();
     if (a === 'bridge' && b === 'install') return bridgeInstall();
     if (a === 'bridge' && b === 'check') return await bridgeCheck();
   } catch (e) {
