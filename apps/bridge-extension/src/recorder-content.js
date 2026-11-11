@@ -5,7 +5,8 @@
 // On LinkedIn it is injected on every page (the site is a single-page app), and
 // the recorder captures and sends nothing outside /jobs/, checked per event.
 (() => {
-  const { EVENT_TYPES, NON_COMPOSED_TYPES, jobKeyOf, makeRecorder } = globalThis.__paceCapture;
+  const { EVENT_TYPES, NON_COMPOSED_TYPES, jobKeyOf, makeRecorder } =
+    globalThis.__paceCapture;
   const FLUSH_MS = 500;
 
   const port = chrome.runtime.connect({ name: 'recorder' });
