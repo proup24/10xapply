@@ -1,4 +1,3 @@
-import { randomInt } from 'node:crypto';
 import { setTimeout as sleep } from 'node:timers/promises';
 import type { Page } from 'patchright-core';
 import { connectBridge } from '../bridge/bridge.js';
@@ -22,40 +21,6 @@ interface Target {
   parse: (text: string) => CheckResult;
 }
 
-const ALPHABET = 'abcdefghijklmnopqrstuvwxyz0123456789';
-
-const randomText = (n: number): string =>
-  Array.from({ length: n }, () => ALPHABET[randomInt(ALPHABET.length)]).join(
-    '',
-  );
-
-// Temporary: drives the form with raw page.mouse/page.keyboard. A later task
-// replaces it with the pace module.
-async function clickAt(page: Page, selector: string): Promise<void> {
-  const box = await page.locator(selector).boundingBox();
-  if (!box) throw new Error('no box');
-  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2, {
-    steps: 25,
-  });
-  await page.mouse.down();
-  await page.mouse.up();
-}
-
-async function fillLoginForm(page: Page): Promise<void> {
-  await clickAt(page, '#email');
-  await page.keyboard.type(
-    `pace.test.${randomInt(100000, 1000000)}@example.com`,
-    {
-      delay: 120,
-    },
-  );
-  await clickAt(page, '#password');
-  // The page requires one special character.
-  await page.keyboard.type(`${randomText(11)}!`, { delay: 120 });
-  await clickAt(page, '#loginForm button[type="submit"]');
-  await sleep(5_000);
-}
-
 const TARGETS: Target[] = [
   {
     name: 'rebrowser',
@@ -75,7 +40,7 @@ const TARGETS: Target[] = [
     name: 'dabi-interactions',
     url: 'https://deviceandbrowserinfo.com/are_you_a_bot_interactions',
     waitMs: 3_000,
-    act: fillLoginForm,
+    // No `act` until the pace module drives this page's login form.
     read: (p) => p.locator('body').innerText(),
     parse: parseDabiInteractions,
   },
