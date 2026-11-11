@@ -29,20 +29,22 @@ export default [
         noPageScripts,
         {
           selector:
-            "CallExpression > MemberExpression.callee[property.name=/^(click|dblclick|fill|type|press|pressSequentially|check|uncheck|selectOption|setInputFiles|hover|tap|dragTo)$/]:not([object.name='pace'])",
-          message: inputMessage,
-        },
-        {
-          selector: 'MemberExpression[property.name=/^(mouse|keyboard)$/]',
+            "CallExpression > MemberExpression.callee[property.name=/^(click|dblclick|fill|type|press|pressSequentially|check|uncheck|setChecked|selectOption|setInputFiles|hover|tap|dragTo|dragAndDrop|dispatchEvent|focus|blur|selectText|scrollIntoViewIfNeeded)$/]:not([object.name='pace'])",
           message: inputMessage,
         },
         {
           selector:
-            'MemberExpression[computed=true][property.value=/^(mouse|keyboard)$/]',
+            'MemberExpression[property.name=/^(mouse|keyboard|touchscreen)$/]',
           message: inputMessage,
         },
         {
-          selector: 'ObjectPattern > Property[key.name=/^(mouse|keyboard)$/]',
+          selector:
+            'MemberExpression[computed=true][property.value=/^(mouse|keyboard|touchscreen)$/]',
+          message: inputMessage,
+        },
+        {
+          selector:
+            'ObjectPattern > Property[key.name=/^(mouse|keyboard|touchscreen)$/]',
           message: inputMessage,
         },
       ],

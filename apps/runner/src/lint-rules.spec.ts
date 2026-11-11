@@ -58,6 +58,17 @@ describe('runner lint rules', () => {
     'loc.hover();',
     'loc.tap();',
     'loc.dragTo(other);',
+    "page.dragAndDrop('a', 'b');",
+    'loc.setChecked(true);',
+    "loc.dispatchEvent('click');",
+    'loc.focus();',
+    'loc.blur();',
+    'loc.selectText();',
+    'loc.scrollIntoViewIfNeeded();',
+    'page.touchscreen.tap(1, 2);',
+    'const t = page.touchscreen; void t;',
+    "page['touchscreen'].tap(1, 2);",
+    'const { touchscreen } = page; void touchscreen;',
     'page.mouse.move(1, 2);',
     "page.keyboard.down('a');",
     'const m = page.mouse;',
@@ -71,19 +82,24 @@ describe('runner lint rules', () => {
     expect(await lint(code, 'src/pace/x.ts')).toHaveLength(0);
   });
 
-  it.each(['await pace.click(loc);', "await pace.type(loc, 'x');"])(
-    'allows calls on the pace object in src/commands: %s',
-    async (code) => {
-      expect(await lint(code, 'src/commands/x.ts')).toHaveLength(0);
-      const direct = await lint(
-        "await page.locator('a').click();",
-        'src/commands/x.ts',
-      );
-      expect(direct).toHaveLength(1);
-    },
-  );
+  it.each([
+    'await pace.click(loc);',
+    "await pace.type(loc, 'x');",
+    'await pace.focus(loc);',
+  ])('allows calls on the pace object in src/commands: %s', async (code) => {
+    expect(await lint(code, 'src/commands/x.ts')).toHaveLength(0);
+    const direct = await lint(
+      "await page.locator('a').click();",
+      'src/commands/x.ts',
+    );
+    expect(direct).toHaveLength(1);
+  });
 
   it('allows locator reads', async () => {
     expect(await lint("await page.locator('a').count();")).toHaveLength(0);
+  });
+
+  it('does not ban clear (not in the input ban)', async () => {
+    expect(await lint('loc.clear();', 'src/commands/x.ts')).toHaveLength(0);
   });
 });
