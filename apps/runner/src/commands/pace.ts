@@ -217,7 +217,15 @@ export function summaryCommand(
   const short = table(
     'LinkedIn (and typing page for key measures)',
     extractMeasures(main),
-    MEASURE_NAMES,
+    MEASURE_NAMES.filter((n) => n !== 'fileChooserDwell'),
+    MINIMUMS,
+    out,
+  );
+  // The only measure that takes practice samples (see buildProfile).
+  const chooserShort = table(
+    'file chooser (LinkedIn and practice)',
+    extractMeasures([...main, ...practice]),
+    ['fileChooserDwell'],
     MINIMUMS,
     out,
   );
@@ -242,12 +250,21 @@ export function summaryCommand(
       `short: ${rest.join(', ')}\n  fix: apply to a few more jobs while recording: pnpm nx run runner:pace-record\n`,
     );
   }
+  if (chooserShort.length > 0) {
+    out(
+      `short: ${chooserShort.join(', ')}\n  fix: upload the resume in a few more practice runs (/practice/?run=<n>) while recording: pnpm nx run runner:pace-record\n`,
+    );
+  }
   if (practiceShort.length > 0) {
     out(
       `short (practice): ${practiceShort.join(', ')}\n  fix: fill a few more practice runs (/practice/?run=<n>) while recording: pnpm nx run runner:pace-record\n`,
     );
   }
-  if (short.length === 0 && practiceShort.length === 0) {
+  if (
+    short.length === 0 &&
+    chooserShort.length === 0 &&
+    practiceShort.length === 0
+  ) {
     out('every measure has enough samples\n');
   }
   return 0;

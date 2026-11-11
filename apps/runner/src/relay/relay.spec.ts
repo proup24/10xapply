@@ -377,6 +377,7 @@ describe('relay', () => {
   });
 
   describe('uploadOnChooser', () => {
+    const noWait = async () => undefined;
     const sent = (ctx: Awaited<ReturnType<typeof connected>>) =>
       ctx.ext.commands
         .filter((c) => c.method === 'debugger.send')
@@ -402,7 +403,7 @@ describe('relay', () => {
         ]);
         chooser(ctx, { frameId: 'F', mode: 'selectSingle', backendNodeId: 77 });
       });
-      await ctx.relay.uploadOnChooser(['C:\\x\\r.pdf'], open);
+      await ctx.relay.uploadOnChooser(['C:\\x\\r.pdf'], open, noWait);
       expect(open).toHaveBeenCalledOnce();
       expect(sent(ctx)).toEqual([
         {
@@ -423,12 +424,51 @@ describe('relay', () => {
       ]);
     });
 
+    it('waits for choose between the chooser opening and setting the files', async () => {
+      const ctx = await connected();
+      await openTarget(ctx);
+      const order: string[] = [];
+      await ctx.relay.uploadOnChooser(
+        ['C:\\r.pdf'],
+        async () => {
+          chooser(ctx, {
+            frameId: 'F',
+            mode: 'selectSingle',
+            backendNodeId: 4,
+          });
+        },
+        async () => {
+          order.push(
+            `choose after ${sent(ctx)
+              .map((p) => p.method)
+              .join(',')}`,
+          );
+        },
+      );
+      expect(order).toEqual([
+        'choose after Page.setInterceptFileChooserDialog',
+      ]);
+      expect(sent(ctx).map((p) => p.method)).toEqual([
+        'Page.setInterceptFileChooserDialog',
+        'DOM.setFileInputFiles',
+        'Page.setInterceptFileChooserDialog',
+      ]);
+    });
+
     it('keeps the chooser event from the CDP client while it waits', async () => {
       const ctx = await connected();
       await openTarget(ctx);
-      await ctx.relay.uploadOnChooser(['C:\\r.pdf'], async () => {
-        chooser(ctx, { frameId: 'F', mode: 'selectSingle', backendNodeId: 5 });
-      });
+      await ctx.relay.uploadOnChooser(
+        ['C:\\r.pdf'],
+        async () => {
+          chooser(ctx, {
+            frameId: 'F',
+            mode: 'selectSingle',
+            backendNodeId: 5,
+          });
+        },
+        noWait,
+      );
       // Outside an upload the event is forwarded as before.
       chooser(ctx, { frameId: 'F', mode: 'selectSingle', backendNodeId: 6 });
       const forwarded = await ctx.cdp.next(
@@ -452,14 +492,22 @@ describe('relay', () => {
         },
       });
       await ctx.cdp.next((m) => m.method === 'Target.attachedToTarget');
-      await ctx.relay.uploadOnChooser(['C:\\r.pdf'], async () => {
-        chooser(
-          ctx,
-          { frameId: 'C', mode: 'selectSingle', backendNodeId: 9 },
-          { tabId: 42, sessionId: 'CHILD-1' },
-        );
-        chooser(ctx, { frameId: 'F', mode: 'selectSingle', backendNodeId: 3 });
-      });
+      await ctx.relay.uploadOnChooser(
+        ['C:\\r.pdf'],
+        async () => {
+          chooser(
+            ctx,
+            { frameId: 'C', mode: 'selectSingle', backendNodeId: 9 },
+            { tabId: 42, sessionId: 'CHILD-1' },
+          );
+          chooser(ctx, {
+            frameId: 'F',
+            mode: 'selectSingle',
+            backendNodeId: 3,
+          });
+        },
+        noWait,
+      );
       const set = sent(ctx).find((p) => p.method === 'DOM.setFileInputFiles');
       expect((set?.params as Json).backendNodeId).toBe(3);
     });
@@ -468,9 +516,13 @@ describe('relay', () => {
       const ctx = await connected();
       await openTarget(ctx);
       await expect(
-        ctx.relay.uploadOnChooser(['C:\\r.pdf'], async () => {
-          chooser(ctx, { frameId: 'F', mode: 'selectSingle' });
-        }),
+        ctx.relay.uploadOnChooser(
+          ['C:\\r.pdf'],
+          async () => {
+            chooser(ctx, { frameId: 'F', mode: 'selectSingle' });
+          },
+          noWait,
+        ),
       ).rejects.toThrow(/without an input/);
       expect(sent(ctx).map((p) => p.method)).toEqual([
         'Page.setInterceptFileChooserDialog',
@@ -483,9 +535,13 @@ describe('relay', () => {
       const ctx = await connected();
       await openTarget(ctx);
       await expect(
-        ctx.relay.uploadOnChooser(['C:\\r.pdf'], async () => {
-          throw new Error('pace: target keeps moving; not pressing');
-        }),
+        ctx.relay.uploadOnChooser(
+          ['C:\\r.pdf'],
+          async () => {
+            throw new Error('pace: target keeps moving; not pressing');
+          },
+          noWait,
+        ),
       ).rejects.toThrow(/keeps moving/);
       expect(sent(ctx).at(-1)?.params).toEqual({ enabled: false });
       expect(sent(ctx).some((p) => p.method === 'DOM.setFileInputFiles')).toBe(
@@ -507,7 +563,7 @@ describe('relay', () => {
       );
       await model.handleCommand('Target.createTarget', {}, undefined);
       await expect(
-        model.uploadOnChooser(['C:\\r.pdf'], async () => undefined, 20),
+        model.uploadOnChooser(['C:\\r.pdf'], async () => undefined, noWait, 20),
       ).rejects.toThrow('no file chooser opened');
       expect(calls.at(-1)).toMatchObject({
         ext: 'debugger.send',
@@ -520,7 +576,7 @@ describe('relay', () => {
       const ctx = await connected();
       const open = vi.fn(async () => undefined);
       await expect(
-        ctx.relay.uploadOnChooser(['C:\\r.pdf'], open),
+        ctx.relay.uploadOnChooser(['C:\\r.pdf'], open, noWait),
       ).rejects.toThrow('no run tab');
       expect(open).not.toHaveBeenCalled();
     });

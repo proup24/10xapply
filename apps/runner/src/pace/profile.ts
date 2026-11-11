@@ -122,8 +122,12 @@ export function wheelDefaulted(recs: Recording[]): boolean {
 }
 
 /**
- * Builds the profile. Practice recordings only fill `profile.practice`;
- * typing recordings feed the key measures like any other.
+ * Builds the profile. Practice recordings only fill `profile.practice`, with
+ * one exception: `fileChooserDwell` (time in the OS file dialog) takes
+ * practice samples into `profile.samples`, because pace draws it from there
+ * and the practice page is the only place the author uploads; the dialog is
+ * the same one LinkedIn opens. Typing recordings feed the key measures like
+ * any other.
  */
 export function buildProfile(recs: Recording[]): PaceProfile {
   const main = feeding(recs);
@@ -132,6 +136,8 @@ export function buildProfile(recs: Recording[]): PaceProfile {
   const p = extractMeasures(practice);
   const samples: PaceProfile['samples'] = {};
   for (const n of MEASURE_NAMES) if (m[n].length > 0) samples[n] = m[n];
+  const chooser = [...m.fileChooserDwell, ...p.fileChooserDwell];
+  if (chooser.length > 0) samples.fileChooserDwell = chooser;
   return {
     version: 1,
     builtAt: new Date().toISOString(),

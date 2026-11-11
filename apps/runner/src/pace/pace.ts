@@ -26,8 +26,9 @@ export interface Pace {
    */
   pick(control: Locator, index: number): Promise<void>;
   /**
-   * Clicks the button inside `deps.uploadOnChooser`, which sets `filePath`
-   * (a path where Chrome runs) on the chooser's input.
+   * Clicks the button inside `deps.uploadOnChooser`, dwells as if in the
+   * file dialog, and has it set `filePath` (a path where Chrome runs) on the
+   * chooser's input.
    */
   upload(button: Locator, filePath: string): Promise<void>;
   /** Wheel notches over `area`; negative notches scroll up. */
@@ -88,13 +89,15 @@ export function createPace(
      */
     viewport?: () => Promise<{ width: number; height: number } | null>;
     /**
-     * Runs `open` (the click on an upload button) and sets `file` on the
+     * Runs `open` (the click on an upload button), waits for the chooser,
+     * awaits `choose` (the time in the dialog), then sets `file` on the
      * chooser's input so Chrome fires a trusted `change` (the bridge's
      * relay-side upload). Without it `upload` refuses.
      */
     uploadOnChooser?: (
       file: string,
       open: () => Promise<void>,
+      choose: () => Promise<void>,
     ) => Promise<void>;
   } = {},
 ): Pace {
@@ -498,7 +501,11 @@ export function createPace(
       if (!upload) {
         throw new Error('pace: upload needs deps.uploadOnChooser; refusing');
       }
-      await upload(filePath, () => click(button));
+      await upload(
+        filePath,
+        () => click(button),
+        () => dwell('fileChooserDwell'),
+      );
     },
     async scroll(area, notches) {
       await approach(area);

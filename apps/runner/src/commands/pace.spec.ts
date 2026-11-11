@@ -192,6 +192,40 @@ describe('pace summary', () => {
     expect(output).toMatch(/keyGapInWord[^\n]*\n?[^\n]*pace-record-typing/);
   });
 
+  it('summary counts fileChooserDwell from LinkedIn and practice in its own line', () => {
+    const d = withFixtures();
+    const f = join(d, 'author', 'practice', 'practice-1.json');
+    const rec = JSON.parse(readFileSync(f, 'utf8'));
+    const ctx = { path: '/practice/', dialog: true, progress: 66 };
+    for (const t of [90_000, 100_000]) {
+      rec.events.push(
+        {
+          t,
+          type: 'pointerdown',
+          trusted: true,
+          target: { kind: 'button' },
+          ctx,
+        },
+        {
+          t: t + 5000,
+          type: 'change',
+          trusted: true,
+          target: { kind: 'file' },
+          ctx,
+        },
+      );
+    }
+    writeFileSync(f, JSON.stringify(rec));
+    const { output } = run(d);
+    const rows = output
+      .split('\n')
+      .filter((l) => l.trim().startsWith('fileChooserDwell '));
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatch(/\s2\s+3\s+short$/);
+    expect(output).toMatch(/file chooser \(LinkedIn and practice\)/);
+    expect(output).toMatch(/short: fileChooserDwell\n[^\n]*practice runs/);
+  });
+
   it('summary with no recordings says how to record', () => {
     dir = mkdtempSync(join(tmpdir(), 'pace-summary-'));
     const { code, output } = run(dir);

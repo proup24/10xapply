@@ -41,10 +41,15 @@ export interface Relay {
   /** The run tab's viewport in CSS px (Page.getLayoutMetrics), or null. */
   viewport(): Promise<{ width: number; height: number } | null>;
   /**
-   * Runs `open` (a click that opens the run tab's file chooser) and sets
-   * `files` (paths on the Chrome side) on the chooser's input, in-process.
+   * Runs `open` (a click that opens the run tab's file chooser), awaits
+   * `choose` once it has opened, then sets `files` (paths on the Chrome
+   * side) on the chooser's input, in-process.
    */
-  uploadOnChooser(files: string[], open: () => Promise<void>): Promise<void>;
+  uploadOnChooser(
+    files: string[],
+    open: () => Promise<void>,
+    choose: () => Promise<void>,
+  ): Promise<void>;
   /** Starts the extension's timing-only recorder; `salt` stays in memory. */
   startRecording(salt: string): Promise<void>;
   stopRecording(): Promise<void>;
@@ -436,8 +441,12 @@ export async function startRelay(opts: RelayOptions): Promise<Relay> {
       return model.viewport();
     },
 
-    uploadOnChooser(files: string[], open: () => Promise<void>): Promise<void> {
-      return model.uploadOnChooser(files, open, CHOOSER_TIMEOUT_MS);
+    uploadOnChooser(
+      files: string[],
+      open: () => Promise<void>,
+      choose: () => Promise<void>,
+    ): Promise<void> {
+      return model.uploadOnChooser(files, open, choose, CHOOSER_TIMEOUT_MS);
     },
 
     async startRecording(salt: string): Promise<void> {

@@ -39,6 +39,9 @@ export const MEASURE_NAMES = [
   'fieldDwellBeforeTyping',
   'afterTypingToMove',
   'pickDwell',
+  // fileChooserDwell: the press that opens a file chooser to the trusted file
+  // change; the one measure practice recordings feed into samples.
+  'fileChooserDwell',
   'stepTime',
   'appTime',
   'longPauseRate',
@@ -79,6 +82,7 @@ export const MINIMUMS: Partial<Record<MeasureName, number>> = {
   wheelGap: 100,
   fieldDwellBeforeTyping: 10,
   appTime: 5,
+  fileChooserDwell: 3,
 };
 /** Practice applications count separately: 3 applications × 3 steps. */
 export const PRACTICE_MINIMUMS: Partial<Record<MeasureName, number>> = {
@@ -273,6 +277,28 @@ function measureWheel(events: RecordedEvent[], m: Measures): void {
   if (burst > 0) m.wheelBurst.push(burst);
 }
 
+/** A click this long after a press still belongs to it. */
+const PRESS_TO_CLICK_MS = 1000;
+
+/**
+ * The press that opened the chooser behind a trusted file `change`: the
+ * nearest pointerdown before it (its click when the press wasn't recorded),
+ * never one before an earlier file change.
+ */
+function chooserOpenedAt(events: RecordedEvent[], i: number): number | null {
+  let click: RecordedEvent | null = null;
+  for (let j = i - 1; j >= 0; j--) {
+    const f = events[j];
+    if (f.type === 'change' && f.target.kind === 'file') break;
+    if (f.type === 'click') click ??= f;
+    if (f.type === 'pointerdown') {
+      if (!click || click.t - f.t <= PRESS_TO_CLICK_MS) return f.t;
+      break;
+    }
+  }
+  return click?.t ?? null;
+}
+
 /** Dwell around fields: prefilled checks, before and after typing, picks. */
 function measureFields(
   events: RecordedEvent[],
@@ -290,6 +316,10 @@ function measureFields(
         }
         break;
       }
+    }
+    if (e.type === 'change' && e.target.kind === 'file') {
+      const opened = chooserOpenedAt(events, i);
+      if (opened !== null) m.fileChooserDwell.push(e.t - opened);
     }
     if (e.type !== 'focusin' || !FIELD_KINDS.has(e.target.kind)) continue;
     let firstKey: RecordedEvent | null = null;

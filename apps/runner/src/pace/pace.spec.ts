@@ -73,9 +73,16 @@ function fake(opts: Opts = {}) {
     viewportSize: () => (opts.view === undefined ? VIEW : opts.view),
   };
   const uploadOnChooser = vi.fn(
-    async (file: string, open: () => Promise<void>) => {
+    async (
+      file: string,
+      open: () => Promise<void>,
+      choose: () => Promise<void>,
+    ) => {
       log.push({ kind: 'chooser', t });
       await open();
+      // The chooser has opened: the person picks a file in the dialog.
+      log.push({ kind: 'chooser', t, arg: 'opened' });
+      await choose();
       log.push({ kind: 'files', t, arg: file });
     },
   );
@@ -586,6 +593,26 @@ describe('createPace', () => {
     expect(chooser).toBeLessThan(down);
     expect(files).toBeGreaterThan(down);
     expect(log[files]).toMatchObject({ arg: 'C:\\x\\resume.pdf' });
+  });
+
+  it('upload waits a mood-scaled fileChooserDwell between the chooser opening and the files', async () => {
+    for (const [factor, wait] of [
+      [1, 4500],
+      [2, 9000],
+    ]) {
+      const { pace, log, locator } = setup(
+        testProfile({
+          fileChooserDwell: flat(4500),
+          appSpeedFactor: flat(factor),
+        }),
+      );
+      await pace.upload(locator([BOX]), 'C:\\r.pdf');
+      const opened = log.find(
+        (e) => e.kind === 'chooser' && e.arg === 'opened',
+      );
+      const files = log.find((e) => e.kind === 'files');
+      expect((files?.t ?? 0) - (opened?.t ?? 0)).toBeCloseTo(wait);
+    }
   });
 
   it('upload refuses without deps.uploadOnChooser (no script-set files)', async () => {

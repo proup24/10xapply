@@ -249,6 +249,52 @@ describe('extractMeasures, other cases', () => {
       wheelGap: 100,
       fieldDwellBeforeTyping: 10,
       appTime: 5,
+      fileChooserDwell: 3,
     });
+  });
+});
+
+describe('fileChooserDwell', () => {
+  const ctx = { path: '/practice/', dialog: true, progress: 66 };
+  const ev = (
+    t: number,
+    type: string,
+    kind: string,
+    trusted = true,
+  ): RecordedEvent =>
+    ({ t, type, trusted, target: { kind }, ctx }) as RecordedEvent;
+  // Hand-made: two uploads through a button that opens the OS dialog.
+  const rec: Recording = {
+    ...practice,
+    pages: [],
+    events: [
+      ev(1000, 'pointerdown', 'button'),
+      ev(1090, 'click', 'button'),
+      ev(1091, 'click', 'file', false), // the page's own input.click()
+      ev(5000, 'focusin', 'button'), // the dialog closes
+      ev(5400, 'change', 'file'),
+      ev(9000, 'pointerdown', 'button'),
+      ev(9080, 'click', 'button'),
+      ev(15100, 'change', 'file'),
+      // A script-set file: untrusted, not a dwell.
+      ev(20000, 'pointerdown', 'button'),
+      ev(20010, 'change', 'file', false),
+    ],
+  };
+
+  it('runs from the press that opened the chooser to the trusted file change', () => {
+    expect(extractMeasures([rec]).fileChooserDwell).toEqual([4400, 6100]);
+  });
+
+  it('falls back to the click when the press was not recorded', () => {
+    const noDown = {
+      ...rec,
+      events: rec.events.filter((e) => e.t !== 1000),
+    };
+    expect(extractMeasures([noDown]).fileChooserDwell).toEqual([4310, 6100]);
+  });
+
+  it('needs 3 samples', () => {
+    expect(MINIMUMS.fileChooserDwell).toBe(3);
   });
 });

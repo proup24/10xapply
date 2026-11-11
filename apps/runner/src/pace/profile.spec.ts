@@ -139,7 +139,7 @@ describe('buildProfile', () => {
     expect(p.sources.applications).toBe(1);
     noNaN(p.fitts);
   });
-  it('practice recordings never feed samples', () => {
+  it('practice recordings feed no samples but fileChooserDwell', () => {
     const p = buildProfile([app, practice]);
     const only = buildProfile([app]);
     expect(p.samples).toEqual(only.samples);
@@ -148,6 +148,42 @@ describe('buildProfile', () => {
     expect(
       p.practice.stepTime.length + p.practice.appTime.length,
     ).toBeGreaterThan(0);
+  });
+  it('fileChooserDwell takes LinkedIn and practice samples into profile.samples', () => {
+    const ctx = { path: '/p/', dialog: true, progress: 50 };
+    const upload = (down: number, change: number) =>
+      [
+        {
+          t: down,
+          type: 'pointerdown',
+          trusted: true,
+          target: { kind: 'button' },
+          ctx,
+        },
+        {
+          t: change,
+          type: 'change',
+          trusted: true,
+          target: { kind: 'file' },
+          ctx,
+        },
+      ] as Recording['events'];
+    const li: Recording = {
+      ...app,
+      events: [...app.events, ...upload(90_000, 93_000)],
+    };
+    const pr: Recording = {
+      ...practice,
+      events: [...practice.events, ...upload(90_000, 95_500)],
+    };
+    const typingPage: Recording = {
+      ...practice,
+      source: 'test-page',
+      events: upload(1000, 2000),
+    };
+    const p = buildProfile([li, pr, typingPage]);
+    expect(p.samples.fileChooserDwell).toEqual([3000, 5500]);
+    expect(p.samples.stepTime).toEqual(buildProfile([li]).samples.stepTime);
   });
   it('wheel events only in a practice recording leave the default notch and flag it', () => {
     const wheel = {

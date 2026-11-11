@@ -45,6 +45,9 @@ export const DEFAULTS: Partial<Record<MeasureName, readonly number[]>> = {
   afterTypingToMove: [250, 400, 600, 900],
   // A select popup open before the choice lands.
   pickDwell: [500, 800, 1100, 1500],
+  // Time in the OS file dialog, from the press to the file landing: about 4 s
+  // (the author's practice uploads took 4.6–6.2 s).
+  fileChooserDwell: [3000, 4000, 5000],
   // Share of presses followed by a long pause, and how long it lasts.
   longPauseRate: [0.03, 0.05, 0.08],
   longPause: [3500, 5000, 8000, 12000],

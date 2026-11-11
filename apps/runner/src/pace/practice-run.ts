@@ -147,7 +147,8 @@ export async function practiceCommand(
       );
       const pace = (deps.createPace ?? createPace)(page, profile, {
         viewport: () => bridge.viewport(),
-        uploadOnChooser: (file, open) => bridge.uploadOnChooser(file, open),
+        uploadOnChooser: (file, open, choose) =>
+          bridge.uploadOnChooser(file, open, choose),
       });
       if (run === 1 && pace.defaulted.length > 0) {
         out(`defaulted measures: ${pace.defaulted.join(', ')}`);

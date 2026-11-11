@@ -200,7 +200,8 @@ export class BrowserModel {
   }
 
   /**
-   * Sets `files` on the input whose chooser `open` opens, through Chrome's own
+   * Sets `files` on the input whose chooser `open` opens, after `choose`
+   * (the time a person spends in the dialog), through Chrome's own
    * DOM.setFileInputFiles: Chrome then fires a trusted `input` and `change`,
    * where Patchright's remote setFiles sets them by script. The chooser is
    * intercepted (no OS dialog) only while this runs. `files` are paths on the
@@ -209,6 +210,7 @@ export class BrowserModel {
   async uploadOnChooser(
     files: string[],
     open: () => Promise<void>,
+    choose: () => Promise<void>,
     timeoutMs: number,
   ): Promise<void> {
     const tab = [...this.tabs.values()].find((t) => t.attached);
@@ -239,6 +241,8 @@ export class BrowserModel {
           );
         }),
       ]);
+      clearTimeout(timer);
+      await choose();
       await this.debuggerSend(target, 'DOM.setFileInputFiles', {
         files,
         backendNodeId,

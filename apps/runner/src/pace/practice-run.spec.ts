@@ -102,8 +102,15 @@ describe('practiceCommand', () => {
       openRunWindow: async () => page,
       stopReason: () => null,
       viewport: async () => ({ width: 1280, height: 800 }),
-      uploadOnChooser: vi.fn(async (_f: string, open: () => Promise<void>) =>
-        open(),
+      uploadOnChooser: vi.fn(
+        async (
+          _f: string,
+          open: () => Promise<void>,
+          choose: () => Promise<void>,
+        ) => {
+          await open();
+          await choose();
+        },
       ),
       startRecording: async () => void order.push('start'),
       stopRecording: async () => void order.push('stop'),
@@ -170,14 +177,24 @@ describe('practiceCommand', () => {
         unknown,
         unknown,
         {
-          uploadOnChooser: (f: string, o: () => Promise<void>) => Promise<void>;
+          uploadOnChooser: (
+            f: string,
+            o: () => Promise<void>,
+            c: () => Promise<void>,
+          ) => Promise<void>;
         },
       ]
     )[2];
     const open = vi.fn(async () => undefined);
-    await pdeps.uploadOnChooser('C:\\f.pdf', open);
-    expect(s.bridge.uploadOnChooser).toHaveBeenCalledWith('C:\\f.pdf', open);
+    const choose = vi.fn(async () => undefined);
+    await pdeps.uploadOnChooser('C:\\f.pdf', open, choose);
+    expect(s.bridge.uploadOnChooser).toHaveBeenCalledWith(
+      'C:\\f.pdf',
+      open,
+      choose,
+    );
     expect(open).toHaveBeenCalledOnce();
+    expect(choose).toHaveBeenCalledOnce();
   });
 
   it('--record records as the runner and flushes after stopping', async () => {
