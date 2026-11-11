@@ -45,10 +45,14 @@ export const MEASURE_NAMES = [
 ] as const;
 export type MeasureName = (typeof MEASURE_NAMES)[number];
 
-/** One move, for the Fitts fit. `targetSize` is null: boxes aren't recorded. */
+/** One move, for the Fitts fit. */
 export interface MoveSample {
   distance: number;
+  /** Movement start → pointerdown (the same as `moveDuration`). */
   duration: number;
+  /** Movement start → the last pointermove at or before the pointerdown. */
+  travel: number;
+  /** min(w, h) of the pressed target, or null in recordings without boxes. */
   targetSize: number | null;
 }
 /** Inputs for the models `pace build` fits, kept paired. */
@@ -85,13 +89,6 @@ export const KEY_MEASURES: readonly MeasureName[] = [
   'keyGapAfterSpace',
   'keyGapAroundBackspace',
 ];
-/** Measures that need a target's box, which the recorder doesn't capture. */
-export const NOT_RECORDED: readonly MeasureName[] = [
-  'moveTargetSize',
-  'clickOffsetX',
-  'clickOffsetY',
-];
-
 /** A move starts after at least this long with no pointermove. */
 export const STILL_MS = 150;
 /** A move overshoots when it passes its end point by more than this. */
@@ -169,8 +166,18 @@ function measureMoves(moves: Move[], m: Measures): number {
     const duration = down.t - s.t;
     m.moveDuration.push(duration);
     m.moveDistance.push(distance);
-    m.models.moves.push({ distance, duration, targetSize: null });
-    m.hoverToPress.push(down.t - points[points.length - 1].t);
+    const lastPoint = points[points.length - 1];
+    const { w, h } = down.target;
+    const targetSize =
+      w !== undefined && h !== undefined ? Math.min(w, h) : null;
+    if (targetSize !== null) m.moveTargetSize.push(targetSize);
+    m.models.moves.push({
+      distance,
+      duration,
+      travel: lastPoint.t - s.t,
+      targetSize,
+    });
+    m.hoverToPress.push(down.t - lastPoint.t);
     for (let i = 1; i < points.length; i++) {
       m.sampleInterval.push(points[i].t - points[i - 1].t);
     }
@@ -197,6 +204,16 @@ function measurePresses(events: RecordedEvent[], m: Measures): void {
   let down: RecordedEvent | null = null;
   let up: RecordedEvent | null = null;
   for (const e of events) {
+    if (
+      e.type === 'pointerdown' &&
+      isMouse(e) &&
+      e.ox !== undefined &&
+      e.oy !== undefined
+    ) {
+      // Offset from the box centre, normalised by half-size.
+      m.clickOffsetX.push((e.ox - 0.5) / 0.5);
+      m.clickOffsetY.push((e.oy - 0.5) / 0.5);
+    }
     if (e.type === 'mousedown') [down, up] = [e, null];
     else if (e.type === 'mouseup') up = e;
     else if (e.type === 'click' && down && up && up.t >= down.t) {
@@ -208,13 +225,18 @@ function measurePresses(events: RecordedEvent[], m: Measures): void {
 
 /** Key holds and gaps; a gap never spans a focus change or a press. */
 function measureKeys(events: RecordedEvent[], m: Measures): void {
-  const held: RecordedEvent[] = [];
+  // Open keydowns, oldest first. Cleared on a focus change or press, and
+  // stale entries dropped, so a lost keyup never shifts later pairs.
+  let held: RecordedEvent[] = [];
   let prev: RecordedEvent | null = null;
   for (const e of events) {
-    if (e.type === 'focusin' || e.type === 'pointerdown') prev = null;
-    else if (e.type === 'keyup') {
+    if (e.type === 'focusin' || e.type === 'pointerdown') {
+      prev = null;
+      held = [];
+    } else if (e.type === 'keyup') {
+      held = held.filter((d) => e.t - d.t <= KEY_HOLD_MAX_MS);
       const d = held.shift();
-      if (d && e.t - d.t <= KEY_HOLD_MAX_MS) m.keyHold.push(e.t - d.t);
+      if (d) m.keyHold.push(e.t - d.t);
     } else if (e.type === 'keydown') {
       held.push(e);
       if (prev && e.t - prev.t <= KEY_GAP_MAX_MS) {
@@ -418,17 +440,23 @@ export function extractMeasures(recs: Recording[]): Measures {
       m.overshootRate.push(overshoots / moves.length);
       appMoves.push(moves.map((mv) => mv.down.t - mv.points[0].t));
     }
+    // Only pointermoves that report movement count, either way.
     const pointerMoves = events.filter(
-      (e) => e.type === 'pointermove' && isMouse(e),
+      (e) =>
+        e.type === 'pointermove' &&
+        isMouse(e) &&
+        e.mx !== undefined &&
+        e.my !== undefined,
     );
     if (pointerMoves.length > 0) {
-      const still = pointerMoves.filter((e) => !e.mx && !e.my).length;
+      const still = pointerMoves.filter((e) => e.mx === 0 && e.my === 0).length;
       m.zeroMovementShare.push(still / pointerMoves.length);
     }
   }
   if (appMoves.length > 0) {
-    const all = median(appMoves.flat());
-    for (const d of appMoves) m.appSpeedFactor.push(median(d) / all);
+    const medians = appMoves.map(median);
+    const typical = median(medians);
+    for (const d of medians) m.appSpeedFactor.push(d / typical);
   }
   return m;
 }

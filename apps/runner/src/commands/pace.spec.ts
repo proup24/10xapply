@@ -138,7 +138,7 @@ describe('pace summary', () => {
     );
     expect(row(output, 'pressRelease')).toMatch(/\s8\s+60\s+short$/);
     expect(row(output, 'keyGapAroundBackspace')).toMatch(/\s2\s+1\s+enough$/);
-    expect(row(output, 'moveTargetSize')).toMatch(/not recorded$/);
+    expect(row(output, 'moveTargetSize')).toMatch(/\s8\s+1\s+enough$/);
     expect(output).toMatch(/practice[\s\S]*stepTime\s+3\s+9\s+short/);
     expect(output).toContain('pnpm nx run runner:pace-record-typing');
     expect(output).toMatch(/keyGapInWord[^\n]*\n?[^\n]*pace-record-typing/);

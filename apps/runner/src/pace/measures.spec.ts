@@ -37,8 +37,15 @@ describe('extractMeasures on the made-up LinkedIn application', () => {
     expect(m.models.moves[1]).toEqual({
       distance: 100,
       duration: 200,
-      targetSize: null,
+      travel: 60,
+      targetSize: 40,
     });
+  });
+
+  it('travel runs from movement start to the last pointermove before the press', () => {
+    expect(m.models.moves.map((mv) => mv.travel)).toEqual([
+      60, 60, 60, 40, 40, 40, 40, 40,
+    ]);
   });
 
   it('overshootRate is the share of moves passing the end by more than 3 px', () => {
@@ -88,10 +95,20 @@ describe('extractMeasures on the made-up LinkedIn application', () => {
     expect(m.appSpeedFactor).toEqual([1]);
   });
 
-  it('target size and click offset are not recorded', () => {
-    expect(m.moveTargetSize).toEqual([]);
-    expect(m.clickOffsetX).toEqual([]);
-    expect(m.clickOffsetY).toEqual([]);
+  it('moveTargetSize is min(w, h) of the pressed target', () => {
+    expect(m.moveTargetSize).toEqual([32, 40, 36, 32, 36, 36, 32, 40]);
+    expect(m.models.moves.map((mv) => mv.targetSize)).toEqual([
+      32, 40, 36, 32, 36, 36, 32, 40,
+    ]);
+  });
+
+  it('clickOffset is the press offset from the centre over half-size', () => {
+    const near = (xs: number[], want: number[]) => {
+      expect(xs).toHaveLength(want.length);
+      xs.forEach((x, i) => expect(x).toBeCloseTo(want[i], 9));
+    };
+    near(m.clickOffsetX, [0, 0.5, -0.8, 0, -0.5, 0.8, 0.2, 0]);
+    near(m.clickOffsetY, [0, -0.5, 0.2, 0.5, 0, -0.2, 0, 0]);
   });
 });
 
@@ -113,8 +130,72 @@ describe('extractMeasures, other cases', () => {
       pages: app.pages.map((p) => ({ ...p, t: 2 * p.t })),
     };
     const m = extractMeasures([app, slow]);
-    // Medians 140 and 280; all 16 moves pooled give a median of 200.
-    expect(m.appSpeedFactor).toEqual([140 / 200, 280 / 200]);
+    // Medians 140 and 280; their median is 210.
+    expect(m.appSpeedFactor).toEqual([140 / 210, 280 / 210]);
+  });
+
+  it('recordings without boxes skip target size and click offset', () => {
+    const old: Recording = {
+      ...app,
+      events: app.events.map((e): RecordedEvent => {
+        const copy = { ...e, target: { ...e.target } };
+        delete copy.ox;
+        delete copy.oy;
+        delete copy.target.w;
+        delete copy.target.h;
+        return copy;
+      }),
+    };
+    const m = extractMeasures([old]);
+    expect(m.moveTargetSize).toEqual([]);
+    expect(m.clickOffsetX).toEqual([]);
+    expect(m.clickOffsetY).toEqual([]);
+    expect(m.models.moves[0].targetSize).toBeNull();
+    expect(m.moveDuration).toHaveLength(8);
+  });
+
+  it('an orphan keydown before a press never shifts later key holds', () => {
+    const orphan: RecordedEvent = {
+      t: 8100,
+      type: 'keydown',
+      trusted: true,
+      key: 'other',
+      target: { kind: 'text' },
+      ctx: { path: '/jobs/view/:id/', dialog: true, progress: 33 },
+    };
+    const m = extractMeasures([{ ...app, events: [...app.events, orphan] }]);
+    expect(m.keyHold).toEqual([80, 70, 70, 60, 50, 60]);
+  });
+
+  it('a stale keydown (lost keyup) is dropped before pairing', () => {
+    const key = (t: number, type: 'keydown' | 'keyup'): RecordedEvent => ({
+      t,
+      type,
+      trusted: true,
+      key: 'other',
+      target: { kind: 'textarea' },
+      ctx: { path: '/typing/', dialog: false, progress: null },
+    });
+    const typing: Recording = {
+      ...app,
+      source: 'typing',
+      pages: [],
+      events: [key(0, 'keydown'), key(3000, 'keydown'), key(3080, 'keyup')],
+    };
+    expect(extractMeasures([typing]).keyHold).toEqual([80]);
+  });
+
+  it('zeroMovementShare ignores pointermoves without movement fields', () => {
+    const extra: RecordedEvent[] = app.events
+      .filter((e) => e.type === 'pointermove')
+      .map((e) => {
+        const copy = { ...e, t: e.t + 1 };
+        delete copy.mx;
+        delete copy.my;
+        return copy;
+      });
+    const m = extractMeasures([{ ...app, events: [...app.events, ...extra] }]);
+    expect(m.zeroMovementShare).toEqual([9 / 27]);
   });
 
   it('untrusted events are ignored', () => {

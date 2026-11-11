@@ -121,7 +121,9 @@
       "mx": 0,
       "my": 0,
       "target": {
-        "kind": "button"
+        "kind": "button",
+        "w": 100,
+        "h": 40
       },
       "ctx": {
         "path": "/practice/",
@@ -129,7 +131,9 @@
         "progress": null
       },
       "pointerType": "mouse",
-      "button": 0
+      "button": 0,
+      "ox": 0.5,
+      "oy": 0.5
     },
     {
       "t": 1000,
@@ -142,14 +146,18 @@
       "mx": 0,
       "my": 0,
       "target": {
-        "kind": "button"
+        "kind": "button",
+        "w": 100,
+        "h": 40
       },
       "ctx": {
         "path": "/practice/",
         "dialog": false,
         "progress": null
       },
-      "button": 0
+      "button": 0,
+      "ox": 0.5,
+      "oy": 0.5
     },
     {
       "t": 1080,
@@ -162,7 +170,9 @@
       "mx": 0,
       "my": 0,
       "target": {
-        "kind": "button"
+        "kind": "button",
+        "w": 100,
+        "h": 40
       },
       "ctx": {
         "path": "/practice/",
@@ -170,7 +180,9 @@
         "progress": null
       },
       "pointerType": "mouse",
-      "button": 0
+      "button": 0,
+      "ox": 0.5,
+      "oy": 0.5
     },
     {
       "t": 1080,
@@ -183,14 +195,18 @@
       "mx": 0,
       "my": 0,
       "target": {
-        "kind": "button"
+        "kind": "button",
+        "w": 100,
+        "h": 40
       },
       "ctx": {
         "path": "/practice/",
         "dialog": false,
         "progress": null
       },
-      "button": 0
+      "button": 0,
+      "ox": 0.5,
+      "oy": 0.5
     },
     {
       "t": 1080,
@@ -203,14 +219,18 @@
       "mx": 0,
       "my": 0,
       "target": {
-        "kind": "button"
+        "kind": "button",
+        "w": 100,
+        "h": 40
       },
       "ctx": {
         "path": "/practice/",
         "dialog": false,
         "progress": null
       },
-      "button": 0
+      "button": 0,
+      "ox": 0.5,
+      "oy": 0.5
     },
     {
       "t": 3800,
@@ -301,7 +321,9 @@
       "mx": 0,
       "my": 0,
       "target": {
-        "kind": "button"
+        "kind": "button",
+        "w": 100,
+        "h": 40
       },
       "ctx": {
         "path": "/practice/",
@@ -309,7 +331,9 @@
         "progress": 33
       },
       "pointerType": "mouse",
-      "button": 0
+      "button": 0,
+      "ox": 0.5,
+      "oy": 0.5
     },
     {
       "t": 4000,
@@ -322,14 +346,18 @@
       "mx": 0,
       "my": 0,
       "target": {
-        "kind": "button"
+        "kind": "button",
+        "w": 100,
+        "h": 40
       },
       "ctx": {
         "path": "/practice/",
         "dialog": true,
         "progress": 33
       },
-      "button": 0
+      "button": 0,
+      "ox": 0.5,
+      "oy": 0.5
     },
     {
       "t": 4070,
@@ -342,7 +370,9 @@
       "mx": 0,
       "my": 0,
       "target": {
-        "kind": "button"
+        "kind": "button",
+        "w": 100,
+        "h": 40
       },
       "ctx": {
         "path": "/practice/",
@@ -350,7 +380,9 @@
         "progress": 33
       },
       "pointerType": "mouse",
-      "button": 0
+      "button": 0,
+      "ox": 0.5,
+      "oy": 0.5
     },
     {
       "t": 4070,
@@ -363,14 +395,18 @@
       "mx": 0,
       "my": 0,
       "target": {
-        "kind": "button"
+        "kind": "button",
+        "w": 100,
+        "h": 40
       },
       "ctx": {
         "path": "/practice/",
         "dialog": true,
         "progress": 33
       },
-      "button": 0
+      "button": 0,
+      "ox": 0.5,
+      "oy": 0.5
     },
     {
       "t": 4070,
@@ -383,14 +419,18 @@
       "mx": 0,
       "my": 0,
       "target": {
-        "kind": "button"
+        "kind": "button",
+        "w": 100,
+        "h": 40
       },
       "ctx": {
         "path": "/practice/",
         "dialog": true,
         "progress": 33
       },
-      "button": 0
+      "button": 0,
+      "ox": 0.5,
+      "oy": 0.5
     },
     {
       "t": 6800,
@@ -481,7 +521,9 @@
       "mx": 0,
       "my": 0,
       "target": {
-        "kind": "button"
+        "kind": "button",
+        "w": 100,
+        "h": 40
       },
       "ctx": {
         "path": "/practice/",
@@ -489,7 +531,9 @@
         "progress": 66
       },
       "pointerType": "mouse",
-      "button": 0
+      "button": 0,
+      "ox": 0.5,
+      "oy": 0.5
     },
     {
       "t": 7000,
@@ -502,14 +546,18 @@
       "mx": 0,
       "my": 0,
       "target": {
-        "kind": "button"
+        "kind": "button",
+        "w": 100,
+        "h": 40
       },
       "ctx": {
         "path": "/practice/",
         "dialog": true,
         "progress": 66
       },
-      "button": 0
+      "button": 0,
+      "ox": 0.5,
+      "oy": 0.5
     },
     {
       "t": 7070,
@@ -522,7 +570,9 @@
       "mx": 0,
       "my": 0,
       "target": {
-        "kind": "button"
+        "kind": "button",
+        "w": 100,
+        "h": 40
       },
       "ctx": {
         "path": "/practice/",
@@ -530,7 +580,9 @@
         "progress": 66
       },
       "pointerType": "mouse",
-      "button": 0
+      "button": 0,
+      "ox": 0.5,
+      "oy": 0.5
     },
     {
       "t": 7070,
@@ -543,14 +595,18 @@
       "mx": 0,
       "my": 0,
       "target": {
-        "kind": "button"
+        "kind": "button",
+        "w": 100,
+        "h": 40
       },
       "ctx": {
         "path": "/practice/",
         "dialog": true,
         "progress": 66
       },
-      "button": 0
+      "button": 0,
+      "ox": 0.5,
+      "oy": 0.5
     },
     {
       "t": 7070,
@@ -563,14 +619,18 @@
       "mx": 0,
       "my": 0,
       "target": {
-        "kind": "button"
+        "kind": "button",
+        "w": 100,
+        "h": 40
       },
       "ctx": {
         "path": "/practice/",
         "dialog": true,
         "progress": 66
       },
-      "button": 0
+      "button": 0,
+      "ox": 0.5,
+      "oy": 0.5
     },
     {
       "t": 11800,
@@ -661,7 +721,9 @@
       "mx": 0,
       "my": 0,
       "target": {
-        "kind": "button"
+        "kind": "button",
+        "w": 100,
+        "h": 40
       },
       "ctx": {
         "path": "/practice/",
@@ -669,7 +731,9 @@
         "progress": 83
       },
       "pointerType": "mouse",
-      "button": 0
+      "button": 0,
+      "ox": 0.5,
+      "oy": 0.5
     },
     {
       "t": 12000,
@@ -682,14 +746,18 @@
       "mx": 0,
       "my": 0,
       "target": {
-        "kind": "button"
+        "kind": "button",
+        "w": 100,
+        "h": 40
       },
       "ctx": {
         "path": "/practice/",
         "dialog": true,
         "progress": 83
       },
-      "button": 0
+      "button": 0,
+      "ox": 0.5,
+      "oy": 0.5
     },
     {
       "t": 12070,
@@ -702,7 +770,9 @@
       "mx": 0,
       "my": 0,
       "target": {
-        "kind": "button"
+        "kind": "button",
+        "w": 100,
+        "h": 40
       },
       "ctx": {
         "path": "/practice/",
@@ -710,7 +780,9 @@
         "progress": 83
       },
       "pointerType": "mouse",
-      "button": 0
+      "button": 0,
+      "ox": 0.5,
+      "oy": 0.5
     },
     {
       "t": 12070,
@@ -723,14 +795,18 @@
       "mx": 0,
       "my": 0,
       "target": {
-        "kind": "button"
+        "kind": "button",
+        "w": 100,
+        "h": 40
       },
       "ctx": {
         "path": "/practice/",
         "dialog": true,
         "progress": 83
       },
-      "button": 0
+      "button": 0,
+      "ox": 0.5,
+      "oy": 0.5
     },
     {
       "t": 12070,
@@ -743,14 +819,18 @@
       "mx": 0,
       "my": 0,
       "target": {
-        "kind": "button"
+        "kind": "button",
+        "w": 100,
+        "h": 40
       },
       "ctx": {
         "path": "/practice/",
         "dialog": true,
         "progress": 83
       },
-      "button": 0
+      "button": 0,
+      "ox": 0.5,
+      "oy": 0.5
     },
     {
       "t": 13800,
@@ -841,7 +921,9 @@
       "mx": 0,
       "my": 0,
       "target": {
-        "kind": "button"
+        "kind": "button",
+        "w": 100,
+        "h": 40
       },
       "ctx": {
         "path": "/practice/",
@@ -849,7 +931,9 @@
         "progress": 100
       },
       "pointerType": "mouse",
-      "button": 0
+      "button": 0,
+      "ox": 0.5,
+      "oy": 0.5
     },
     {
       "t": 14000,
@@ -862,14 +946,18 @@
       "mx": 0,
       "my": 0,
       "target": {
-        "kind": "button"
+        "kind": "button",
+        "w": 100,
+        "h": 40
       },
       "ctx": {
         "path": "/practice/",
         "dialog": true,
         "progress": 100
       },
-      "button": 0
+      "button": 0,
+      "ox": 0.5,
+      "oy": 0.5
     },
     {
       "t": 14050,
@@ -882,7 +970,9 @@
       "mx": 0,
       "my": 0,
       "target": {
-        "kind": "button"
+        "kind": "button",
+        "w": 100,
+        "h": 40
       },
       "ctx": {
         "path": "/practice/",
@@ -890,7 +980,9 @@
         "progress": 100
       },
       "pointerType": "mouse",
-      "button": 0
+      "button": 0,
+      "ox": 0.5,
+      "oy": 0.5
     },
     {
       "t": 14050,
@@ -903,14 +995,18 @@
       "mx": 0,
       "my": 0,
       "target": {
-        "kind": "button"
+        "kind": "button",
+        "w": 100,
+        "h": 40
       },
       "ctx": {
         "path": "/practice/",
         "dialog": true,
         "progress": 100
       },
-      "button": 0
+      "button": 0,
+      "ox": 0.5,
+      "oy": 0.5
     },
     {
       "t": 14050,
@@ -923,14 +1019,18 @@
       "mx": 0,
       "my": 0,
       "target": {
-        "kind": "button"
+        "kind": "button",
+        "w": 100,
+        "h": 40
       },
       "ctx": {
         "path": "/practice/",
         "dialog": true,
         "progress": 100
       },
-      "button": 0
+      "button": 0,
+      "ox": 0.5,
+      "oy": 0.5
     },
     {
       "t": 15000,

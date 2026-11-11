@@ -9,7 +9,6 @@ import {
   KEY_MEASURES,
   MEASURE_NAMES,
   MINIMUMS,
-  NOT_RECORDED,
   PRACTICE_MINIMUMS,
   type MeasureName,
   type Measures,
@@ -160,8 +159,6 @@ function readRecordings(dir: string, out: (t: string) => void): Recording[] {
   return recs;
 }
 
-type Status = 'enough' | 'short' | 'not recorded';
-
 /** Prints one table and returns the measures that are short. */
 function table(
   title: string,
@@ -177,17 +174,11 @@ function table(
   );
   for (const n of names) {
     const count = m[n].length;
-    const notRecorded = NOT_RECORDED.includes(n);
     const min = minimums[n] ?? 1;
-    const status: Status = notRecorded
-      ? 'not recorded'
-      : count >= min
-        ? 'enough'
-        : 'short';
+    const status = count >= min ? 'enough' : 'short';
     if (status === 'short') short.push(n);
-    const minText = notRecorded ? '-' : String(min);
     out(
-      `  ${n.padEnd(24)}${String(count).padStart(7)}${minText.padStart(9)}  ${status}\n`,
+      `  ${n.padEnd(24)}${String(count).padStart(7)}${String(min).padStart(9)}  ${status}\n`,
     );
   }
   return short;
