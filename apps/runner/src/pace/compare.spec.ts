@@ -190,26 +190,81 @@ describe('compare', () => {
       ).toMatchObject({ passed: true });
     });
 
-    it('a window moved mid-page with no new page record: the later steady part is skipped and reported', () => {
-      const runner = runnerSet(2);
-      const pts = runner[0].events.filter((e) => e.sx !== undefined);
-      const from = pts.length - 30;
-      // One point mid-drag, then the window rests 1500 px further left.
-      pts[from].sx = (pts[from].sx ?? 0) - 800;
-      for (const e of pts.slice(from + 1)) {
+    /** Moves the window after point `from`: one mid-drag point, then a steady rest. */
+    const moveWindow = (
+      rec: Recording,
+      from: number,
+      after: (e: RecordedEvent, i: number) => void = (e) => {
         e.sx = (e.sx ?? 0) + 1500;
         e.sy = (e.sy ?? 0) - 900;
-      }
+      },
+    ) => {
+      const pts = rec.events.filter((e) => e.sx !== undefined);
+      pts[from].sx = (pts[from].sx ?? 0) - 800;
+      pts.slice(from + 1).forEach(after);
+      return pts;
+    };
+
+    it('a window moved near the end of a page (≤ 10% of its events): the steady rest is skipped and reported', () => {
+      const runner = runnerSet(2);
+      const pts = moveWindow(runner[0], 85 - 8);
+      expect(pts).toHaveLength(85);
       const c = check(compare(author, runner, seededRng(1)), 'coordinates');
       expect(c.passed).toBe(true);
-      expect(c.detail).toMatch(/skipped 30 events after 2 window moves/);
+      expect(c.detail).toMatch(/skipped 8 events after 2 window moves/);
+    });
+
+    it('fails a page with more than 10% of its events after a window move (R39)', () => {
+      const runner = runnerSet(2);
+      // A leak after one jump: screen point = client point from there on.
+      moveWindow(runner[0], 85 - 26, (e) => {
+        e.sx = e.x;
+        e.sy = e.y;
+      });
+      const c = check(compare(author, runner, seededRng(1)), 'coordinates');
+      expect(c.passed).toBe(false);
+      expect(c.detail).toMatch(/26 of 85 events after a window move/);
+    });
+
+    it('fails a page whose offset is not steady after a window move (R39)', () => {
+      const runner = runnerSet(2);
+      moveWindow(runner[0], 85 - 8, (e, i) => {
+        e.sx = (e.sx ?? 0) + 1500 + (i % 2 ? 3 : 0);
+        e.sy = (e.sy ?? 0) - 900;
+      });
+      const c = check(compare(author, runner, seededRng(1)), 'coordinates');
+      expect(c.passed).toBe(false);
+      expect(c.detail).toMatch(/not steady after a window move/);
+    });
+
+    it('fails a page with fewer than 20 points before its window moved (R39)', () => {
+      const runner = runnerSet(2);
+      moveWindow(runner[0], 12);
+      const c = check(compare(author, runner, seededRng(1)), 'coordinates');
+      expect(c.passed).toBe(false);
+      expect(c.detail).toMatch(/only 12 points before the window moved/);
+    });
+
+    it('leaves events after a window move out of the timing samples (R39)', () => {
+      const moved = runnerSet(2);
+      const pts = moveWindow(moved[0], 85 - 8);
+      const from = pts[85 - 8].t;
+      const to = pts[84].t;
+      const cut = runnerSet(2);
+      cut[0].events = cut[0].events.filter((e) => e.t < from || e.t > to);
+      const n = (rs: Recording[]) =>
+        check(compare(author, rs, seededRng(1)), 'sampleInterval').detail.match(
+          /r=(\d+)/,
+        )?.[1];
+      expect(n(moved)).toBe(n(cut));
+      expect(n(moved)).not.toBe(n(runnerSet(2)));
     });
 
     it('still checks the part before a window move against the model', () => {
       const runner = runnerSet(2);
       const pts = runner[0].events.filter((e) => e.sx !== undefined);
       for (const e of pts) e.sx = (e.sx ?? 0) + 10;
-      for (const e of pts.slice(-20)) e.sx = (e.sx ?? 0) + 1500;
+      for (const e of pts.slice(-8)) e.sx = (e.sx ?? 0) + 1500;
       const c = check(compare(author, runner, seededRng(1)), 'coordinates');
       expect(c.passed).toBe(false);
       expect(c.detail).toMatch(/off the author's model by 10/);

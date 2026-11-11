@@ -53,6 +53,17 @@ export const OFFSET_MODEL_PX = 2;
 export const WINDOW_MOVE_PX = 20;
 /** More offset jumps than this in one page is not a window being moved. */
 export const WINDOW_MOVES_MAX = 3;
+/** A page fails when more than this share of its events follow a window move (R39). */
+export const WINDOW_MOVE_SKIP_MAX = 0.1;
+/** A page fails with fewer points than this before its window moved (R39). */
+export const WINDOW_MOVE_MIN_BEFORE = 20;
+
+/** Runner events after a window move: left out of the timing samples (R39). */
+interface SkippedSpan {
+  rec: Recording;
+  from: number;
+  to: number;
+}
 /** Largest allowed gap in the share of pointermoves with no movement. */
 export const ZERO_MOVE_SHARE_DIFF = 0.05;
 /** How many inter-event gaps and path points `runsDiffer` compares. */
@@ -280,15 +291,23 @@ function deriveUnit(groups: PageGroup[]): ScreenUnit | null {
  * OFFSET_SPREAD_PX and within OFFSET_MODEL_PX of what the model gives for
  * the runner's own window and dpr. A window moved mid-page (an offset jump
  * over WINDOW_MOVE_PX) gets no new page record, so only the part before the
- * first move is checked; the rest is counted as skipped. More than
- * WINDOW_MOVES_MAX jumps in a page fails.
+ * first move is checked against the model; the rest is counted as skipped
+ * and its span added to `skippedSpans`, which compare leaves out of the
+ * timing samples. Bounded (Ruling R39): a page fails with more than
+ * WINDOW_MOVES_MAX jumps, fewer than WINDOW_MOVE_MIN_BEFORE points before
+ * the first, a part after a move that is not itself steady within
+ * OFFSET_SPREAD_PX, or more than WINDOW_MOVE_SKIP_MAX of its events skipped.
  *
  * Chrome reports some events at screen (0, 0): a pick in a native select
  * popup ends with pointerup, mouseup and click there. Runner events at
  * (0, 0) are skipped only when the author's recordings show the same event
  * type on the same kind of target there.
  */
-function coordinatesCheck(author: Recording[], runner: Recording[]): Check {
+function coordinatesCheck(
+  author: Recording[],
+  runner: Recording[],
+  skippedSpans: SkippedSpan[],
+): Check {
   const name = 'coordinates';
   const authorGroups = pageGroups(author);
   const originKeys = new Set(
@@ -361,8 +380,40 @@ function coordinatesCheck(author: Recording[], runner: Recording[]): Check {
       continue;
     }
     if (moves.length > 0) {
-      skipped += all.length - moves[0];
+      if (moves[0] < WINDOW_MOVE_MIN_BEFORE) {
+        problems.push(
+          `${where}: only ${moves[0]} points before the window moved`,
+        );
+        continue;
+      }
+      const ends = [...moves, all.length];
+      const unsteady = moves.some((m, k) => {
+        const part = all.slice(m, ends[k + 1]);
+        return (
+          Math.max(
+            spreadOf(part.map((v) => v.x)),
+            spreadOf(part.map((v) => v.y)),
+          ) > OFFSET_SPREAD_PX
+        );
+      });
+      if (unsteady) {
+        problems.push(`${where}: offset not steady after a window move`);
+        continue;
+      }
+      const after = all.length - moves[0];
+      if (after > WINDOW_MOVE_SKIP_MAX * all.length) {
+        problems.push(
+          `${where}: ${after} of ${all.length} events after a window move`,
+        );
+        continue;
+      }
+      skipped += after;
       windowMoves += moves.length;
+      skippedSpans.push({
+        rec: g.rec,
+        from: used[moves[0]].e.t,
+        to: used[used.length - 1].e.t,
+      });
     }
     const o = moves.length > 0 ? all.slice(0, moves[0]) : all;
     const spread = Math.max(
@@ -702,6 +753,21 @@ function runsDifferCheck(runner: Recording[]): Check {
   return ok('runsDiffer', `${pairs} pairs of runs, none repeats`);
 }
 
+/** `recs` without the events inside `spans` (same recording, from..to). */
+function withoutSpans(recs: Recording[], spans: SkippedSpan[]): Recording[] {
+  if (spans.length === 0) return recs;
+  return recs.map((rec) => {
+    const mine = spans.filter((s) => s.rec === rec);
+    if (mine.length === 0) return rec;
+    return {
+      ...rec,
+      events: rec.events.filter(
+        (e) => !mine.some((s) => e.t >= s.from && e.t <= s.to),
+      ),
+    };
+  });
+}
+
 /**
  * Puts the runner's recordings next to the author's: event shape, timing
  * distributions (two-sample KS) and run-to-run variety. `rng` only drives
@@ -712,15 +778,17 @@ export function compare(
   runner: Recording[],
   rng: Rng,
 ): CompareReport {
+  const skippedSpans: SkippedSpan[] = [];
   const shape = [
     trustedCheck(author, runner),
     pointerTypeCheck(runner),
-    coordinatesCheck(author, runner),
+    coordinatesCheck(author, runner, skippedSpans),
     movementCheck(author, runner),
     clickSequenceCheck(author, runner),
     wheelCheck(author, runner),
   ];
-  const timing = timingChecks(author, runner, rng);
+  // Events after a window move may be someone's own hand: not timing samples.
+  const timing = timingChecks(author, withoutSpans(runner, skippedSpans), rng);
   const variety = [runsDifferCheck(runner)];
   const passed = [...shape, ...timing, ...variety].every((c) => c.passed);
   return { passed, shape, timing, variety };
