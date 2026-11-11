@@ -6,7 +6,11 @@ import type { RecorderBatch } from '../pace/recording.js';
 import type { Pace } from '../pace/pace.js';
 import type { Writer } from '../pace/writer.js';
 import { testProfile } from '../pace/testing/profiles.js';
-import { botCheckCommand, type BotCheckDeps } from './bot-check.js';
+import {
+  botCheckCommand,
+  dabiPassword,
+  type BotCheckDeps,
+} from './bot-check.js';
 
 const fx = (n: string) =>
   readFileSync(
@@ -108,7 +112,28 @@ function setup(opts: { failUrl?: string; profile?: boolean } = {}) {
   };
 }
 
+describe('dabiPassword', () => {
+  it("always meets the login form's pattern and minlength", () => {
+    for (let i = 0; i < 200; i++) {
+      const pw = dabiPassword();
+      expect(pw).toMatch(/^.*[>!?@#$&].*$/);
+      expect(pw.length).toBeGreaterThanOrEqual(8);
+    }
+  });
+});
+
 describe('botCheckCommand', () => {
+  it('dabi-interactions types each field once (type clicks it) and clicks only Login', async () => {
+    const s = setup();
+    await botCheckCommand({ deps: s.deps });
+    const pace = s.createPace.mock.results[0].value as Pace;
+    const typed = vi.mocked(pace.type).mock.calls.map((c) => c[1]);
+    expect(typed).toHaveLength(2);
+    expect(typed[0]).toMatch(/^pace\.test\.\d+@example\.com$/);
+    expect(typed[1]).toMatch(/[>!?@#$&]/);
+    expect(vi.mocked(pace.click)).toHaveBeenCalledTimes(1);
+  });
+
   it('repeat 3 runs the two behaviour pages three times and the first three once', async () => {
     const s = setup();
     const code = await botCheckCommand({ repeat: 3, deps: s.deps });

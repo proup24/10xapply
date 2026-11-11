@@ -13,7 +13,7 @@ Login Form
 Email address
 Password
 Login
-❌
+✅
 You are human!
 Raw detection details
 Copy

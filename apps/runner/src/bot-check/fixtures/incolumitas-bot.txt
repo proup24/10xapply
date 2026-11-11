@@ -1,3 +1,74 @@
+Curated List of Bot / Headless Chrome Detection Tests
+
+🚀 v0.6.3 (6th June 2024) 🚀 [Changelog]
+
+Use with Puppeteer
+Use with Playwright
+Use with Google Chrome
+Use with Advanced Bot
+Use with Selenium
+
+This page attempts to detect if you are a Bot or Not. The tests are constantly kept up to date, please check the changelog here.
+
+Table of Contents
+Behavioral Classification
+More Sources and Links
+Bot Challenge
+New Detection Tests
+Old Detection Tests
+IP Address API
+Proxy/VPN Detection Tests
+Http Headers
+TCP/IP Fingerprint
+TLS Fingerprint
+Browser Fingerprint
+Canvas Fingerprint
+WebGL Fingerprint
+Web Worker
+Service Worker
+Browser Data
 Behavioral Bot Classification
-Your Behavioral Score: 0.12
-(HAND-MADE FIXTURE from the page's documented wording; replace with a real capture)
+
+The test behavioralClassificationScore gives a rating between 0 (Bot) and 1 (Human) based on advanced behavioral heuristics. A score below 0.5 means that you are most likely a bot.
+
+The first score is computed after 1,5 seconds of browsing on this site. Then, the behavioral score is updated after 4 seconds, 7 seconds, 10 seconds and 15 seconds.
+
+Don't worry if you are browsing this page and you are given a score between 0.7 and 1.0, the behavioralClassificationScore consist of 30+ individual classificators and it is normal that there are false positives.
+
+In order to test your bot with a real world problem, your bot has to solve the challenge below.
+
+Your Behavioral Score: 0.21
+More Sources/Information
+Expand all Sources / Links
+Bot Challenge
+
+Your bot has to fill out the form below and submit it. Then you are prompted to confirm the pop-up dialoge. After confirmation, you will see a table with basket items and prices. Update the prices of this table and scrape the data as a final step.
+
+Completing all those steps provides enough behaviroal information in order to classify you as BotOrNot.
+
+Show Code to Solve The Bot Challenge
+Bot Challenge
+Username
+
+Email
+
+Number of Cookies
+One Cookie
+Two Cookies
+Three Cookies
+I want all the Cookies
+ I agree to the terms and conditions
+ I like Cats  I like big Cats
+
+Submit
+New Detection Tests [1] [2] [3] [4]
+{
+  "puppeteerEvaluationScript": "OK",
+  "webdriverPresent": "OK",
+  "connectionRTT": "OK",
+  "refMatch": "OK",
+  "overrideTest": "OK",
+  "overflowTest": "OK",
+  "puppeteerExtraStealthUsed": "OK",
+  "inconsistentWebWorkerNavigatorPropery": "OK"
+}

@@ -62,16 +62,18 @@ const TARGETS: Target[] = [
     waitMs: 3_000,
     behaviour: true,
     // Fills the page's own login form with made-up values, mouse only.
+    // `pace.type` clicks each field itself. The password field has
+    // pattern=".*[>!?@#$&].*" and minlength 8: without one of those
+    // characters the browser blocks the submit and no verdict appears.
     act: async (p, pace, wait) => {
-      const email = p.getByLabel('Email address');
-      const password = p.getByLabel('Password', { exact: true });
-      await pace.click(email);
       await pace.type(
-        email,
+        p.getByLabel('Email address'),
         `pace.test.${randomInt(100_000, 1_000_000)}@example.com`,
       );
-      await pace.click(password);
-      await pace.type(password, randomBytes(9).toString('base64url'));
+      await pace.type(
+        p.getByLabel('Password', { exact: true }),
+        dabiPassword(),
+      );
       await pace.pause();
       await pace.click(p.getByRole('button', { name: 'Login', exact: true }));
       await wait(DABI_RESULT_MS);
@@ -102,6 +104,13 @@ const TARGETS: Target[] = [
     parse: parseIncolumitas,
   },
 ];
+
+/** A made-up password the dabi login form accepts (a special character, ≥ 8). */
+export function dabiPassword(): string {
+  const special = DABI_SPECIAL[randomInt(DABI_SPECIAL.length)];
+  return randomBytes(9).toString('base64url') + special;
+}
+const DABI_SPECIAL = '!?@#$';
 
 /** After Login, the page needs a moment to show its verdict. */
 const DABI_RESULT_MS = 5_000;

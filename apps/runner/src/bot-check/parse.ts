@@ -79,15 +79,27 @@ export function parseBrowserscan(text: string): CheckResult {
  * bot.incolumitas.com, "Behavioral Bot Classification": the page shows
  * "Your Behavioral Score: <n>" (field behavioralClassificationScore), 0 = bot
  * to 1 = human; below 0.5 is most likely a bot. The first score appears after
- * 1.5 s and is updated at 4, 7, 10 and 15 s, so read it after 15 s. While no
- * score exists the page shows "..." (unparseable). The sample texts are
- * hand-made from the page's wording, not a real capture.
+ * 1.5 s and is updated at 4, 7, 10 and 15 s. Until then the score reads "...":
+ * that is no verdict, so the page counts as not run. Seen live on 2026-11-11:
+ * the score's script (abs.incolumitas.com/lib.js) answered 502, so the score
+ * stayed "..." for everyone. `fixtures/incolumitas-pending.txt` is that real
+ * capture (trimmed before the IP and fingerprint sections); the human and bot
+ * fixtures are hand-edited copies with a made-up score, since no real score
+ * could be captured.
  */
 export const INCOLUMITAS_HUMAN_MIN = 0.5;
 
 export function parseIncolumitas(text: string): CheckResult {
   const page = 'incolumitas';
   const text_ = typeof text === 'string' ? text : '';
+  if (/Behavioral Score:\s*\.\.\.\s*$/m.test(text_)) {
+    return {
+      page,
+      passed: false,
+      notRun: true,
+      detail: ['no behavioural score (the page still shows "...")'],
+    };
+  }
   const m =
     /Behavioral Score:\s*(\d+(?:\.\d+)?)/.exec(text_) ??
     /"?behavioralClassificationScore"?\s*[:=]\s*(\d+(?:\.\d+)?)/.exec(text_);

@@ -13,7 +13,7 @@ Login Form
 Email address
 Password
 Login
-❌
+✅
 You are a bot!
 Raw detection details
 Copy
@@ -42,7 +42,7 @@ Copy
     "hasHighHardwareConcurrency": false,
     "hasHeadlessChromeDefaultScreenResolution": false,
     "hasSuspiciousWeakSignals": false,
-    "suspiciousClientSideBehavior": true,
+    "suspiciousClientSideBehavior": false,
     "superHumanSpeed": false,
     "hasCDPMouseLeak": true,
     "hasAutomationFrameworkStackTrace": false
