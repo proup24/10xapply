@@ -92,4 +92,35 @@ describe('runSession', () => {
     expect(d.randomInt).toHaveBeenCalledWith(4000, 8000);
     expect(d.randomInt).toHaveBeenCalledWith(1500, 4000);
   });
+
+  it('openPage rejects with a stop reason: stopped, no close', async () => {
+    const { page, d } = fake(
+      {},
+      {
+        openPage: async () => {
+          throw new Error('gone');
+        },
+        stopReason: () => 'extension disconnected',
+      },
+    );
+    const r = await runSession(d);
+    expect(r.result).toBe('stopped');
+    expect(r.stopReason).toBe('extension disconnected');
+    expect(r.pathPrefix).toBeNull();
+    expect(page.close).not.toHaveBeenCalled();
+  });
+
+  it('openPage rejects without a stop reason: unexpected-page', async () => {
+    const { d } = fake(
+      {},
+      {
+        openPage: async () => {
+          throw new Error('gone');
+        },
+      },
+    );
+    const r = await runSession(d);
+    expect(r.result).toBe('unexpected-page');
+    expect(r.pathPrefix).toBeNull();
+  });
 });

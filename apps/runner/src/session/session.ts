@@ -34,15 +34,23 @@ export async function runSession(d: SessionDeps): Promise<SessionReport> {
   let stopReason: string | undefined;
   let loadMs = 0;
 
-  const page = await d.openPage();
+  const stopped = (): boolean => {
+    const r = d.stopReason();
+    if (r === null) return false;
+    result = 'stopped';
+    stopReason = r;
+    return true;
+  };
+
+  let page: SessionPage;
   try {
-    const stopped = (): boolean => {
-      const r = d.stopReason();
-      if (r === null) return false;
-      result = 'stopped';
-      stopReason = r;
-      return true;
-    };
+    page = await d.openPage();
+  } catch {
+    // No page was opened, so there is nothing to close.
+    if (!stopped()) result = 'unexpected-page';
+    return finish();
+  }
+  try {
     try {
       await page.goto(FEED_URL);
       loadMs = d.now() - t0;

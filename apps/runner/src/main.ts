@@ -2,6 +2,7 @@ import { pathToFileURL } from 'node:url';
 import { bridgeCheck, bridgeInstall } from './commands/bridge.js';
 import { sessionCommand } from './commands/session.js';
 import { ConfigError } from './config.js';
+import { redact } from './redact.js';
 import { RelayPortInUseError } from './relay/relay.js';
 
 const USAGE = `usage: runner <command>
@@ -18,10 +19,10 @@ export async function main(argv: string[]): Promise<number> {
     if (a === 'bridge' && b === 'check') return await bridgeCheck();
   } catch (e) {
     if (e instanceof ConfigError || e instanceof RelayPortInUseError) {
-      console.error(e.message);
+      console.error(redact(e.message));
       return 1;
     }
-    console.error(e instanceof Error ? e.message : String(e));
+    console.error(redact(e instanceof Error ? e.message : String(e)));
     return 1;
   }
   console.log(USAGE);
