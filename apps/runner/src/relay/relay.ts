@@ -75,12 +75,14 @@ const STATIC_PAGES: ReadonlyMap<string, Buffer> = new Map(
 /** Splits a request target without `URL`, which throws on targets like `//`. */
 function parseTarget(target: string | undefined): {
   pathname: string;
+  search: string; // raw, with the leading '?', or ''
   params: URLSearchParams;
 } {
   const [beforeFragment = ''] = (target ?? '/').split('#');
   const q = beforeFragment.indexOf('?');
   return {
     pathname: q < 0 ? beforeFragment : beforeFragment.slice(0, q),
+    search: q < 0 ? '' : beforeFragment.slice(q),
     params: new URLSearchParams(q < 0 ? '' : beforeFragment.slice(q + 1)),
   };
 }
@@ -333,10 +335,18 @@ export async function startRelay(opts: RelayOptions): Promise<Relay> {
   }
 
   const server = http.createServer((req, res) => {
-    const page =
-      req.method === 'GET' && !stopped
-        ? STATIC_PAGES.get(parseTarget(req.url).pathname)
-        : undefined;
+    const { pathname, search } = parseTarget(req.url);
+    const live = req.method === 'GET' && !stopped;
+    const page = live ? STATIC_PAGES.get(pathname) : undefined;
+    const slashed = `${pathname}/`;
+    if (live && !page && STATIC_PAGES.has(slashed)) {
+      // `/typing` -> `/typing/`, keeping the query (printable ASCII only).
+      res.writeHead(301, {
+        location: slashed + (/^[\x21-\x7e]*$/.test(search) ? search : ''),
+      });
+      res.end();
+      return;
+    }
     if (!page) {
       res.statusCode = 404;
       res.end();

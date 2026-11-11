@@ -767,12 +767,7 @@ describe('relay', () => {
 
     it('other paths stay 404', async () => {
       const relay = await start();
-      for (const path of [
-        '/',
-        '/practice',
-        '/practice/index.html',
-        '/other/',
-      ]) {
+      for (const path of ['/', '/practice/index.html', '/other/']) {
         expect((await get(relay, path)).status).toBe(404);
       }
     });
@@ -811,7 +806,7 @@ describe('relay', () => {
       expect(await rawStatus(relay, `GET // HTTP/1.1\r\n${head}`)).toBe(404);
       expect(
         await rawStatus(relay, `GET /practice?x HTTP/1.1\r\n${head}`),
-      ).toBe(404);
+      ).toBe(301);
       expect((await get(relay, '/practice/')).status).toBe(200);
     });
 
@@ -823,6 +818,28 @@ describe('relay', () => {
       );
       expect(status).toBe(404);
       expect((await get(relay, '/typing/')).status).toBe(200);
+    });
+
+    it('redirects /typing and /practice to the slash form, keeping the query', async () => {
+      const relay = await start();
+      const base = `http://127.0.0.1:${portOf(relay)}`;
+      for (const [from, to] of [
+        ['/typing', '/typing/'],
+        ['/practice', '/practice/'],
+        ['/practice?run=2', '/practice/?run=2'],
+        ['/practice?x', '/practice/?x'],
+      ]) {
+        const res = await fetch(base + from, { redirect: 'manual' });
+        expect(res.status).toBe(301);
+        expect(res.headers.get('location')).toBe(to);
+      }
+      const res = await fetch(`${base}/other`, { redirect: 'manual' });
+      expect(res.status).toBe(404);
+      const post = await fetch(`${base}/typing`, {
+        method: 'POST',
+        redirect: 'manual',
+      });
+      expect(post.status).toBe(404);
     });
 
     it('answers only GET', async () => {
