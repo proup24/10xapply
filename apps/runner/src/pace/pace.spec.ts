@@ -25,6 +25,12 @@ interface FakeSelect {
   commits?: boolean;
   optgroups?: number;
   multiple?: boolean;
+  /** The select itself is disabled: a click neither focuses nor opens it. */
+  selfDisabled?: boolean;
+  /** False: the click does not focus it (default true). */
+  focuses?: boolean;
+  /** False: the click focuses it but the list does not open (default true). */
+  opens?: boolean;
 }
 
 const VIEW = { width: 1280, height: 800 };
@@ -71,6 +77,8 @@ function fake(opts: Opts = {}) {
         void log.push({ kind: 'text', t, key }),
     },
     viewportSize: () => (opts.view === undefined ? VIEW : opts.view),
+    /** Only what `pick` asks for: a pseudo-class to combine with `and`. */
+    locator: (sel: string) => ({ pseudo: sel }),
   };
   const uploadOnChooser = vi.fn(
     async (
@@ -127,7 +135,18 @@ function fake(opts: Opts = {}) {
       return cur;
     };
     const selectors: string[] = [];
+    // Focused and open once the mouse has pressed on it, unless disabled.
+    const pressed = () => !s.selfDisabled && log.some((e) => e.kind === 'down');
+    const state: Record<string, () => boolean> = {
+      ':focus': () => pressed() && s.focuses !== false,
+      ':open': () => pressed() && s.focuses !== false && s.opens !== false,
+    };
     const loc = locator([BOX], {
+      isDisabled: async () => s.selfDisabled === true,
+      and: (other: { pseudo: string }) => {
+        selectors.push(`and ${other.pseudo}`);
+        return { count: async () => (state[other.pseudo]() ? 1 : 0) };
+      },
       getAttribute: async (name: string) =>
         name === 'multiple' && s.multiple ? '' : null,
       locator: (sel: string) => {
@@ -655,6 +674,11 @@ describe('createPace', () => {
       expect(k[5].t - k[4].t).toBe(70);
       expect(of(f.log, 'select')).toHaveLength(0);
       expect(s.checked()).toBe(2);
+      // Focus and the open list are checked once, after the click.
+      expect(s.selectors.filter((x) => x.startsWith('and '))).toEqual([
+        'and :focus',
+        'and :open',
+      ]);
     });
 
     it('goes up with ArrowUp and skips disabled options', async () => {
@@ -683,6 +707,7 @@ describe('createPace', () => {
         [{ disabled: [false, false], checked: 0, optgroups: 1 }, 1],
         [{ disabled: [false, false], checked: 0, multiple: true }, 1],
         [{ disabled: [false, false], checked: -1 }, 1],
+        [{ disabled: [false, false], checked: 0, selfDisabled: true }, 1],
       ] as [FakeSelect, number][]) {
         const f = setup();
         await expect(f.pace.pick(f.select(sel).loc, index)).rejects.toThrow(
@@ -701,6 +726,47 @@ describe('createPace', () => {
         commits: false,
       });
       await expect(f.pace.pick(s.loc, 2)).rejects.toThrow(/did not take/);
+    });
+
+    it('refuses a disabled select with no click and no keys', async () => {
+      const f = setup();
+      const s = f.select({
+        disabled: [false, false],
+        checked: 0,
+        selfDisabled: true,
+      });
+      await expect(f.pace.pick(s.loc, 1)).rejects.toThrow(/select is disabled/);
+      expect(of(f.log, 'move')).toHaveLength(0);
+      expect(of(f.log, 'down')).toHaveLength(0);
+      expect(of(f.log, 'kdown')).toHaveLength(0);
+    });
+
+    it('sends no keys when the click did not focus the select', async () => {
+      const f = setup();
+      const s = f.select({
+        disabled: [false, false],
+        checked: 0,
+        focuses: false,
+      });
+      await expect(f.pace.pick(s.loc, 1)).rejects.toThrow(
+        /did not take focus.*no keys sent/,
+      );
+      expect(of(f.log, 'down')).toHaveLength(1);
+      expect(of(f.log, 'kdown')).toHaveLength(0);
+      expect(s.checked()).toBe(0);
+    });
+
+    it('sends no keys when the select is focused but its list did not open', async () => {
+      const f = setup();
+      const s = f.select({
+        disabled: [false, false],
+        checked: 0,
+        opens: false,
+      });
+      await expect(f.pace.pick(s.loc, 1)).rejects.toThrow(
+        /did not open.*no keys sent/,
+      );
+      expect(of(f.log, 'kdown')).toHaveLength(0);
     });
   });
 

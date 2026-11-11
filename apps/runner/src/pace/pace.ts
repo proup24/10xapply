@@ -386,6 +386,7 @@ export function createPace(
     // the option with Enter, so Chrome fires a trusted `change`.
     await click(control);
     await dwell('pickDwell');
+    await assertListOpen(control);
     const key = steps > 0 ? 'ArrowDown' : 'ArrowUp';
     for (let i = 0; i < Math.abs(steps); i++) {
       await press(key);
@@ -394,6 +395,23 @@ export function createPace(
     await press('Enter');
     if ((await checkedIndex(control)) !== index) {
       throw new Error(`pace: the select did not take option ${index}`);
+    }
+  }
+
+  /**
+   * Refuses to send keys unless the select has focus and its list is open,
+   * read through CSS (`:focus`, `:open`; no script). Otherwise the keys go
+   * to whatever had focus before (Enter in a text field submits its form),
+   * or each arrow changes a closed select (one `change` per press).
+   */
+  async function assertListOpen(control: Locator): Promise<void> {
+    const is = async (pseudo: string) =>
+      (await control.and(page.locator(pseudo)).count()) > 0;
+    if (!(await is(':focus'))) {
+      throw new Error('pace: the select did not take focus; no keys sent');
+    }
+    if (!(await is(':open'))) {
+      throw new Error('pace: the select list did not open; no keys sent');
     }
   }
 
@@ -413,9 +431,14 @@ export function createPace(
   /**
    * Arrow presses from the checked option to option `index` (+ down, - up);
    * disabled options are skipped, as the open list skips them. Refuses what
-   * the keys can't pick reliably, before anything is clicked.
+   * the keys can't pick reliably (a disabled select among them), before
+   * anything is clicked.
    */
   async function selectSteps(control: Locator, index: number): Promise<number> {
+    // A click on a disabled select neither focuses nor opens it.
+    if (await control.isDisabled()) {
+      throw new Error('pace: the select is disabled');
+    }
     if ((await control.getAttribute('multiple')) !== null) {
       throw new Error('pace: a multiple select is not supported');
     }
