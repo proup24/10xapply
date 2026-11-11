@@ -488,17 +488,58 @@ describe('createPace', () => {
       );
     }
     const typed = keys
-      .filter((k) => k.kind !== 'kup')
+      .filter((k) => k.kind !== 'kup' && k.key !== 'Shift')
       .map((k) => k.key)
       .join('');
     expect(typed).toBe('Hi there\nok');
-    const holds = of(log, 'kdown').map((d) => {
+    const holds = of(log, 'kdown')
+      .filter((d) => d.key !== 'Shift')
+      .map((d) => {
       const u = log.find(
         (e) => e.kind === 'kup' && e.key === d.key && e.t >= d.t,
       );
       return (u?.t ?? 0) - d.t;
     });
     expect(holds.every((h) => h === 70)).toBe(true);
+  });
+
+  it('type holds Shift over capitals and shifted symbols, as a keyboard needs', async () => {
+    for (const seed of [1, 2, 3, 4, 5]) {
+      const { pace, log, locator } = setup(testProfile(), seed);
+      await pace.type(locator([BOX]), 'Ab@Cd!e AB?x');
+      const keys = log.filter(
+        (e): e is Ev & { kind: 'kdown' | 'kup'; key: string } =>
+          e.kind === 'kdown' || e.kind === 'kup',
+      );
+      // Replay the key stream with the Shift state.
+      let shift = false;
+      const seen: string[] = [];
+      for (const k of keys) {
+        if (k.key === 'Shift') {
+          expect(shift, `seed ${seed}: Shift ${k.kind}`).toBe(k.kind === 'kup');
+          shift = k.kind === 'kdown';
+          continue;
+        }
+        if (k.kind !== 'kdown') continue;
+        const needs = /^[A-Z~!@#$%^&*()_+{}|:"<>?]$/.test(k.key);
+        expect(shift, `seed ${seed}: ${k.key}`).toBe(needs);
+        seen.push(k.key);
+      }
+      expect(shift).toBe(false);
+      expect(seen.join('')).toBe('Ab@Cd!e AB?x');
+      // One Shift hold covers a run of shifted characters.
+      const shiftDowns = keys.filter(
+        (k) => k.key === 'Shift' && k.kind === 'kdown',
+      );
+      expect(shiftDowns).toHaveLength(4);
+      // Shift goes down before the key it modifies, never at the same moment.
+      for (const d of shiftDowns) {
+        const next = keys.find(
+          (k) => k.kind === 'kdown' && k.key !== 'Shift' && k.t >= d.t,
+        );
+        expect((next?.t ?? 0) - d.t).toBeGreaterThan(0);
+      }
+    }
   });
 
   it('glance sends no keys', async () => {

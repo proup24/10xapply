@@ -66,6 +66,12 @@ const SCROLL_SETTLE_MS = 300;
 const REVEAL_MARGIN = 0.15;
 /** The `<select>` options after the checked one (plain CSS, no script). */
 const AFTER_CHECKED = 'option:checked ~ option';
+/** Characters a US keyboard types with Shift held. */
+const SHIFTED = /^[A-Z~!@#$%^&*()_+{}|:"<>?]$/;
+/** Shift goes down this share of a keyGapInWord draw before its key. */
+const SHIFT_LEAD_SHARE = 0.5;
+/** Shift comes up this share of a keyHold draw after its last key's release. */
+const SHIFT_TRAIL_SHARE = 0.5;
 /** Keys sent as keydown/keyup; anything else (newline, tab, non-ASCII) is inserted as text. */
 const KEYED = /^[\x20-\x7e]$/;
 
@@ -360,23 +366,68 @@ export function createPace(
     await click(field);
     await dwell('fieldDwellBeforeTyping');
     // Lay keydowns and keyups out on one timeline; holds may overlap the next key.
-    const events: { at: number; ch: string; down: boolean }[] = [];
+    const keys: { at: number; up: number; ch: string }[] = [];
     let at = 0;
     for (const k of planKeys(text, profile, rng)) {
       at += k.gapBefore;
-      events.push({ at, ch: k.ch, down: true });
-      if (KEYED.test(k.ch))
-        events.push({ at: at + k.hold, ch: k.ch, down: false });
+      keys.push({ at, up: at + k.hold, ch: k.ch });
     }
+    const events: { at: number; key: string; down: boolean; text?: true }[] =
+      [];
+    for (const k of keys) {
+      if (!KEYED.test(k.ch)) {
+        events.push({ at: k.at, key: k.ch, down: true, text: true });
+        continue;
+      }
+      events.push({ at: k.at, key: k.ch, down: true });
+      events.push({ at: k.up, key: k.ch, down: false });
+    }
+    events.push(...shiftHolds(keys));
     // Stable sort; at equal times a release goes before a press.
     events.sort((p, q) => p.at - q.at || Number(p.down) - Number(q.down));
-    const start = now();
+    const start = now() - Math.min(0, ...events.map((e) => e.at));
     for (const e of events) {
       await wait(start + e.at - now());
-      if (!KEYED.test(e.ch)) await page.keyboard.insertText(e.ch);
-      else if (e.down) await page.keyboard.down(e.ch);
-      else await page.keyboard.up(e.ch);
+      if (e.text) await page.keyboard.insertText(e.key);
+      else if (e.down) await page.keyboard.down(e.key);
+      else await page.keyboard.up(e.key);
     }
+  }
+
+  /**
+   * Shift presses for capitals and shifted symbols (US layout): a keyboard
+   * can't type them without it, and a page sees `shiftKey` on each key. One
+   * hold covers a run of them. Shift goes down a share of a keyGapInWord
+   * draw before the run (never before the previous key's press) and comes up
+   * a share of a keyHold draw after its last release (always before the next
+   * key's press). The recorder keeps no modifier timing, so the shares are
+   * fixed guesses; Shift's own keydowns do land in the key-gap measures, as
+   * the author's do.
+   */
+  function shiftHolds(
+    keys: { at: number; up: number; ch: string }[],
+  ): { at: number; key: string; down: boolean }[] {
+    const out: { at: number; key: string; down: boolean }[] = [];
+    for (let i = 0; i < keys.length; i++) {
+      if (!SHIFTED.test(keys[i].ch)) continue;
+      let j = i;
+      while (j + 1 < keys.length && SHIFTED.test(keys[j + 1].ch)) j++;
+      const gap = i > 0 ? keys[i].at - keys[i - 1].at : Infinity;
+      const lead = Math.min(
+        draw(profile, 'keyGapInWord', rng, { min: 1 }) * SHIFT_LEAD_SHARE,
+        gap * 0.8,
+      );
+      const lastUp = Math.max(...keys.slice(i, j + 1).map((k) => k.up));
+      const next = keys[j + 1]?.at ?? Infinity;
+      const release = Math.min(
+        lastUp + draw(profile, 'keyHold', rng, { min: 1 }) * SHIFT_TRAIL_SHARE,
+        keys[j].at + (next - keys[j].at) * 0.8,
+      );
+      out.push({ at: keys[i].at - lead, key: 'Shift', down: true });
+      out.push({ at: release, key: 'Shift', down: false });
+      i = j;
+    }
+    return out;
   }
 
   async function pick(control: Locator, index: number): Promise<void> {
