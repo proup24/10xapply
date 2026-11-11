@@ -38,6 +38,8 @@ export interface Relay {
    * which the relay refuses.
    */
   crashRunTab(): Promise<void>;
+  /** The run tab's viewport in CSS px (Page.getLayoutMetrics), or null. */
+  viewport(): Promise<{ width: number; height: number } | null>;
   /** Starts the extension's timing-only recorder; `salt` stays in memory. */
   startRecording(salt: string): Promise<void>;
   stopRecording(): Promise<void>;
@@ -421,6 +423,10 @@ export async function startRelay(opts: RelayOptions): Promise<Relay> {
 
     async crashRunTab(): Promise<void> {
       await model.crashRunTab();
+    },
+
+    viewport(): Promise<{ width: number; height: number } | null> {
+      return model.viewport();
     },
 
     async startRecording(salt: string): Promise<void> {

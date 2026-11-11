@@ -334,6 +334,47 @@ describe('relay', () => {
     await expect(ctx.relay.crashRunTab()).rejects.toThrow('no run tab');
   });
 
+  it('viewport asks the run tab for its layout metrics and returns the CSS visual viewport', async () => {
+    const ctx = await connected();
+    ctx.ext.handlers['debugger.send'] = (p) =>
+      p.method === 'Page.getLayoutMetrics'
+        ? {
+            cssVisualViewport: { clientWidth: 1280.5, clientHeight: 720 },
+            cssLayoutViewport: { clientWidth: 1265, clientHeight: 700 },
+          }
+        : p.method === 'Target.getTargetInfo'
+          ? { targetInfo: { targetId: 'T-42', type: 'page' } }
+          : {};
+    await openTarget(ctx);
+    expect(await ctx.relay.viewport()).toEqual({ width: 1280.5, height: 720 });
+    expect(ctx.ext.commands.at(-1)).toMatchObject({
+      method: 'debugger.send',
+      params: { target: { tabId: 42 }, method: 'Page.getLayoutMetrics' },
+    });
+  });
+
+  it('viewport falls back to the layout viewport, then to null', async () => {
+    const ctx = await connected();
+    let metrics: Json = {
+      cssLayoutViewport: { clientWidth: 900, clientHeight: 600 },
+    };
+    ctx.ext.handlers['debugger.send'] = (p) =>
+      p.method === 'Page.getLayoutMetrics'
+        ? metrics
+        : p.method === 'Target.getTargetInfo'
+          ? { targetInfo: { targetId: 'T-42', type: 'page' } }
+          : {};
+    await openTarget(ctx);
+    expect(await ctx.relay.viewport()).toEqual({ width: 900, height: 600 });
+    metrics = { cssVisualViewport: { clientWidth: 0, clientHeight: 0 } };
+    expect(await ctx.relay.viewport()).toBeNull();
+  });
+
+  it('viewport fails when there is no run tab', async () => {
+    const ctx = await connected();
+    await expect(ctx.relay.viewport()).rejects.toThrow('no run tab');
+  });
+
   it('answers root commands locally', async () => {
     const ctx = await connected();
     const version = await ctx.call('Browser.getVersion');

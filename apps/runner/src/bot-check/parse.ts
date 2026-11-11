@@ -2,6 +2,8 @@ export interface CheckResult {
   page: string;
   passed: boolean;
   detail: string[];
+  /** The page was not checked (not loadable, stopped, or no profile); shown apart from FAIL. */
+  notRun?: boolean;
 }
 
 const unparseable = (page: string): CheckResult => ({
@@ -73,11 +75,34 @@ export function parseBrowserscan(text: string): CheckResult {
   };
 }
 
+/**
+ * bot.incolumitas.com, "Behavioral Bot Classification": the page shows
+ * "Your Behavioral Score: <n>" (field behavioralClassificationScore), 0 = bot
+ * to 1 = human; below 0.5 is most likely a bot. The first score appears after
+ * 1.5 s and is updated at 4, 7, 10 and 15 s, so read it after 15 s. While no
+ * score exists the page shows "..." (unparseable). The sample texts are
+ * hand-made from the page's wording, not a real capture.
+ */
+export const INCOLUMITAS_HUMAN_MIN = 0.5;
+
+export function parseIncolumitas(text: string): CheckResult {
+  const page = 'incolumitas';
+  const text_ = typeof text === 'string' ? text : '';
+  const m =
+    /Behavioral Score:\s*(\d+(?:\.\d+)?)/.exec(text_) ??
+    /"?behavioralClassificationScore"?\s*[:=]\s*(\d+(?:\.\d+)?)/.exec(text_);
+  if (!m) return unparseable(page);
+  const score = Number(m[1]);
+  if (!Number.isFinite(score) || score > 1) return unparseable(page);
+  const passed = score >= INCOLUMITAS_HUMAN_MIN;
+  return { page, passed, detail: [`score ${score}`] };
+}
+
 export function formatTable(results: CheckResult[]): string {
   const width = Math.max(4, ...results.map((r) => r.page.length));
   return results
     .map((r) =>
-      `${r.page.padEnd(width)}  ${r.passed ? 'PASS' : 'FAIL'}  ${r.detail.join(', ')}`.trimEnd(),
+      `${r.page.padEnd(width)}  ${r.notRun ? 'NOT RUN' : r.passed ? 'PASS' : 'FAIL'}  ${r.detail.join(', ')}`.trimEnd(),
     )
     .join('\n');
 }

@@ -40,7 +40,7 @@ export interface RecordDeps {
 }
 
 /** A UTC timestamp safe in file names, e.g. 20261111T101530Z. */
-function sittingIdNow(): string {
+export function sittingIdNow(): string {
   return new Date()
     .toISOString()
     .replace(/\.\d+Z$/, 'Z')

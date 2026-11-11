@@ -6,6 +6,7 @@ import {
   parseBrowserscan,
   parseDabi,
   parseDabiInteractions,
+  parseIncolumitas,
   parseRebrowser,
 } from './parse.js';
 
@@ -112,5 +113,40 @@ describe('parseDabiInteractions', () => {
       expect(r.passed).toBe(false);
       expect(r.detail).toEqual(['unparseable']);
     }
+  });
+});
+
+describe('parseIncolumitas', () => {
+  it('incolumitas passes on human', () => {
+    const r = parseIncolumitas(fx('incolumitas-human.txt'));
+    expect(r).toEqual({
+      page: 'incolumitas',
+      passed: true,
+      detail: ['score 0.93'],
+    });
+  });
+  it('incolumitas fails on bot', () => {
+    const r = parseIncolumitas(fx('incolumitas-bot.txt'));
+    expect(r.passed).toBe(false);
+    expect(r.detail).toEqual(['score 0.12']);
+  });
+  it('incolumitas unparseable', () => {
+    for (const s of [
+      '',
+      'Your Behavioral Score: ...',
+      'Your Behavioral Score: 7',
+    ]) {
+      const r = parseIncolumitas(s);
+      expect(r.passed).toBe(false);
+      expect(r.detail).toEqual(['unparseable']);
+    }
+  });
+});
+
+describe('formatTable', () => {
+  it('shows a not-run result apart from FAIL', () => {
+    expect(
+      formatTable([{ page: 'x', passed: false, detail: ['n'], notRun: true }]),
+    ).toBe('x     NOT RUN  n');
   });
 });

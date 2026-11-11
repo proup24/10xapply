@@ -152,6 +152,32 @@ export class BrowserModel {
     return this.debuggerSend({ tabId: tab.tabId }, 'Page.crash', {});
   }
 
+  /**
+   * The run tab's viewport in CSS px, from Page.getLayoutMetrics (no script
+   * runs in the page). Null when Chrome gave no usable size.
+   */
+  async viewport(): Promise<{ width: number; height: number } | null> {
+    const tab = [...this.tabs.values()].find((t) => t.attached);
+    if (!tab) throw new Error('no run tab');
+    const m = (await this.debuggerSend(
+      { tabId: tab.tabId },
+      'Page.getLayoutMetrics',
+      {},
+    )) as
+      | {
+          cssVisualViewport?: { clientWidth?: unknown; clientHeight?: unknown };
+          cssLayoutViewport?: { clientWidth?: unknown; clientHeight?: unknown };
+        }
+      | undefined;
+    for (const v of [m?.cssVisualViewport, m?.cssLayoutViewport]) {
+      const { clientWidth: w, clientHeight: h } = v ?? {};
+      if (typeof w === 'number' && typeof h === 'number' && w >= 1 && h >= 1) {
+        return { width: w, height: h };
+      }
+    }
+    return null;
+  }
+
   /** Drops every session, telling the CDP client (if still there). */
   reset(): void {
     for (const tab of this.tabs.values()) this.detachSession(tab);

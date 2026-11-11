@@ -9,6 +9,8 @@ export interface Bridge {
   stopReason(): string | null;
   /** Crashes the run tab on purpose, for `bridge check --crash`. */
   crashRunTab(): Promise<void>;
+  /** The run tab's viewport in CSS px, for the pace module. Runs no script. */
+  viewport(): Promise<{ width: number; height: number } | null>;
   startRecording(salt: string): Promise<void>;
   stopRecording(): Promise<void>;
   onRecorderBatch(fn: (b: RecorderBatch) => void): () => void;
@@ -89,6 +91,7 @@ export async function connectBridge(
     },
     stopReason: () => reason,
     crashRunTab: () => relay.crashRunTab(),
+    viewport: () => relay.viewport(),
     startRecording: (salt) => relay.startRecording(salt),
     stopRecording: () => relay.stopRecording(),
     onRecorderBatch: (fn) => relay.onRecorderBatch(fn),

@@ -19,6 +19,13 @@
           "command": "tsx src/main.ts bot-check"
         }
       },
+      "bot-check-repeat": {
+        "executor": "nx:run-commands",
+        "options": {
+          "cwd": "apps/runner",
+          "command": "tsx src/main.ts bot-check --repeat 3 --record"
+        }
+      },
       "bridge-install": {
         "executor": "nx:run-commands",
         "options": {
@@ -52,6 +59,13 @@
         "options": {
           "cwd": "apps/runner",
           "command": "tsx src/main.ts pace record --typing"
+        }
+      },
+      "pace-practice": {
+        "executor": "nx:run-commands",
+        "options": {
+          "cwd": "apps/runner",
+          "command": "tsx src/main.ts pace practice --runs 5 --record"
         }
       },
       "pace-build": {
