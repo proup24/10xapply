@@ -31,7 +31,8 @@ Failure even if it technically works:
 ## Stack
 
 - Nx 24 monorepo with pnpm, TypeScript strict with nodenext. The workspace is empty so far.
-- Expected, mirroring 10xjobs, **not built yet**: NestJS API (webhook intake) and workers (browser runs), Next.js web app, Supabase (Auth and Postgres with per-user row-level security), Prisma, Redis queues, Vitest, LLMs through OpenRouter, browsers with Playwright on our own server. Each piece is decided in its own slice.
+- Expected, mirroring 10xjobs, **not built yet**: NestJS API (webhook intake) and workers (browser runs), Next.js web app, Supabase (Auth and Postgres with per-user row-level security), Prisma, Redis queues, LLMs through OpenRouter, browsers with Playwright on our own server. Each piece is decided in its own slice.
+- **Set up** (slice 02): ESLint, Vitest and Prettier, all run through Nx.
 
 ## Workflow
 
@@ -39,7 +40,11 @@ Build in small slices, one per session: brainstorm, then spec (`docs/superpowers
 
 ## Commands
 
-`pnpm test:hooks` runs the guard hook tests.
+- `pnpm test:hooks` runs the guard hook tests.
+- `pnpm test:scripts` runs the tests for the repo's own scripts (added in slice 02).
+- `pnpm lint`, `pnpm test`, `pnpm build` and `pnpm typecheck` run that target on all projects through Nx.
+- `pnpm format` writes Prettier formatting and `pnpm format:check` checks it, on changed files; add `--all` for everything.
+- CI runs `nx affected` for lint, test, build and typecheck, and only on code changes.
 
 ## Roadmap
 
