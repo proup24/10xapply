@@ -434,6 +434,7 @@ test('runner (real name): safe commands pass', () => {
     'pnpm nx run runner:bot-check',
     'pnpm nx run runner:bridge-install',
     'pnpm nx run runner:bridge-check',
+    'pnpm nx run runner:bridge-check-crash',
     'tsx apps/runner/src/main.ts bridge check',
     'pnpm nx run runner:apply --dry-run',
   ]) {

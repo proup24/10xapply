@@ -344,6 +344,7 @@ export const RUNNER_SAFE_SUBCOMMANDS = [
   'bridge',
   'bridge-install',
   'bridge-check',
+  'bridge-check-crash',
   'bot-check',
   'session',
 ];

@@ -59,6 +59,16 @@ describe('bridge core', () => {
     expect(core.ownsTab(1)).toBe(false);
   });
 
+  it('browser.version answers from the injected provider', async () => {
+    const sent = [];
+    const version = { userAgent: 'UA', product: 'Chrome/157.0.1.2' };
+    const core = createBridgeCore({}, (m) => sent.push(m), {
+      version: async () => version,
+    });
+    await core.handleCommand({ id: 1, method: 'browser.version', params: {} });
+    expect(sent[0]).toEqual({ id: 1, result: version });
+  });
+
   it('refuses tabs it did not create', async () => {
     const { core, calls, sent } = setup();
     await core.handleCommand({

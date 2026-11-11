@@ -1,7 +1,8 @@
 import { execFileSync } from 'node:child_process';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { connectBridge } from '../bridge/bridge.js';
+import type { Page } from 'patchright-core';
+import { connectBridge, type Bridge } from '../bridge/bridge.js';
 import {
   ensureToken,
   installExtension,
@@ -44,7 +45,9 @@ chrome://extensions so Chrome picks up the new files.`);
   return 0;
 }
 
-export async function bridgeCheck(): Promise<number> {
+export async function bridgeCheck({
+  crash = false,
+}: { crash?: boolean } = {}): Promise<number> {
   const cfg = loadConfig();
   const bridge = await connectBridge(cfg);
   if ('unavailable' in bridge) {
@@ -54,10 +57,30 @@ export async function bridgeCheck(): Promise<number> {
   try {
     const page = await bridge.openRunWindow();
     await page.goto('about:blank');
+    if (crash) return await crashCheck(bridge, page);
     await page.close();
     console.log('bridge: connected');
     return 0;
   } finally {
     await bridge.close();
   }
+}
+
+const CRASH_WAIT_MS = 5000;
+
+// Crashes the run tab on purpose and checks the bridge notices the stop.
+async function crashCheck(bridge: Bridge, page: Page): Promise<number> {
+  const session = await page.context().newCDPSession(page);
+  await session.send('Page.crash').catch(() => undefined);
+  const deadline = Date.now() + CRASH_WAIT_MS;
+  while (bridge.stopReason() === null && Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, 50));
+  }
+  const reason = bridge.stopReason();
+  if (reason === null) {
+    console.log('crash stop: not seen');
+    return 2;
+  }
+  console.log(`crash stop: ok (${reason})`);
+  return 0;
 }

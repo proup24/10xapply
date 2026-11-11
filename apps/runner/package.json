@@ -32,6 +32,13 @@
           "cwd": "apps/runner",
           "command": "tsx src/main.ts bridge check"
         }
+      },
+      "bridge-check-crash": {
+        "executor": "nx:run-commands",
+        "options": {
+          "cwd": "apps/runner",
+          "command": "tsx src/main.ts bridge check --crash"
+        }
       }
     }
   },

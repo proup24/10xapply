@@ -10,7 +10,7 @@ const USAGE = `usage: runner <command>
   session          sign in to LinkedIn through the bridge
   bot-check        run the bot-detection check
   bridge install   install the bridge extension
-  bridge check     check the bridge extension`;
+  bridge check     check the bridge extension (--crash: also check the crash stop)`;
 
 export async function main(argv: string[]): Promise<number> {
   try {
@@ -18,7 +18,8 @@ export async function main(argv: string[]): Promise<number> {
     if (a === 'session') return await sessionCommand();
     if (a === 'bot-check') return await botCheckCommand();
     if (a === 'bridge' && b === 'install') return bridgeInstall();
-    if (a === 'bridge' && b === 'check') return await bridgeCheck();
+    if (a === 'bridge' && b === 'check')
+      return await bridgeCheck({ crash: argv.includes('--crash') });
   } catch (e) {
     if (e instanceof ConfigError || e instanceof RelayPortInUseError) {
       console.error(redact(e.message));

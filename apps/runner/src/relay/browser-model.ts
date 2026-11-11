@@ -177,6 +177,11 @@ export class BrowserModel {
     try {
       await this.callExtension('debugger.attach', { tabId });
       tab.attached = true;
+      // Inspector.enable makes Chrome report a renderer crash as
+      // Inspector.targetCrashed. A failure here is not a reason to stop.
+      await this.debuggerSend({ tabId }, 'Inspector.enable', {}).catch(
+        () => undefined,
+      );
       const info = (await this.debuggerSend(
         { tabId },
         'Target.getTargetInfo',

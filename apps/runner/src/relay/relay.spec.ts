@@ -63,6 +63,10 @@ class FakeExtension extends Client {
     'run.createWindow': () => ({ tabId: 42, windowId: 7 }),
     'debugger.attach': () => ({}),
     'tabs.remove': () => ({}),
+    'browser.version': () => ({
+      userAgent: 'Mozilla/5.0 (X11) Chrome/157.0.1.2 Safari/537.36',
+      product: 'Chrome/157.0.1.2',
+    }),
     'debugger.send': (p) =>
       p.method === 'Target.getTargetInfo'
         ? { targetInfo: { targetId: 'T-42', type: 'page', url: 'about:blank' } }
@@ -254,6 +258,52 @@ describe('relay', () => {
     });
   });
 
+  it('sends Inspector.enable to a new run tab after attach', async () => {
+    const ctx = await connected();
+    await openTarget(ctx);
+    const methods = ctx.ext.commands.map((c) => [
+      c.method,
+      (c.params as Json).method,
+    ]);
+    const attachAt = methods.findIndex(([m]) => m === 'debugger.attach');
+    expect(methods[attachAt + 1]).toEqual([
+      'debugger.send',
+      'Inspector.enable',
+    ]);
+    expect(ctx.ext.commands[attachAt + 1]).toMatchObject({
+      params: { target: { tabId: 42 }, method: 'Inspector.enable' },
+    });
+  });
+
+  it("Browser.getVersion returns the extension's real values", async () => {
+    const ctx = await connected();
+    const userAgent = 'Mozilla/5.0 (X11) Chrome/157.0.1.2 Safari/537.36';
+    const first = await ctx.call('Browser.getVersion');
+    expect(first.result).toEqual({
+      protocolVersion: '1.3',
+      product: 'Chrome/157.0.1.2',
+      userAgent,
+      revision: '',
+      jsVersion: '',
+    });
+    await ctx.call('Browser.getVersion');
+    expect(
+      ctx.ext.methods().filter((m) => m === 'browser.version'),
+    ).toHaveLength(1);
+  });
+
+  it("Browser.getVersion falls back when the extension can't answer", async () => {
+    const ctx = await connected();
+    delete ctx.ext.handlers['browser.version']; // fake replies with an error
+    const reply = await ctx.call('Browser.getVersion');
+    expect(reply.error).toBeUndefined();
+    expect(reply.result).toEqual({
+      protocolVersion: '1.3',
+      product: 'Chrome/Extension-Bridge',
+      userAgent: 'CDP-Bridge-Server/1.0.0',
+    });
+  });
+
   it('answers root commands locally', async () => {
     const ctx = await connected();
     const version = await ctx.call('Browser.getVersion');
@@ -274,7 +324,8 @@ describe('relay', () => {
     expect(await ctx.call('Target.getTargetInfo')).toMatchObject({
       result: {},
     });
-    expect(ctx.ext.commands).toEqual([]);
+    // Only the browser.version question; nothing reaches a tab.
+    expect(ctx.ext.methods()).toEqual(['browser.version']);
     expect(
       ctx.cdp.messages.some((m) => m.method === 'Target.attachedToTarget'),
     ).toBe(false);

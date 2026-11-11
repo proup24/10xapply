@@ -10,10 +10,12 @@ const NOT_OWNED = 'not a bridge tab';
  * Only tabs created by run.createWindow are owned. Everything else is refused
  * here, independently of the relay.
  *
+ * The optional third argument is `{ version }`, a provider for browser.version.
+ *
  * onWindowChanged(win) takes `{ id, state }` (a chrome Window works) and sends
  * window.state when win.id is the window of an owned tab.
  */
-export function createBridgeCore(chromeApi, send) {
+export function createBridgeCore(chromeApi, send, { version } = {}) {
   const owned = new Map(); // tabId -> windowId (until the tab is removed)
   const attached = new Set(); // tabIds with a live debugger
   const detached = new Set(); // tabIds whose debugger detached; never re-attached
@@ -21,6 +23,11 @@ export function createBridgeCore(chromeApi, send) {
   const ownsTab = (tabId) => owned.has(tabId);
 
   const commands = {
+    async 'browser.version'() {
+      if (!version) throw new Error('no version provider');
+      return version();
+    },
+
     async 'run.createWindow'(params) {
       const win = await chromeApi.windows.create({
         url: params?.url,

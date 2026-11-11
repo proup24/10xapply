@@ -4,21 +4,45 @@ import { EXTENSION_TIMEOUT_MS, connectBridge, type Bridge } from './bridge.js';
 
 const TOKEN = 'test-token-0123456789abcdef';
 
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+// A free port below Linux's ephemeral range (32768+). Outgoing connections,
+// including the fake extension's retries, pick source ports from that range,
+// and a port from there can be taken, or even self-connected, before the
+// relay binds it.
 async function freePort(): Promise<number> {
-  const s = net.createServer();
-  await new Promise<void>((r) => s.listen(0, '127.0.0.1', r));
-  const { port } = s.address() as net.AddressInfo;
-  await new Promise<void>((r) => s.close(() => r()));
-  return port;
+  for (;;) {
+    const port = 20_000 + Math.floor(Math.random() * 10_000);
+    const s = net.createServer();
+    const ok = await new Promise<boolean>((r) => {
+      s.once('error', () => r(false));
+      s.listen(port, '127.0.0.1', () => r(true));
+    });
+    if (!ok) continue;
+    await new Promise<void>((r) => s.close(() => r()));
+    return port;
+  }
 }
 
+// The relay starts inside connectBridge, so the first connection attempts
+// may be refused until it listens: retry every 10 ms for up to 2 s.
 async function fakeExtension(port: number): Promise<WebSocket> {
-  const ws = new WebSocket(`ws://127.0.0.1:${port}/extension?token=${TOKEN}`);
-  await new Promise<void>((res, rej) => {
-    ws.once('open', () => res());
-    ws.once('error', rej);
-  });
-  return ws;
+  const deadline = Date.now() + 2000;
+  for (;;) {
+    const ws = new WebSocket(`ws://127.0.0.1:${port}/extension?token=${TOKEN}`);
+    try {
+      await new Promise<void>((res, rej) => {
+        ws.once('open', () => res());
+        ws.once('error', rej);
+      });
+      return ws;
+    } catch (e) {
+      ws.terminate();
+      const refused = (e as NodeJS.ErrnoException).code === 'ECONNREFUSED';
+      if (!refused || Date.now() > deadline) throw e;
+      await sleep(10);
+    }
+  }
 }
 
 const fakeCdp = (() =>
@@ -26,8 +50,6 @@ const fakeCdp = (() =>
     contexts: () => [],
     close: () => Promise.resolve(),
   })) as never;
-
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 describe('connectBridge', () => {
   const open: { close(): Promise<void> }[] = [];
@@ -43,7 +65,6 @@ describe('connectBridge', () => {
       { relayPort, token: TOKEN },
       { connectOverCDP: fakeCdp, timeoutMs: 5000 },
     );
-    await sleep(50);
     const ext = await fakeExtension(relayPort);
     sockets.push(ext);
     const bridge = await p;
@@ -100,7 +121,6 @@ describe('connectBridge', () => {
         timeoutMs: 5000,
       },
     );
-    await sleep(50);
     const ext = await fakeExtension(relayPort);
     sockets.push(ext);
     ext.on('message', (data) => {
@@ -170,7 +190,6 @@ describe('connectBridge', () => {
         timeoutMs: 5000,
       },
     );
-    await sleep(50);
     sockets.push(await fakeExtension(relayPort));
     const bridge = (await p) as Bridge;
     await expect(bridge.close()).resolves.toBeUndefined();

@@ -8,9 +8,28 @@ const send = (msg) => {
   if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg));
 };
 
+// The real browser version, so Browser.getVersion is not a bridge giveaway.
+async function version() {
+  const userAgent = navigator.userAgent;
+  let full = '';
+  try {
+    const { fullVersionList = [] } =
+      await navigator.userAgentData.getHighEntropyValues(['fullVersionList']);
+    const entry =
+      fullVersionList.find((b) => b.brand === 'Google Chrome') ??
+      fullVersionList.find((b) => b.brand === 'Chromium');
+    full = entry?.version ?? '';
+  } catch {
+    // fall through to the user agent
+  }
+  if (!full) full = /Chrome\/([\d.]+)/.exec(userAgent)?.[1] ?? '';
+  return { userAgent, product: `Chrome/${full}` };
+}
+
 const core = createBridgeCore(
   { windows: chrome.windows, tabs: chrome.tabs, debugger: chrome.debugger },
   send,
+  { version },
 );
 
 function setBadge(on) {

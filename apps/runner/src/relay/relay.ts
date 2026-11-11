@@ -115,6 +115,35 @@ export async function startRelay(opts: RelayOptions): Promise<Relay> {
     );
   }
 
+  // Asked once per extension connection, on the first Browser.getVersion.
+  let versionAnswer: Promise<Json | null> | null = null;
+
+  function browserVersion(): Promise<Json> {
+    versionAnswer ??= callExtension('browser.version', {}).then(
+      (v) => {
+        const r = (v ?? {}) as Json;
+        return typeof r.userAgent === 'string' && typeof r.product === 'string'
+          ? {
+              protocolVersion: '1.3',
+              product: r.product,
+              userAgent: r.userAgent,
+              revision: '',
+              jsVersion: '',
+            }
+          : null;
+      },
+      () => null,
+    );
+    return versionAnswer.then(
+      (v) =>
+        v ?? {
+          protocolVersion: '1.3',
+          product: 'Chrome/Extension-Bridge',
+          userAgent: 'CDP-Bridge-Server/1.0.0',
+        },
+    );
+  }
+
   const model = new BrowserModel(callExtension, sendToCdp);
 
   // ─── CDP client → relay ────────────────────────────────────────────────
@@ -132,11 +161,7 @@ export async function startRelay(opts: RelayOptions): Promise<Relay> {
     if (sessionId === undefined) {
       switch (method) {
         case 'Browser.getVersion':
-          return {
-            protocolVersion: '1.3',
-            product: 'Chrome/Extension-Bridge',
-            userAgent: 'CDP-Bridge-Server/1.0.0',
-          };
+          return browserVersion();
         case 'Browser.setDownloadBehavior':
           return {};
       }
@@ -223,6 +248,7 @@ export async function startRelay(opts: RelayOptions): Promise<Relay> {
 
   function acceptExtension(ws: WebSocket): void {
     ext = ws;
+    versionAnswer = null;
     ws.on('message', onExtensionMessage);
     ws.on('error', () => undefined);
     ws.on('close', () => {
