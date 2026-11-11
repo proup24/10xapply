@@ -1,6 +1,8 @@
 import { isRefusedOnSession } from './policy.js';
+import { RECORDER_MATCHES } from './recorder-matches.js';
 
 const NOT_OWNED = 'not a bridge tab';
+const RECORDER_ID = 'pace-recorder';
 
 /**
  * Wire logic of the bridge, kept free of real chrome.* so it can be tested.
@@ -10,17 +12,42 @@ const NOT_OWNED = 'not a bridge tab';
  * Only tabs created by run.createWindow are owned. Everything else is refused
  * here, independently of the relay.
  *
- * The optional third argument is `{ version }`, a provider for browser.version.
+ * The optional third argument is `{ version, onRecording }`: a provider for
+ * browser.version, and a callback `onRecording(on)` for the timing recorder
+ * starting or stopping. chromeApi.scripting registers the recorder's content
+ * script, which is on only while recording and only on the fixed
+ * RECORDER_MATCHES. The salt from recorder.start lives in memory only.
  *
  * onWindowChanged(win) takes `{ id, state }` (a chrome Window works) and sends
  * window.state when win.id is the window of an owned tab.
  */
-export function createBridgeCore(chromeApi, send, { version } = {}) {
+export function createBridgeCore(
+  chromeApi,
+  send,
+  { version, onRecording } = {},
+) {
   const owned = new Map(); // tabId -> windowId (until the tab is removed)
   const attached = new Set(); // tabIds with a live debugger
   const detached = new Set(); // tabIds whose debugger detached; never re-attached
 
+  let recording = false;
+  let salt = null;
+
   const ownsTab = (tabId) => owned.has(tabId);
+
+  async function stopRecorder() {
+    const was = recording;
+    recording = false;
+    salt = null;
+    try {
+      await chromeApi.scripting.unregisterContentScripts({
+        ids: [RECORDER_ID],
+      });
+    } catch {
+      // nothing was registered
+    }
+    if (was) onRecording?.(false);
+  }
 
   const commands = {
     async 'browser.version'() {
@@ -40,6 +67,34 @@ export function createBridgeCore(chromeApi, send, { version } = {}) {
       }
       owned.set(tabId, win.id);
       return { tabId, windowId: win.id };
+    },
+
+    // Any match list in params is ignored: the pages are fixed.
+    async 'recorder.start'(params) {
+      if (typeof params?.salt !== 'string' || params.salt === '') {
+        throw new Error('recorder.start needs a salt');
+      }
+      if (recording) return {};
+      await chromeApi.scripting.registerContentScripts([
+        {
+          id: RECORDER_ID,
+          js: ['recorder-capture.js', 'recorder-content.js'],
+          matches: [...RECORDER_MATCHES],
+          world: 'ISOLATED',
+          runAt: 'document_start',
+          persistAcrossSessions: false,
+          allFrames: false,
+        },
+      ]);
+      recording = true;
+      salt = params.salt;
+      onRecording?.(true);
+      return {};
+    },
+
+    async 'recorder.stop'() {
+      await stopRecorder();
+      return {};
     },
 
     async 'tabs.remove'(params) {
@@ -139,6 +194,9 @@ export function createBridgeCore(chromeApi, send, { version } = {}) {
 
   return {
     handleCommand,
+    isRecording: () => recording,
+    recorderSalt: () => salt,
+    stopRecorder,
     ownsTab,
     ownedWindowIds,
     onDebuggerEvent,

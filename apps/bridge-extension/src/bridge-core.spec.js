@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { createBridgeCore } from './bridge-core.js';
+import { RECORDER_MATCHES } from './recorder-matches.js';
 
 function setup() {
   const calls = [];
@@ -14,6 +15,14 @@ function setup() {
     tabs: {
       remove: async (id) => {
         calls.push(['tabs.remove', id]);
+      },
+    },
+    scripting: {
+      registerContentScripts: async (scripts) => {
+        calls.push(['scripting.register', scripts]);
+      },
+      unregisterContentScripts: async (filter) => {
+        calls.push(['scripting.unregister', filter]);
       },
     },
     debugger: {
@@ -377,5 +386,95 @@ describe('bridge core', () => {
         params: { tabId: 42, windowId: 7, state: 'minimized' },
       },
     ]);
+  });
+
+  it('recorder.start registers the content script with the fixed matches', async () => {
+    const { core, calls, sent } = setup();
+    await core.handleCommand({
+      id: 1,
+      method: 'recorder.start',
+      params: { salt: 's1', matches: ['https://evil.example/*'] },
+    });
+    expect(calls).toEqual([
+      [
+        'scripting.register',
+        [
+          {
+            id: 'pace-recorder',
+            js: ['recorder-capture.js', 'recorder-content.js'],
+            matches: RECORDER_MATCHES,
+            world: 'ISOLATED',
+            runAt: 'document_start',
+            persistAcrossSessions: false,
+            allFrames: false,
+          },
+        ],
+      ],
+    ]);
+    expect(sent[0]).toEqual({ id: 1, result: {} });
+    expect(core.isRecording()).toBe(true);
+    expect(core.recorderSalt()).toBe('s1');
+  });
+
+  it('recorder.start refuses a missing salt', async () => {
+    const { core, calls, sent } = setup();
+    await core.handleCommand({ id: 1, method: 'recorder.start', params: {} });
+    expect(sent[0]).toEqual({ id: 1, error: 'recorder.start needs a salt' });
+    expect(calls).toEqual([]);
+    expect(core.isRecording()).toBe(false);
+  });
+
+  it('recorder.stop unregisters and forgets the salt', async () => {
+    const { core, calls } = setup();
+    await core.handleCommand({
+      id: 1,
+      method: 'recorder.start',
+      params: { salt: 's1' },
+    });
+    await core.handleCommand({ id: 2, method: 'recorder.stop', params: {} });
+    expect(calls[1]).toEqual([
+      'scripting.unregister',
+      { ids: ['pace-recorder'] },
+    ]);
+    expect(core.isRecording()).toBe(false);
+    expect(core.recorderSalt()).toBeNull();
+  });
+
+  it('recorder.start twice is idempotent', async () => {
+    const { core, calls, sent } = setup();
+    await core.handleCommand({
+      id: 1,
+      method: 'recorder.start',
+      params: { salt: 's1' },
+    });
+    await core.handleCommand({
+      id: 2,
+      method: 'recorder.start',
+      params: { salt: 's2' },
+    });
+    expect(calls.filter((c) => c[0] === 'scripting.register')).toHaveLength(1);
+    expect(sent[1]).toEqual({ id: 2, result: {} });
+    expect(core.recorderSalt()).toBe('s1');
+  });
+
+  it('tells the host when recording starts and stops', async () => {
+    const seen = [];
+    const core = createBridgeCore(
+      {
+        scripting: {
+          registerContentScripts: async () => undefined,
+          unregisterContentScripts: async () => undefined,
+        },
+      },
+      () => undefined,
+      { onRecording: (on) => seen.push(on) },
+    );
+    await core.handleCommand({
+      id: 1,
+      method: 'recorder.start',
+      params: { salt: 's' },
+    });
+    await core.stopRecorder();
+    expect(seen).toEqual([true, false]);
   });
 });

@@ -27,17 +27,59 @@ async function version() {
 }
 
 const core = createBridgeCore(
-  { windows: chrome.windows, tabs: chrome.tabs, debugger: chrome.debugger },
+  {
+    windows: chrome.windows,
+    tabs: chrome.tabs,
+    debugger: chrome.debugger,
+    scripting: chrome.scripting,
+  },
   send,
-  { version },
+  { version, onRecording: () => updateBadge() },
 );
 
-function setBadge(on) {
-  chrome.action?.setBadgeText?.({ text: on ? 'on' : '' });
+let connected = false;
+
+// "rec" while recording, "on" while connected, empty otherwise.
+function updateBadge() {
+  const text = !connected ? '' : core.isRecording() ? 'rec' : 'on';
+  chrome.action?.setBadgeText?.({ text });
 }
 
-// A restarted service worker starts disconnected: clear a stale "on".
+function setBadge(on) {
+  connected = on;
+  updateBadge();
+}
+
+// A restarted service worker starts disconnected: clear a stale "on", and any
+// recorder script left registered from before the restart.
 setBadge(false);
+chrome.scripting
+  .unregisterContentScripts({ ids: ['pace-recorder'] })
+  .catch(() => undefined);
+
+// Recorder content scripts connect here. Only 'recorder' ports, only while
+// recording. The salt goes to the page's content script in memory; batches are
+// forwarded to the relay untouched.
+chrome.runtime.onConnect.addListener((port) => {
+  if (
+    port.name !== 'recorder' ||
+    port.sender?.id !== chrome.runtime.id ||
+    !core.isRecording()
+  ) {
+    port.disconnect();
+    return;
+  }
+  port.onMessage.addListener((batch) => {
+    if (!core.isRecording()) {
+      port.disconnect();
+      return;
+    }
+    if (batch && typeof batch === 'object') {
+      send({ method: 'recorder.batch', params: batch });
+    }
+  });
+  port.postMessage({ salt: core.recorderSalt() });
+});
 
 function connect() {
   if (
@@ -67,6 +109,7 @@ function connect() {
   };
   sock.onclose = () => {
     if (ws !== sock) return;
+    void core.stopRecorder();
     setBadge(false);
     clearInterval(pingTimer);
     ws = null;

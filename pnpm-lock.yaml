@@ -221,7 +221,11 @@ importers:
         specifier: ~5.0.1
         version: 5.0.5(@types/node@24.19.2)(vite@8.3.7(@types/node@24.19.2)(esbuild@0.28.2)(tsx@4.23.15)(yaml@2.9.0))
 
-  apps/bridge-extension: {}
+  apps/bridge-extension:
+    devDependencies:
+      linkedom:
+        specifier: ^0.18.15
+        version: 0.18.15
 
   apps/runner:
     dependencies:
