@@ -19,13 +19,16 @@ function setBadge(on) {
 
 function connect() {
   if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return;
-  ws = new WebSocket(`ws://127.0.0.1:${RELAY_PORT}/extension?token=${encodeURIComponent(TOKEN)}`);
-  ws.onopen = () => {
+  const sock = new WebSocket(`ws://127.0.0.1:${RELAY_PORT}/extension?token=${encodeURIComponent(TOKEN)}`);
+  ws = sock;
+  sock.onopen = () => {
+    if (ws !== sock) return;
     setBadge(true);
     clearInterval(pingTimer);
     pingTimer = setInterval(() => send({ method: 'ping', params: {} }), 20_000);
   };
-  ws.onmessage = (ev) => {
+  sock.onmessage = (ev) => {
+    if (ws !== sock) return;
     let msg;
     try {
       msg = JSON.parse(ev.data);
@@ -34,12 +37,13 @@ function connect() {
     }
     void core.handleCommand(msg);
   };
-  ws.onclose = () => {
+  sock.onclose = () => {
+    if (ws !== sock) return;
     setBadge(false);
     clearInterval(pingTimer);
     ws = null;
   };
-  ws.onerror = () => ws?.close();
+  sock.onerror = () => sock.close();
 }
 
 chrome.runtime.onStartup.addListener(connect);
@@ -58,12 +62,14 @@ chrome.debugger.onEvent.addListener(core.onDebuggerEvent);
 chrome.debugger.onDetach.addListener(core.onDebuggerDetach);
 chrome.tabs.onRemoved.addListener((tabId) => core.onTabRemoved(tabId));
 chrome.windows.onBoundsChanged.addListener((win) => core.onWindowChanged(win));
-// A minimised window may not fire onBoundsChanged; check on focus changes too.
-chrome.windows.onFocusChanged.addListener(async (windowId) => {
-  if (windowId === chrome.windows.WINDOW_ID_NONE) return;
-  try {
-    core.onWindowChanged(await chrome.windows.get(windowId));
-  } catch {
-    // window already gone
+// A minimised window may not fire onBoundsChanged; on any focus change
+// (including WINDOW_ID_NONE) re-read each run window and report its state.
+chrome.windows.onFocusChanged.addListener(async () => {
+  for (const id of core.ownedWindowIds()) {
+    try {
+      core.onWindowChanged(await chrome.windows.get(id));
+    } catch {
+      // window already gone
+    }
   }
 });

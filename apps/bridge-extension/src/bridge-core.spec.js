@@ -38,6 +38,10 @@ async function open(core) {
   });
 }
 
+async function attach(core) {
+  await core.handleCommand({ id: 2, method: 'debugger.attach', params: { tabId: 42 } });
+}
+
 describe('bridge core', () => {
   it('run.createWindow opens a focused normal window and owns its tab', async () => {
     const { core, calls, sent } = setup();
@@ -86,7 +90,7 @@ describe('bridge core', () => {
   it('forwards allowed commands, with sessionId when given', async () => {
     const { core, calls, sent } = setup();
     await open(core);
-    await core.handleCommand({ id: 2, method: 'debugger.attach', params: { tabId: 42 } });
+    await attach(core);
     await core.handleCommand({
       id: 3,
       method: 'debugger.send',
@@ -126,6 +130,7 @@ describe('bridge core', () => {
   it('reports detach reason and forgets the tab', async () => {
     const { core, sent } = setup();
     await open(core);
+    await attach(core);
     sent.length = 0;
     core.onDebuggerDetach({ tabId: 9 }, 'target_closed');
     expect(sent).toEqual([]);
@@ -133,7 +138,52 @@ describe('bridge core', () => {
     expect(sent).toEqual([
       { method: 'debugger.detach', params: { tabId: 42, reason: 'canceled_by_user' } },
     ]);
+  });
+
+  it('after detach: send and attach are refused, tabs.remove works, removal is reported', async () => {
+    const { core, calls, sent } = setup();
+    await open(core);
+    await attach(core);
+    core.onDebuggerDetach({ tabId: 42 }, 'canceled_by_user');
+    sent.length = 0;
+    calls.length = 0;
+    await core.handleCommand({
+      id: 5,
+      method: 'debugger.send',
+      params: { target: { tabId: 42 }, method: 'Page.navigate', params: {} },
+    });
+    await core.handleCommand({ id: 6, method: 'debugger.attach', params: { tabId: 42 } });
+    expect(sent.map((m) => 'error' in m)).toEqual([true, true]);
+    expect(calls).toEqual([]);
+    await core.handleCommand({ id: 7, method: 'tabs.remove', params: { tabId: 42 } });
+    expect(sent.at(-1)).toEqual({ id: 7, result: {} });
+    expect(calls).toEqual([['tabs.remove', 42]]);
+    sent.length = 0;
+    core.onTabRemoved(42);
+    expect(sent).toEqual([{ method: 'tabs.removed', params: { tabId: 42 } }]);
     expect(core.ownsTab(42)).toBe(false);
+  });
+
+  it('refuses debugger.send before attach', async () => {
+    const { core, calls, sent } = setup();
+    await open(core);
+    sent.length = 0;
+    await core.handleCommand({
+      id: 5,
+      method: 'debugger.send',
+      params: { target: { tabId: 42 }, method: 'Page.navigate', params: {} },
+    });
+    expect(sent[0]).toEqual({ id: 5, error: 'debugger not attached' });
+    expect(calls.some((c) => c[0] === 'debugger.sendCommand')).toBe(false);
+  });
+
+  it('exposes owned window ids', async () => {
+    const { core } = setup();
+    expect(core.ownedWindowIds()).toEqual([]);
+    await open(core);
+    expect(core.ownedWindowIds()).toEqual([7]);
+    core.onTabRemoved(42);
+    expect(core.ownedWindowIds()).toEqual([]);
   });
 
   it('reports a removed tab and forgets it', async () => {

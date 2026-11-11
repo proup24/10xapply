@@ -14,7 +14,9 @@ const NOT_OWNED = 'not a bridge tab';
  * window.state when win.id is the window of an owned tab.
  */
 export function createBridgeCore(chromeApi, send) {
-  const owned = new Map(); // tabId -> windowId
+  const owned = new Map(); // tabId -> windowId (until the tab is removed)
+  const attached = new Set(); // tabIds with a live debugger
+  const detached = new Set(); // tabIds whose debugger detached; never re-attached
 
   const ownsTab = (tabId) => owned.has(tabId);
 
@@ -41,7 +43,10 @@ export function createBridgeCore(chromeApi, send) {
 
     async 'debugger.attach'(params) {
       if (!ownsTab(params?.tabId)) throw new Error(NOT_OWNED);
+      if (detached.has(params.tabId)) throw new Error('debugger detached');
+      if (attached.has(params.tabId)) throw new Error('already attached');
       await chromeApi.debugger.attach({ tabId: params.tabId }, '1.3');
+      attached.add(params.tabId);
       return {};
     },
 
@@ -51,6 +56,7 @@ export function createBridgeCore(chromeApi, send) {
       const method = params.method;
       if (typeof method !== 'string') throw new Error('bad method');
       if (isRefused(method)) throw new Error(`refused: ${method}`);
+      if (!attached.has(target.tabId)) throw new Error('debugger not attached');
       const chromeTarget =
         target.sessionId === undefined
           ? { tabId: target.tabId }
@@ -83,13 +89,16 @@ export function createBridgeCore(chromeApi, send) {
   function onDebuggerDetach(source, reason) {
     if (!ownsTab(source?.tabId)) return;
     send({ method: 'debugger.detach', params: { tabId: source.tabId, reason } });
-    owned.delete(source.tabId);
+    attached.delete(source.tabId);
+    detached.add(source.tabId);
   }
 
   function onTabRemoved(tabId) {
     if (!ownsTab(tabId)) return;
     send({ method: 'tabs.removed', params: { tabId } });
     owned.delete(tabId);
+    attached.delete(tabId);
+    detached.delete(tabId);
   }
 
   function onWindowChanged(win) {
@@ -100,5 +109,7 @@ export function createBridgeCore(chromeApi, send) {
     }
   }
 
-  return { handleCommand, ownsTab, onDebuggerEvent, onDebuggerDetach, onTabRemoved, onWindowChanged };
+  const ownedWindowIds = () => [...new Set(owned.values())];
+
+  return { handleCommand, ownsTab, ownedWindowIds, onDebuggerEvent, onDebuggerDetach, onTabRemoved, onWindowChanged };
 }
