@@ -169,6 +169,13 @@ function fake(opts: Opts = {}) {
       selectOption: async (arg: unknown) =>
         void log.push({ kind: 'select', t, arg }),
       locator: () => ({ count: async () => 0 }),
+      // A field takes focus once the mouse has pressed on it.
+      and: (other: { pseudo: string }) => ({
+        count: async () =>
+          other.pseudo === ':focus' && log.some((e) => e.kind === 'down')
+            ? 1
+            : 0,
+      }),
       ...extra,
     } as unknown as Locator;
   };
@@ -659,7 +666,7 @@ describe('createPace', () => {
 
   it('type clicks the field first and never sends Tab or Enter', async () => {
     const { pace, log, locator } = setup();
-    await pace.type(locator([BOX]), 'Hi there\nok');
+    await pace.type(locator([BOX]), 'Hi there ok');
     const up = of(log, 'up')[0];
     const firstKey = log.find((e) => e.kind === 'kdown' || e.kind === 'text');
     expect(firstKey && log.indexOf(firstKey)).toBeGreaterThan(log.indexOf(up));
@@ -677,7 +684,7 @@ describe('createPace', () => {
       .filter((k) => k.kind !== 'kup' && k.key !== 'Shift')
       .map((k) => k.key)
       .join('');
-    expect(typed).toBe('Hi there\nok');
+    expect(typed).toBe('Hi there ok');
     const holds = of(log, 'kdown')
       .filter((d) => d.key !== 'Shift')
       .map((d) => {
@@ -687,6 +694,60 @@ describe('createPace', () => {
         return (u?.t ?? 0) - d.t;
       });
     expect(holds.every((h) => h === 70)).toBe(true);
+  });
+
+  it.each([
+    ['alpha\nbravo', /1 newline/],
+    ['a\tb', /1 tab/],
+    ['café, naïve', /2 non-ASCII/],
+    ['zulu 😀', /1 non-ASCII/],
+    ['xray\u0007\r\n', /1 control, 2 newline/],
+  ])(
+    'type refuses %j before moving: no click, no key, no text',
+    async (text, msg) => {
+      const { pace, log, locator } = setup();
+      const err = await pace.type(locator([BOX]), text).then(
+        () => null,
+        (e: unknown) => e as Error,
+      );
+      expect(err?.message).toMatch(msg);
+      expect(err?.message).toMatch(/nothing typed/);
+      // The message never carries the text itself.
+      for (const word of ['alpha', 'bravo', 'caf', 'zulu', 'xray']) {
+        expect(err?.message).not.toContain(word);
+      }
+      expect(log).toEqual([]);
+    },
+  );
+
+  it('type sends no key when the field did not take focus', async () => {
+    const { pace, log, locator } = setup();
+    const unfocused = locator([BOX], {
+      and: () => ({ count: async () => 0 }),
+    });
+    await expect(pace.type(unfocused, 'abc')).rejects.toThrow(
+      'pace: the field did not take focus; no keys sent',
+    );
+    expect(of(log, 'up')).toHaveLength(1);
+    expect(of(log, 'kdown')).toHaveLength(0);
+    expect(of(log, 'kup')).toHaveLength(0);
+    expect(of(log, 'text')).toHaveLength(0);
+  });
+
+  it('type checks focus on the field itself, after the click', async () => {
+    const { pace, log, locator } = setup();
+    const asked: { pseudo: string; afterUp: boolean }[] = [];
+    const field = locator([BOX], {
+      and: (other: { pseudo: string }) => {
+        asked.push({
+          pseudo: other.pseudo,
+          afterUp: log.some((e) => e.kind === 'up'),
+        });
+        return { count: async () => 1 };
+      },
+    });
+    await pace.type(field, 'ab');
+    expect(asked).toEqual([{ pseudo: ':focus', afterUp: true }]);
   });
 
   it('type holds Shift over capitals and shifted symbols, as a keyboard needs', async () => {

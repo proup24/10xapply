@@ -18,7 +18,11 @@ export interface Pace {
   /** Measures drawn from DEFAULTS because the profile had fewer than 2 samples. */
   readonly defaulted: readonly MeasureName[];
   click(target: Locator): Promise<void>;
-  /** Clicks the field first. Never sends Tab or Enter. */
+  /**
+   * Clicks the field first. Never sends Tab or Enter. Types printable ASCII
+   * only, each character as a key; throws before anything moves on any other
+   * character, and sends no key unless the field took focus.
+   */
   type(field: Locator, text: string): Promise<void>;
   /** A prefilled field: move onto it, dwell, no typing. */
   glance(field: Locator): Promise<void>;
@@ -72,8 +76,34 @@ const AFTER_CHECKED = 'option:checked ~ option';
 const SHIFT_LEAD_SHARE = 0.5;
 /** Shift comes up this share of a keyHold draw after its last key's release. */
 const SHIFT_TRAIL_SHARE = 0.5;
-/** Keys sent as keydown/keyup; anything else (newline, tab, non-ASCII) is inserted as text. */
+/** The characters pace types, each as a keydown/keyup: printable ASCII. */
 const KEYED = /^[\x20-\x7e]$/;
+
+/**
+ * Refuses text with a character outside KEYED: a keyboard can't type it as
+ * one key here, and inserting it as text would land with no key events. The
+ * message names how many and of what class, never the text.
+ */
+function assertKeyed(text: string): void {
+  const counts = new Map<string, number>();
+  for (const ch of text) {
+    if (KEYED.test(ch)) continue;
+    const kind =
+      ch === '\n' || ch === '\r'
+        ? 'newline'
+        : ch === '\t'
+          ? 'tab'
+          : ch.charCodeAt(0) < 0x20 || ch === '\x7f'
+            ? 'control'
+            : 'non-ASCII';
+    counts.set(kind, (counts.get(kind) ?? 0) + 1);
+  }
+  if (counts.size === 0) return;
+  const what = [...counts].map(([kind, n]) => `${n} ${kind}`).join(', ');
+  throw new Error(
+    `pace: cannot type ${what} character(s), only printable ASCII; nothing typed`,
+  );
+}
 
 /** A CSS string body: backslashes, quotes and newlines escaped. */
 const cssString = (s: string) =>
@@ -451,8 +481,13 @@ export function createPace(
   }
 
   async function type(field: Locator, text: string): Promise<void> {
+    assertKeyed(text);
     await click(field);
     await dwell('fieldDwellBeforeTyping');
+    // Keys go to whatever has focus: refuse unless it is this field.
+    if ((await field.and(page.locator(':focus')).count()) !== 1) {
+      throw new Error('pace: the field did not take focus; no keys sent');
+    }
     // Lay keydowns and keyups out on one timeline; holds may overlap the next key.
     const keys: { at: number; up: number; ch: string }[] = [];
     let at = 0;
@@ -460,13 +495,8 @@ export function createPace(
       at += k.gapBefore;
       keys.push({ at, up: at + k.hold, ch: k.ch });
     }
-    const events: { at: number; key: string; down: boolean; text?: true }[] =
-      [];
+    const events: { at: number; key: string; down: boolean }[] = [];
     for (const k of keys) {
-      if (!KEYED.test(k.ch)) {
-        events.push({ at: k.at, key: k.ch, down: true, text: true });
-        continue;
-      }
       // The keydown names the character (Shift is down for a shifted one).
       // The keyup names the physical key: Patchright reports it shifted
       // only while Shift is held, as a keyboard does; `up('A')` after Shift
@@ -486,16 +516,10 @@ export function createPace(
       for (const e of events) {
         await wait(start + e.at - now());
         if (out.failed) break;
-        if (!e.text) {
-          if (e.down) down.add(physicalKey(e.key));
-          else down.delete(physicalKey(e.key));
-        }
+        if (e.down) down.add(physicalKey(e.key));
+        else down.delete(physicalKey(e.key));
         out.send(() =>
-          e.text
-            ? page.keyboard.insertText(e.key)
-            : e.down
-              ? page.keyboard.down(e.key)
-              : page.keyboard.up(e.key),
+          e.down ? page.keyboard.down(e.key) : page.keyboard.up(e.key),
         );
       }
       await out.flush();
