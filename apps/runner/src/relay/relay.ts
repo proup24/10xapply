@@ -11,6 +11,7 @@ import { createHash, timingSafeEqual } from 'node:crypto';
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { WebSocket, WebSocketServer, type RawData } from 'ws';
+import type { RecorderBatch } from '../pace/recording.js';
 import { BrowserModel, type Json } from './browser-model.js';
 import { isRefused, isRefusedOnSession } from './policy.js';
 
@@ -35,6 +36,10 @@ export interface Relay {
    * which the relay refuses.
    */
   crashRunTab(): Promise<void>;
+  /** Starts the extension's timing-only recorder; `salt` stays in memory. */
+  startRecording(salt: string): Promise<void>;
+  stopRecording(): Promise<void>;
+  onRecorderBatch(fn: (b: RecorderBatch) => void): () => void;
   stop(): Promise<void>;
 }
 
@@ -90,6 +95,7 @@ export async function startRelay(opts: RelayOptions): Promise<Relay> {
   const pending = new Map<number, Pending>();
   const listeners = new Set<(e: BridgeEvent) => void>();
   const extWaiters = new Set<(ok: boolean) => void>();
+  const batchListeners = new Set<(b: RecorderBatch) => void>();
 
   // ─── Outputs ───────────────────────────────────────────────────────────
 
@@ -232,6 +238,19 @@ export async function startRelay(opts: RelayOptions): Promise<Relay> {
           emit({ kind: 'window-minimized', tabId });
         }
         return;
+      case 'recorder.batch': {
+        // Only the method name is logged: batches are the author's timing data.
+        log(`<- ext ${logName(method)}`);
+        if (!Array.isArray(params.events)) return;
+        for (const fn of batchListeners) {
+          try {
+            fn(params as unknown as RecorderBatch);
+          } catch {
+            // A listener's failure must not break the relay.
+          }
+        }
+        return;
+      }
       // 'ping' keeps the socket alive and needs no answer.
     }
   }
@@ -355,10 +374,24 @@ export async function startRelay(opts: RelayOptions): Promise<Relay> {
       await model.crashRunTab();
     },
 
+    async startRecording(salt: string): Promise<void> {
+      await callExtension('recorder.start', { salt });
+    },
+
+    async stopRecording(): Promise<void> {
+      await callExtension('recorder.stop', {});
+    },
+
+    onRecorderBatch(fn: (b: RecorderBatch) => void): () => void {
+      batchListeners.add(fn);
+      return () => batchListeners.delete(fn);
+    },
+
     async stop(): Promise<void> {
       if (stopped) return;
       stopped = true;
       listeners.clear();
+      batchListeners.clear();
       for (const resolve of [...extWaiters]) resolve(false);
       for (const ws of wss.clients) ws.terminate();
       await new Promise<void>((resolve) => wss.close(() => resolve()));

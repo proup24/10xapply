@@ -738,4 +738,50 @@ describe('relay', () => {
     expect(url.searchParams.get('token')).toBe(TOKEN);
     expect(portOf(relay)).toBeGreaterThan(0);
   });
+
+  describe('recorder channel', () => {
+    const batch = {
+      pageId: 'secret-page-id',
+      jobKey: 'secret-job-key',
+      events: [{ t: 987654321, type: 'click', trusted: true }],
+    };
+
+    it('startRecording sends recorder.start with the salt', async () => {
+      const { relay, ext } = await connected();
+      ext.handlers['recorder.start'] = () => ({});
+      ext.handlers['recorder.stop'] = () => ({});
+      await relay.startRecording('salt-1');
+      await relay.stopRecording();
+      expect(ext.commands.map((c) => [c.method, c.params])).toEqual([
+        ['recorder.start', { salt: 'salt-1' }],
+        ['recorder.stop', {}],
+      ]);
+    });
+
+    it('recorder.batch reaches onRecorderBatch listeners', async () => {
+      const { relay, ext } = await connected();
+      const got: unknown[] = [];
+      const off = relay.onRecorderBatch((b) => got.push(b));
+      ext.send({ method: 'recorder.batch', params: batch });
+      await vi.waitFor(() => expect(got).toEqual([batch]));
+      off();
+      ext.send({ method: 'recorder.batch', params: batch });
+      ext.send({ method: 'ping' });
+      await new Promise((r) => setTimeout(r, 50));
+      expect(got).toHaveLength(1);
+    });
+
+    it('recorder.batch is never logged beyond the method name', async () => {
+      const { relay, ext } = await connected();
+      const got: unknown[] = [];
+      relay.onRecorderBatch((b) => got.push(b));
+      ext.send({ method: 'recorder.batch', params: batch });
+      await vi.waitFor(() => expect(got).toHaveLength(1));
+      const text = logs.join('\n');
+      expect(text).toContain('recorder.batch');
+      for (const value of ['secret-page-id', 'secret-job-key', '987654321']) {
+        expect(text).not.toContain(value);
+      }
+    });
+  });
 });

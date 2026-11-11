@@ -39,6 +39,20 @@
           "cwd": "apps/runner",
           "command": "tsx src/main.ts bridge check --crash"
         }
+      },
+      "pace-record": {
+        "executor": "nx:run-commands",
+        "options": {
+          "cwd": "apps/runner",
+          "command": "tsx src/main.ts pace record"
+        }
+      },
+      "pace-record-typing": {
+        "executor": "nx:run-commands",
+        "options": {
+          "cwd": "apps/runner",
+          "command": "tsx src/main.ts pace record --typing"
+        }
       }
     }
   },

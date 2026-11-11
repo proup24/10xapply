@@ -345,6 +345,13 @@ export const RUNNER_SAFE_SUBCOMMANDS = [
   'bridge-install',
   'bridge-check',
   'bridge-check-crash',
+  'pace',
+  'pace-record',
+  'pace-record-typing',
+  'pace-summary',
+  'pace-build',
+  'pace-practice',
+  'pace-compare',
   'bot-check',
   'session',
 ];

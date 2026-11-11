@@ -1,5 +1,6 @@
 import { chromium, type Page } from 'patchright-core';
 import type { RunnerConfig } from '../config.js';
+import type { RecorderBatch } from '../pace/recording.js';
 import { startRelay } from '../relay/relay.js';
 
 export interface Bridge {
@@ -8,6 +9,9 @@ export interface Bridge {
   stopReason(): string | null;
   /** Crashes the run tab on purpose, for `bridge check --crash`. */
   crashRunTab(): Promise<void>;
+  startRecording(salt: string): Promise<void>;
+  stopRecording(): Promise<void>;
+  onRecorderBatch(fn: (b: RecorderBatch) => void): () => void;
   /** Closes the run page, disconnects Patchright, stops the relay. Never throws. */
   close(): Promise<void>;
 }
@@ -85,6 +89,9 @@ export async function connectBridge(
     },
     stopReason: () => reason,
     crashRunTab: () => relay.crashRunTab(),
+    startRecording: (salt) => relay.startRecording(salt),
+    stopRecording: () => relay.stopRecording(),
+    onRecorderBatch: (fn) => relay.onRecorderBatch(fn),
     close,
   };
 }

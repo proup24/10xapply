@@ -54,3 +54,4 @@ run-reports/
 vitest.config.*.timestamp*
 .vitest
 apps/bridge-extension/src/config.js
+pace-recordings/
