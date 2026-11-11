@@ -1,6 +1,7 @@
 import type { Locator, Page } from 'patchright-core';
 import type { Box } from './mouse.js';
 import { calibrateHolds } from './holds.js';
+import { physicalKey } from './keys.js';
 import { createPace } from './pace.js';
 import type { PaceProfile } from './profile.js';
 import { cryptoRng, seededRng } from './rng.js';
@@ -580,6 +581,52 @@ describe('createPace', () => {
     }
   });
 
+  it('keyups name the physical key, so a key that outlives Shift comes up unshifted (R40)', async () => {
+    // Holds of 300 ms against 100 ms gaps: Shift must come up before the
+    // shifted key does, so it is not held into the next press.
+    const { pace, log, locator } = setup(testProfile({ keyHold: flat(300) }));
+    await pace.type(locator([BOX]), 'Bc!d');
+    const ups = of(log, 'kup').filter((k) => k.key !== 'Shift');
+    expect(ups.map((k) => k.key).sort()).toEqual(['1', 'b', 'c', 'd']);
+    const shiftUps = of(log, 'kup').filter((k) => k.key === 'Shift');
+    const bUp = ups.find((k) => k.key === 'b');
+    expect(shiftUps[0].t).toBeLessThan(bUp?.t ?? 0);
+    // Keydowns still name the character typed (Shift is down for them).
+    expect(
+      of(log, 'kdown')
+        .filter((k) => k.key !== 'Shift')
+        .map((k) => k.key),
+    ).toEqual(['B', 'c', '!', 'd']);
+  });
+
+  it('a failed key send releases Shift and every key still down', async () => {
+    const { pace, page, log, locator } = setup(
+      testProfile({ keyHold: flat(300) }),
+    );
+    const down = page.keyboard.down.bind(page.keyboard);
+    page.keyboard.down = async (key: string) => {
+      if (key === 'C') throw new Error('relay gone');
+      return down(key);
+    };
+    await expect(pace.type(locator([BOX]), 'aBCd')).rejects.toThrow(
+      /relay gone/,
+    );
+    const keys = log.filter(
+      (e): e is Ev & { kind: 'kdown' | 'kup'; key: string } =>
+        e.kind === 'kdown' || e.kind === 'kup',
+    );
+    const stillDown = new Set<string>();
+    for (const k of keys) {
+      const id = physicalKey(k.key);
+      if (k.kind === 'kdown') stillDown.add(id);
+      else stillDown.delete(id);
+    }
+    expect([...stillDown]).toEqual([]);
+    // Shift comes up last, after the keys it was shifting.
+    expect(keys.at(-1)).toMatchObject({ kind: 'kup', key: 'Shift' });
+    expect(of(log, 'kdown').map((k) => k.key)).not.toContain('d');
+  });
+
   it('a failed move stops the stroke and the click rejects', async () => {
     const { pace, page, log, locator } = setup();
     let n = 0;
@@ -635,7 +682,7 @@ describe('createPace', () => {
       .filter((d) => d.key !== 'Shift')
       .map((d) => {
         const u = log.find(
-          (e) => e.kind === 'kup' && e.key === d.key && e.t >= d.t,
+          (e) => e.kind === 'kup' && e.key === physicalKey(d.key) && e.t >= d.t,
         );
         return (u?.t ?? 0) - d.t;
       });

@@ -6,6 +6,7 @@ import { planPath, type Box, type Pt, type TimedPt } from './mouse.js';
 import { kdeSampler, sampleKde, type PaceProfile } from './profile.js';
 import { cryptoRng, type Rng } from './rng.js';
 import { calibrateHolds } from './holds.js';
+import { needsShift, physicalKey } from './keys.js';
 import { planKeys } from './typing.js';
 
 export type Optional =
@@ -67,8 +68,6 @@ const SCROLL_SETTLE_MS = 300;
 const REVEAL_MARGIN = 0.15;
 /** The `<select>` options after the checked one (plain CSS, no script). */
 const AFTER_CHECKED = 'option:checked ~ option';
-/** Characters a US keyboard types with Shift held. */
-const SHIFTED = /^[A-Z~!@#$%^&*()_+{}|:"<>?]$/;
 /** Shift goes down this share of a keyGapInWord draw before its key. */
 const SHIFT_LEAD_SHARE = 0.5;
 /** Shift comes up this share of a keyHold draw after its last key's release. */
@@ -468,8 +467,12 @@ export function createPace(
         events.push({ at: k.at, key: k.ch, down: true, text: true });
         continue;
       }
+      // The keydown names the character (Shift is down for a shifted one).
+      // The keyup names the physical key: Patchright reports it shifted
+      // only while Shift is held, as a keyboard does; `up('A')` after Shift
+      // came up would report `A` with no Shift (Ruling R40).
       events.push({ at: k.at, key: k.ch, down: true });
-      events.push({ at: k.up, key: k.ch, down: false });
+      events.push({ at: k.up, key: physicalKey(k.ch), down: false });
     }
     events.push(...shiftHolds(keys));
     // Stable sort; at equal times a release goes before a press.
@@ -477,18 +480,47 @@ export function createPace(
     const start = now() - Math.min(0, ...events.map((e) => e.at));
     // Pipelined like moves, so each key lands on its schedule.
     const out = pipeline();
-    for (const e of events) {
-      await wait(start + e.at - now());
-      if (out.failed) break;
-      out.send(() =>
-        e.text
-          ? page.keyboard.insertText(e.key)
-          : e.down
-            ? page.keyboard.down(e.key)
-            : page.keyboard.up(e.key),
-      );
+    // Physical keys whose keydown was sent and keyup not yet.
+    const down = new Set<string>();
+    try {
+      for (const e of events) {
+        await wait(start + e.at - now());
+        if (out.failed) break;
+        if (!e.text) {
+          if (e.down) down.add(physicalKey(e.key));
+          else down.delete(physicalKey(e.key));
+        }
+        out.send(() =>
+          e.text
+            ? page.keyboard.insertText(e.key)
+            : e.down
+              ? page.keyboard.down(e.key)
+              : page.keyboard.up(e.key),
+        );
+      }
+      await out.flush();
+    } finally {
+      await releaseAll(down);
     }
-    await out.flush();
+  }
+
+  /**
+   * After a failed send: lets go of every key still down, Shift last.
+   * Patchright keeps Shift among its pressed modifiers until its keyup, so
+   * a Shift left down would ride on every later mouse and wheel event on
+   * the page. Best effort: only this cleanup's own errors are swallowed.
+   */
+  async function releaseAll(keys: Set<string>): Promise<void> {
+    const order = [...keys].sort(
+      (a, b) => Number(a === 'Shift') - Number(b === 'Shift'),
+    );
+    for (const key of order) {
+      try {
+        await page.keyboard.up(key);
+      } catch {
+        // The page or relay is gone; nothing more to release.
+      }
+    }
   }
 
   /**
@@ -506,9 +538,9 @@ export function createPace(
   ): { at: number; key: string; down: boolean }[] {
     const out: { at: number; key: string; down: boolean }[] = [];
     for (let i = 0; i < keys.length; i++) {
-      if (!SHIFTED.test(keys[i].ch)) continue;
+      if (!needsShift(keys[i].ch)) continue;
       let j = i;
-      while (j + 1 < keys.length && SHIFTED.test(keys[j + 1].ch)) j++;
+      while (j + 1 < keys.length && needsShift(keys[j + 1].ch)) j++;
       const gap = i > 0 ? keys[i].at - keys[i - 1].at : Infinity;
       const lead = Math.min(
         draw(profile, 'keyGapInWord', rng, { min: 1 }) * SHIFT_LEAD_SHARE,

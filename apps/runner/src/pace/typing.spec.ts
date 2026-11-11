@@ -36,6 +36,14 @@ describe('planKeys', () => {
     expect(keys[1].hold).toBe(400);
   });
 
+  it('a shifted character and its unshifted twin are the same key (R40)', () => {
+    const p = testProfile({ keyHold: [400, 400, 400] });
+    for (const text of ['1!', '@2', 'aA', '/?']) {
+      const keys = planKeys(text, p, seededRng(4));
+      expect(keys[1].gapBefore, text).toBeGreaterThanOrEqual(400 / 0.8);
+    }
+  });
+
   it('a repeated key keeps its hold and waits longer instead (no clipped holds)', () => {
     // The author's holds run longer than their in-word gaps (rollover); a
     // clipped hold before a repeat gave the runner holds the author never has.

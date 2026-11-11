@@ -1,4 +1,5 @@
 import { draw } from './defaults.js';
+import { physicalKey } from './keys.js';
 import type { PaceProfile } from './profile.js';
 import type { Rng } from './rng.js';
 
@@ -38,13 +39,14 @@ export function planKeys(
           ),
     hold: hold(rng),
   }));
-  // The same key twice: a finger lets go before it presses again. The hold
+  // The same key twice (`a`/`A` and `1`/`!` are one key): a finger lets go
+  // before it presses again. The hold
   // stays as drawn and the next press waits (holds clipped to the gap were
   // far shorter than any of the author's); the release takes the gap's last
   // REPEAT_RELEASE_SHARE.
   for (let i = 0; i + 1 < keys.length; i++) {
     const next = keys[i + 1];
-    if (next.ch.toLowerCase() === keys[i].ch.toLowerCase()) {
+    if (physicalKey(next.ch) === physicalKey(keys[i].ch)) {
       next.gapBefore = Math.max(
         next.gapBefore,
         keys[i].hold / (1 - REPEAT_RELEASE_SHARE),
