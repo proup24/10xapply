@@ -37,6 +37,9 @@
     'change',
     'scroll',
   ];
+  // Not composed: these never leave an open shadow root, so the window
+  // listeners miss them and each noted root needs its own listeners.
+  const NON_COMPOSED_TYPES = ['change', 'scroll'];
   const DESC_SELECTORS = [
     '#job-details',
     '[class*="jobs-description"]',
@@ -310,14 +313,19 @@
    * by more than 20%. The description is looked up again on every flush, in
    * the document and in the open shadow roots that recent events passed
    * through (at most MAX_ROOTS). `hash(id)` gives the jobKey for a job id; job
-   * ids never leave this object.
+   * ids never leave this object. `onRoot(root)`, if given, is called once per
+   * open shadow root the first time one is seen, so the caller can listen for
+   * the non-composed types on it; an event that reaches both such a listener
+   * and the window listener is recorded once.
    */
-  function makeRecorder({ win, doc, pageId, hash }) {
+  function makeRecorder({ win, doc, pageId, hash, onRoot }) {
     const MAX_BUFFER = 5000;
     const MAX_ROOTS = 8;
     const MAX_KEYS = 200;
     const ctxOf = makeCtxOf(win);
     const keys = new Map(); // job id -> jobKey
+    const seenRoots = new WeakSet(); // roots already passed to onRoot
+    const handled = new WeakSet(); // events already recorded
     let roots = []; // open shadow roots seen on event paths, newest last
     let buffer = []; // { id, rec }
     let descEl = null;
@@ -328,7 +336,15 @@
     function noteRoots(event) {
       if (typeof event.composedPath !== 'function') return;
       for (const n of event.composedPath()) {
-        if (!isShadowRoot(n) || roots.includes(n)) continue;
+        if (!isShadowRoot(n)) continue;
+        // A root evicted below keeps whatever listener onRoot attached
+        // (harmless: events there still pass the same gates), and is not
+        // announced again if it is seen later.
+        if (!seenRoots.has(n)) {
+          seenRoots.add(n);
+          if (typeof onRoot === 'function') onRoot(n);
+        }
+        if (roots.includes(n)) continue;
         roots.push(n);
         if (roots.length > MAX_ROOTS) roots.shift();
       }
@@ -336,6 +352,8 @@
 
     function onEvent(event) {
       if (!recordable(win.location) || buffer.length >= MAX_BUFFER) return;
+      if (handled.has(event)) return;
+      handled.add(event);
       noteRoots(event);
       const rec = capture(event, ctxOf, descEl);
       if (rec) buffer.push({ id: jobId(), rec });
@@ -423,6 +441,7 @@
 
   globalThis.__paceCapture = Object.freeze({
     EVENT_TYPES,
+    NON_COMPOSED_TYPES,
     capture,
     pageInfo,
     pathPattern,

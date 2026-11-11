@@ -662,6 +662,64 @@ describe('makeRecorder', () => {
     expect(rec.flushNow()).toEqual([]);
   });
 
+  it('hears a non-composed change inside a shadow root through onRoot, once', async () => {
+    const d = dom(
+      '<div role="dialog"><div id="host"></div></div>',
+      '/jobs/view/4012345678/',
+    );
+    d.fakeWin.location.hostname = 'www.linkedin.com';
+    const noted = [];
+    const rec = makeRecorder({
+      win: d.fakeWin,
+      doc: d.document,
+      pageId: 'p1',
+      hash: async (id) => `k${id}`,
+      onRoot: (r) => noted.push(r),
+    });
+    const root = d.document
+      .getElementById('host')
+      .attachShadow({ mode: 'open' });
+    root.innerHTML =
+      '<select><option>Secret one</option><option>Secret two</option></select>';
+    const select = root.querySelector('select');
+    select.selectedIndex = 1;
+    // The root is learned from a composed event; a repeat does not re-announce it.
+    rec.onEvent(composedEv('pointerdown', select));
+    rec.onEvent(composedEv('pointerup', select));
+    expect(noted).toEqual([root]);
+    // The root listener sees the non-composed change; the window never does.
+    const change = composedEv('change', select);
+    rec.onEvent(change);
+    rec.onEvent(change);
+    const [b] = await rec.flush();
+    const changes = b.events.filter((e) => e.type === 'change');
+    expect(changes).toHaveLength(1);
+    expect(changes[0].target).toEqual({
+      kind: 'select',
+      options: 2,
+      picked: 1,
+      shadow: true,
+    });
+    expect(changes[0].ctx.dialog).toBe(true);
+    expect(JSON.stringify(b)).not.toMatch(/Secret/);
+  });
+
+  it('records a composed event once when it reaches two listeners', async () => {
+    const { rec, root } = (() => {
+      const s = setup('<div id="host"></div>');
+      const root = s.document
+        .getElementById('host')
+        .attachShadow({ mode: 'open' });
+      root.innerHTML = '<button>x</button>';
+      return { ...s, root };
+    })();
+    const click = composedEv('click', root.querySelector('button'));
+    rec.onEvent(click);
+    rec.onEvent(click);
+    const [b] = await rec.flush();
+    expect(b.events.filter((e) => e.type === 'click')).toHaveLength(1);
+  });
+
   it('the batches carry no text, ids or classes', async () => {
     const { rec, root } = (() => {
       const s = setup(

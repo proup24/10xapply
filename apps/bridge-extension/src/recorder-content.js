@@ -5,20 +5,30 @@
 // On LinkedIn it is injected on every page (the site is a single-page app), and
 // the recorder captures and sends nothing outside /jobs/, checked per event.
 (() => {
-  const { EVENT_TYPES, jobKeyOf, makeRecorder } = globalThis.__paceCapture;
+  const { EVENT_TYPES, NON_COMPOSED_TYPES, jobKeyOf, makeRecorder } = globalThis.__paceCapture;
   const FLUSH_MS = 500;
 
   const port = chrome.runtime.connect({ name: 'recorder' });
   let salt = null; // from the background; held in memory only
   let timer = null;
+  const listened = []; // shadow roots carrying our listeners
+  const onEvent = (event) => recorder.onEvent(event);
+  // Non-composed events (change, scroll) stay inside an open shadow root, so
+  // each root the recorder notes gets the same passive capture listeners. The
+  // recorder calls this once per root and records an event once even if it
+  // also reaches the window.
+  const onRoot = (root) => {
+    listened.push(root);
+    for (const type of NON_COMPOSED_TYPES)
+      root.addEventListener(type, onEvent, { capture: true, passive: true });
+  };
   const recorder = makeRecorder({
+    onRoot,
     win: window,
     doc: document,
     pageId: globalThis.crypto.randomUUID(),
     hash: (id) => jobKeyOf(salt, id),
   });
-
-  const onEvent = (event) => recorder.onEvent(event);
 
   function post(batches) {
     for (const batch of batches) port.postMessage(batch);
@@ -49,6 +59,10 @@
     for (const type of EVENT_TYPES)
       window.removeEventListener(type, onEvent, true);
     window.removeEventListener('pagehide', flushNow, true);
+    for (const root of listened)
+      for (const type of NON_COMPOSED_TYPES)
+        root.removeEventListener(type, onEvent, true);
+    listened.length = 0;
     recorder.clear();
     salt = null;
   }
