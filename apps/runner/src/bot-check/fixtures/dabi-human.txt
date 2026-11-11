@@ -1,0 +1,7 @@
+Are you a bot?
+You are human!
+{
+  "isBot": false,
+  "isAutomatedWithCDP": false,
+  "hasInconsistentClientHints": false
+}

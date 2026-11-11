@@ -1,0 +1,5 @@
+[
+  { "type": "dummyFn", "rating": 0, "note": "not triggered" },
+  { "type": "sourceUrlLeak", "rating": 0, "note": "ok" },
+  { "type": "runtimeEnableLeak", "rating": 0, "note": "ok" }
+]

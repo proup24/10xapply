@@ -1,4 +1,5 @@
 import { pathToFileURL } from 'node:url';
+import { botCheckCommand } from './commands/bot-check.js';
 import { bridgeCheck, bridgeInstall } from './commands/bridge.js';
 import { sessionCommand } from './commands/session.js';
 import { ConfigError } from './config.js';
@@ -15,6 +16,7 @@ export async function main(argv: string[]): Promise<number> {
   try {
     const [a, b] = argv;
     if (a === 'session') return await sessionCommand();
+    if (a === 'bot-check') return await botCheckCommand();
     if (a === 'bridge' && b === 'install') return bridgeInstall();
     if (a === 'bridge' && b === 'check') return await bridgeCheck();
   } catch (e) {
