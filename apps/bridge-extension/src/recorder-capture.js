@@ -75,18 +75,48 @@
     return isElement(path[0]) ? path[0] : event.target;
   }
 
-  /** True when this page may be recorded: on LinkedIn, only under /jobs/. Checked per event. */
+  /**
+   * True when this page may be recorded, checked per event: on LinkedIn only
+   * under /jobs/, and on 127.0.0.1 only the relay's practice and typing pages
+   * (any other local app stays unrecorded).
+   */
   function recordable(loc) {
-    if (loc.hostname !== 'www.linkedin.com') return true;
-    return String(loc.pathname ?? '').startsWith('/jobs/');
+    const path = String(loc.pathname ?? '');
+    if (loc.hostname === 'www.linkedin.com') return path.startsWith('/jobs/');
+    if (loc.hostname === '127.0.0.1')
+      return /^\/(practice|typing)(\/|$)/.test(path);
+    return true;
   }
 
-  /** Path with the query and hash dropped and id-like segments as :id. */
+  // Path segments kept as they are. They name pages, never a person, a
+  // search or a place; every other segment is replaced.
+  const KNOWN_SEGMENTS = new Set([
+    'jobs',
+    'view',
+    'search',
+    'search-results',
+    'collections',
+    'recommended',
+    'apply',
+    'practice',
+    'typing',
+    'are_you_a_bot_interactions',
+  ]);
+
+  /**
+   * Path with the query and hash dropped. Known segments stay; a segment with
+   * a number in it (an id, or a slug ending in one) becomes :id, and any other
+   * segment (keywords, a city, a title) becomes :slug.
+   */
   function pathPattern(pathname) {
     const path = String(pathname ?? '').split(/[?#]/)[0];
     return path
       .split('/')
-      .map((seg) => (/\d{5,}/.test(seg) ? ':id' : seg))
+      .map((seg) => {
+        if (seg === '' || KNOWN_SEGMENTS.has(seg)) return seg;
+        if (/^\d+$/.test(seg) || /\d{5,}/.test(seg)) return ':id';
+        return ':slug';
+      })
       .join('/');
   }
 
@@ -231,6 +261,9 @@
     return target;
   }
 
+  // Any other pointerType (a page-made event can carry any string) is ''.
+  const POINTER_TYPES = ['mouse', 'pen', 'touch'];
+
   const keyClass = (key) =>
     key === ' ' ? 'space' : key === 'Backspace' ? 'backspace' : 'other';
 
@@ -253,7 +286,11 @@
         my: event.movementY,
       });
       if (/down$|up$|^click$/.test(type)) out.button = event.button;
-      if (type.startsWith('pointer')) out.pointerType = event.pointerType;
+      if (type.startsWith('pointer')) {
+        out.pointerType = POINTER_TYPES.includes(event.pointerType)
+          ? event.pointerType
+          : '';
+      }
     } else if (type === 'wheel') {
       out.dy = event.deltaY;
       out.dm = event.deltaMode;
@@ -445,6 +482,7 @@
     capture,
     pageInfo,
     pathPattern,
+    recordable,
     jobIdOf,
     jobKeyOf,
     findDescEl,

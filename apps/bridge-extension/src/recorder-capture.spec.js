@@ -6,6 +6,7 @@ const {
   capture,
   pageInfo,
   pathPattern,
+  recordable,
   makeCtxOf,
   jobIdOf,
   jobKeyOf,
@@ -192,6 +193,19 @@ describe('capture', () => {
     ).toMatchObject({ dy: 100, dm: 0 });
     expect(capture(ev('input', p), ctxOf, null)).toBeNull();
   });
+
+  it('keeps only mouse, pen and touch as pointerType, else empty', () => {
+    const { document, ctxOf } = dom('<p>x</p>');
+    const p = document.querySelector('p');
+    const typeOf = (pointerType) =>
+      capture(ev('pointerdown', p, { pointerType }), ctxOf, null).pointerType;
+    expect(typeOf('mouse')).toBe('mouse');
+    expect(typeOf('pen')).toBe('pen');
+    expect(typeOf('touch')).toBe('touch');
+    expect(typeOf('secret-text-from-the-page')).toBe('');
+    expect(typeOf(undefined)).toBe('');
+    expect(typeOf(7)).toBe('');
+  });
 });
 
 describe('target box', () => {
@@ -335,6 +349,58 @@ describe('pathPattern', () => {
     expect(pathPattern('/jobs/search/?currentJobId=123')).toBe('/jobs/search/');
     expect(pathPattern('/jobs/view/senior-engineer-at-acme-4012345678/')).toBe(
       '/jobs/view/:id/',
+    );
+    expect(pathPattern('/jobs/view/123/apply/')).toBe('/jobs/view/:id/apply/');
+  });
+
+  it('keeps the known segments', () => {
+    for (const p of [
+      '/jobs/',
+      '/jobs/search-results/',
+      '/jobs/collections/recommended/',
+      '/practice/',
+      '/typing/',
+      '/are_you_a_bot_interactions',
+      '/',
+    ]) {
+      expect(pathPattern(p)).toBe(p);
+    }
+  });
+
+  it('replaces any other text segment with :slug', () => {
+    expect(pathPattern('/jobs/rust-developer-jobs-lisbon')).toBe('/jobs/:slug');
+    expect(pathPattern('/jobs/collections/someones-list/')).toBe(
+      '/jobs/collections/:slug/',
+    );
+    expect(pathPattern('/company/acme/jobs/')).toBe('/:slug/:slug/jobs/');
+    const out = pathPattern('/jobs/rust-developer-jobs-lisbon');
+    expect(out).not.toContain('lisbon');
+  });
+});
+
+describe('recordable', () => {
+  const at = (hostname, pathname) => recordable({ hostname, pathname });
+
+  it('on LinkedIn, only under /jobs/', () => {
+    expect(at('www.linkedin.com', '/jobs/view/1/')).toBe(true);
+    expect(at('www.linkedin.com', '/feed/')).toBe(false);
+    expect(at('www.linkedin.com', '/in/someone/')).toBe(false);
+  });
+
+  it('on 127.0.0.1, only the practice and typing pages', () => {
+    expect(at('127.0.0.1', '/practice/')).toBe(true);
+    expect(at('127.0.0.1', '/typing/')).toBe(true);
+    expect(at('127.0.0.1', '/practice')).toBe(true);
+    expect(at('127.0.0.1', '/')).toBe(false);
+    expect(at('127.0.0.1', '/admin/')).toBe(false);
+    expect(at('127.0.0.1', '/practiceX/')).toBe(false);
+    expect(at('127.0.0.1', '/api/practice/')).toBe(false);
+  });
+
+  it('on the bot-check pages, everywhere', () => {
+    expect(at('bot.incolumitas.com', '/')).toBe(true);
+    expect(at('deviceandbrowserinfo.com', '/are_you_a_bot_interactions')).toBe(
+      true,
     );
   });
 });
