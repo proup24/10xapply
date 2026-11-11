@@ -103,4 +103,30 @@ describe('writer', () => {
     w.add(batch('a', ['click'], '/jobs/:id', 'p2'));
     expect(w.counts()).toEqual({ pages: 2, clicks: 2, keyGaps: 2, wheels: 1 });
   });
+
+  it('a runner writer drops LinkedIn and typing batches', () => {
+    const w = createWriter({ dir, actor: 'runner', sittingId: 'S1' });
+    w.add(batch('a', ['click'], '/jobs/view/:id/'));
+    w.add(batch('b', ['keydown'], '/typing/'));
+    w.add(batch('c', ['click'], '/practice/'));
+    w.add(batch(null, ['click'], '/are_you_a_bot_interactions'));
+    expect(w.counts()).toEqual({ pages: 1, clicks: 2, keyGaps: 0, wheels: 0 });
+    const paths = w.flush().map((p) => p.slice(dir.length));
+    expect(paths.sort()).toEqual([
+      '/runner/practice/S1-c.json',
+      '/runner/test-page/S1-none.json',
+    ]);
+  });
+
+  it('an author writer keeps LinkedIn and typing batches', () => {
+    const w = make();
+    w.add(batch('a', ['click'], '/jobs/view/:id/'));
+    w.add(batch('b', ['keydown'], '/typing/'));
+    expect(
+      w
+        .flush()
+        .map((p) => p.slice(dir.length))
+        .sort(),
+    ).toEqual(['/author/linkedin/S1-a.json', '/author/typing/S1-b.json']);
+  });
 });

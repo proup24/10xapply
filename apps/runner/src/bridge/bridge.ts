@@ -21,6 +21,10 @@ export interface Bridge {
     open: () => Promise<void>,
     choose: () => Promise<void>,
   ): Promise<void>;
+  /**
+   * Starts the recorder in runner mode: only pages in tabs the bridge opened
+   * are recorded, never the author's own browsing meanwhile.
+   */
   startRecording(salt: string): Promise<void>;
   stopRecording(): Promise<void>;
   onRecorderBatch(fn: (b: RecorderBatch) => void): () => void;
@@ -104,7 +108,7 @@ export async function connectBridge(
     viewport: () => relay.viewport(),
     uploadOnChooser: (file, open, choose) =>
       relay.uploadOnChooser([file], open, choose),
-    startRecording: (salt) => relay.startRecording(salt),
+    startRecording: (salt) => relay.startRecording(salt, { mode: 'runner' }),
     stopRecording: () => relay.stopRecording(),
     onRecorderBatch: (fn) => relay.onRecorderBatch(fn),
     close,

@@ -101,6 +101,17 @@ describe('compare', () => {
     expect(check(r, 'movement').detail).toMatch(/runner 1\.000/);
   });
 
+  it('ignores runner recordings from LinkedIn or the typing page', () => {
+    const stray = fixture('runner-leaky.json').map((r, i) => ({
+      ...r,
+      source: i % 2 === 0 ? ('linkedin' as const) : ('typing' as const),
+    }));
+    const good = fixture('runner-good.json');
+    const r = compare(author, [...good, ...stray], seededRng(1));
+    expect(failing(r)).toEqual([]);
+    expect(r).toEqual(compare(author, good, seededRng(1)));
+  });
+
   describe('coordinates', () => {
     const second: Opts = {
       win: { ...AUTHOR_WIN, screenX: 1920, screenY: 0 },

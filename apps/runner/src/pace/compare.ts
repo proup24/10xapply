@@ -4,6 +4,7 @@ import { sortedEvents } from './phases.js';
 import { FITTS_FIXED_W, fitFitts, type PaceProfile } from './profile.js';
 import type { PageInfo, RecordedEvent, Recording } from './recording.js';
 import type { Rng } from './rng.js';
+import { RUNNER_DROPPED_SOURCES } from './writer.js';
 
 export interface Check {
   name: string;
@@ -775,9 +776,14 @@ function withoutSpans(recs: Recording[], spans: SkippedSpan[]): Recording[] {
  */
 export function compare(
   author: Recording[],
-  runner: Recording[],
+  allRunner: Recording[],
   rng: Rng,
 ): CompareReport {
+  // A runner recording from LinkedIn or the typing page is not the runner's
+  // (the writer drops them too): never let it into a check.
+  const runner = allRunner.filter(
+    (r) => !RUNNER_DROPPED_SOURCES.includes(r.source),
+  );
   const skippedSpans: SkippedSpan[] = [];
   const shape = [
     trustedCheck(author, runner),

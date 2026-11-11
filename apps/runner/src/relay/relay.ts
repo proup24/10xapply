@@ -50,8 +50,12 @@ export interface Relay {
     open: () => Promise<void>,
     choose: () => Promise<void>,
   ): Promise<void>;
-  /** Starts the extension's timing-only recorder; `salt` stays in memory. */
-  startRecording(salt: string): Promise<void>;
+  /**
+   * Starts the extension's timing-only recorder; `salt` stays in memory.
+   * `mode: 'runner'` narrows it to the tabs the bridge opened, so the
+   * author's own browsing during a runner sitting is not recorded.
+   */
+  startRecording(salt: string, opts?: { mode?: 'runner' }): Promise<void>;
   stopRecording(): Promise<void>;
   onRecorderBatch(fn: (b: RecorderBatch) => void): () => void;
   stop(): Promise<void>;
@@ -449,8 +453,14 @@ export async function startRelay(opts: RelayOptions): Promise<Relay> {
       return model.uploadOnChooser(files, open, choose, CHOOSER_TIMEOUT_MS);
     },
 
-    async startRecording(salt: string): Promise<void> {
-      await callExtension('recorder.start', { salt });
+    async startRecording(
+      salt: string,
+      opts: { mode?: 'runner' } = {},
+    ): Promise<void> {
+      await callExtension(
+        'recorder.start',
+        opts.mode ? { salt, mode: opts.mode } : { salt },
+      );
     },
 
     async stopRecording(): Promise<void> {

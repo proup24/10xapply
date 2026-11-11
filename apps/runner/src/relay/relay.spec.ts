@@ -1118,6 +1118,15 @@ describe('relay', () => {
       ]);
     });
 
+    it('startRecording passes runner mode when asked', async () => {
+      const { relay, ext } = await connected();
+      ext.handlers['recorder.start'] = () => ({});
+      await relay.startRecording('salt-1', { mode: 'runner' });
+      expect(ext.commands.map((c) => [c.method, c.params])).toEqual([
+        ['recorder.start', { salt: 'salt-1', mode: 'runner' }],
+      ]);
+    });
+
     it('recorder.batch reaches onRecorderBatch listeners', async () => {
       const { relay, ext } = await connected();
       const got: unknown[] = [];

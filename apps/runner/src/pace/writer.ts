@@ -26,6 +26,13 @@ export function sourceFromCtx(ctx: Ctx): Source {
   return 'test-page';
 }
 
+/**
+ * Sources the runner never records: it runs only on the practice page and the
+ * bot-check test pages. A runner batch from LinkedIn or the typing page is
+ * someone's own browsing that reached the sitting, and is dropped.
+ */
+export const RUNNER_DROPPED_SOURCES: readonly Source[] = ['linkedin', 'typing'];
+
 export interface WriterOptions {
   dir: string;
   actor: Actor;
@@ -59,6 +66,8 @@ export function createWriter(opts: WriterOptions): Writer {
       const ctx = b.events[0]?.ctx ?? b.page?.ctx;
       if (!ctx) return;
       const source = sourceOf(ctx);
+      if (opts.actor === 'runner' && RUNNER_DROPPED_SOURCES.includes(source))
+        return;
       const jobKey = b.jobKey ?? 'none';
       const id = `${source}\0${jobKey}`;
       let g = groups.get(id);
