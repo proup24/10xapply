@@ -1,7 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { Page } from 'patchright-core';
 import { connectBridge, type Bridge } from '../bridge/bridge.js';
 import {
   ensureToken,
@@ -57,7 +56,7 @@ export async function bridgeCheck({
   try {
     const page = await bridge.openRunWindow();
     await page.goto('about:blank');
-    if (crash) return await crashCheck(bridge, page);
+    if (crash) return await crashCheck(bridge);
     await page.close();
     console.log('bridge: connected');
     return 0;
@@ -69,9 +68,10 @@ export async function bridgeCheck({
 const CRASH_WAIT_MS = 5000;
 
 // Crashes the run tab on purpose and checks the bridge notices the stop.
-async function crashCheck(bridge: Bridge, page: Page): Promise<number> {
-  const session = await page.context().newCDPSession(page);
-  await session.send('Page.crash').catch(() => undefined);
+async function crashCheck(bridge: Bridge): Promise<number> {
+  // Not page.context().newCDPSession(): Patchright's needs
+  // Target.attachToBrowserTarget, which the relay refuses.
+  await bridge.crashRunTab().catch(() => undefined);
   const deadline = Date.now() + CRASH_WAIT_MS;
   while (bridge.stopReason() === null && Date.now() < deadline) {
     await new Promise((r) => setTimeout(r, 50));

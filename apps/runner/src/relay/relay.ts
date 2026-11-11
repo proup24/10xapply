@@ -29,6 +29,12 @@ export interface Relay {
   cdpUrl: string; // ws://127.0.0.1:<port>/cdp?token=<token>
   waitForExtension(timeoutMs: number): Promise<boolean>;
   onEvent(fn: (e: BridgeEvent) => void): () => void;
+  /**
+   * Crashes the run tab through the extension, for `bridge check --crash`.
+   * Patchright cannot do it: its CDP session needs Target.attachToBrowserTarget,
+   * which the relay refuses.
+   */
+  crashRunTab(): Promise<void>;
   stop(): Promise<void>;
 }
 
@@ -343,6 +349,10 @@ export async function startRelay(opts: RelayOptions): Promise<Relay> {
     onEvent(fn: (e: BridgeEvent) => void): () => void {
       listeners.add(fn);
       return () => listeners.delete(fn);
+    },
+
+    async crashRunTab(): Promise<void> {
+      await model.crashRunTab();
     },
 
     async stop(): Promise<void> {

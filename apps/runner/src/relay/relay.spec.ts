@@ -304,6 +304,36 @@ describe('relay', () => {
     });
   });
 
+  it('crashRunTab sends Page.crash to the run tab, and the crash is a stop', async () => {
+    const ctx = await connected();
+    const events: BridgeEvent[] = [];
+    ctx.relay.onEvent((e) => events.push(e));
+    await openTarget(ctx);
+    await ctx.relay.crashRunTab();
+    expect(ctx.ext.commands.at(-1)).toMatchObject({
+      method: 'debugger.send',
+      params: { target: { tabId: 42 }, method: 'Page.crash' },
+    });
+    ctx.ext.send({
+      method: 'debugger.event',
+      params: {
+        source: { tabId: 42 },
+        method: 'Inspector.targetCrashed',
+        params: {},
+      },
+    });
+    await vi.waitFor(() =>
+      expect(events).toEqual([
+        { kind: 'detached', tabId: 42, reason: 'crashed' },
+      ]),
+    );
+  });
+
+  it('crashRunTab fails when there is no run tab', async () => {
+    const ctx = await connected();
+    await expect(ctx.relay.crashRunTab()).rejects.toThrow('no run tab');
+  });
+
   it('answers root commands locally', async () => {
     const ctx = await connected();
     const version = await ctx.call('Browser.getVersion');

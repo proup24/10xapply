@@ -145,6 +145,13 @@ export class BrowserModel {
     return unreported;
   }
 
+  /** Crashes the attached run tab (Page.crash). Only the bridge check uses it. */
+  crashRunTab(): Promise<unknown> {
+    const tab = [...this.tabs.values()].find((t) => t.attached);
+    if (!tab) return Promise.reject(new Error('no run tab'));
+    return this.debuggerSend({ tabId: tab.tabId }, 'Page.crash', {});
+  }
+
   /** Drops every session, telling the CDP client (if still there). */
   reset(): void {
     for (const tab of this.tabs.values()) this.detachSession(tab);

@@ -6,6 +6,8 @@ export interface Bridge {
   openRunWindow(): Promise<Page>;
   /** Why the run must stop, or null. Set by detach, minimise or disconnect. */
   stopReason(): string | null;
+  /** Crashes the run tab on purpose, for `bridge check --crash`. */
+  crashRunTab(): Promise<void>;
   /** Closes the run page, disconnects Patchright, stops the relay. Never throws. */
   close(): Promise<void>;
 }
@@ -82,6 +84,7 @@ export async function connectBridge(
       return page;
     },
     stopReason: () => reason,
+    crashRunTab: () => relay.crashRunTab(),
     close,
   };
 }
