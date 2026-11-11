@@ -177,6 +177,16 @@ export function sampleKde(
   rng: Rng,
   opts: { min?: number; max?: number } = {},
 ): number {
+  return kdeSampler(samples)(rng, opts);
+}
+
+/**
+ * `sampleKde` with the samples' bandwidth worked out once, for many draws
+ * from the same samples. Same draws as `sampleKde` for the same rng.
+ */
+export function kdeSampler(
+  samples: number[],
+): (rng: Rng, opts?: { min?: number; max?: number }) => number {
   const n = samples.length;
   if (n < 2) throw new Error('sampleKde needs at least 2 samples');
   const mean = samples.reduce((s, x) => s + x, 0) / n;
@@ -191,7 +201,9 @@ export function sampleKde(
   };
   const spread = Math.min(sd, (q(0.75) - q(0.25)) / 1.34);
   const h = 0.9 * (spread > 0 ? spread : sd) * n ** -0.2;
-  const pick = samples[Math.min(n - 1, Math.floor(rng.next() * n))];
-  const x = pick + h * gaussian(rng);
-  return Math.min(opts.max ?? Infinity, Math.max(opts.min ?? 0, x));
+  return (rng, opts = {}) => {
+    const pick = samples[Math.min(n - 1, Math.floor(rng.next() * n))];
+    const x = pick + h * gaussian(rng);
+    return Math.min(opts.max ?? Infinity, Math.max(opts.min ?? 0, x));
+  };
 }

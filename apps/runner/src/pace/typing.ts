@@ -15,12 +15,14 @@ export interface PlannedKey {
 /**
  * The keystrokes for `text`, one per character, in order. Gaps come from
  * `keyGapAfterSpace` after a space and `keyGapInWord` otherwise; holds from
- * `keyHold`. Never a backspace or a fake typo.
+ * `hold` (pace passes calibrated holds, see holds.ts; default `keyHold`).
+ * Never a backspace or a fake typo.
  */
 export function planKeys(
   text: string,
   profile: PaceProfile,
   rng: Rng,
+  hold: (rng: Rng) => number = (r) => draw(profile, 'keyHold', r, { min: 1 }),
 ): PlannedKey[] {
   const chars = [...text];
   const keys = chars.map((ch, i) => ({
@@ -34,7 +36,7 @@ export function planKeys(
             rng,
             { min: 1 },
           ),
-    hold: draw(profile, 'keyHold', rng, { min: 1 }),
+    hold: hold(rng),
   }));
   // The same key twice: a finger lets go before it presses again. The hold
   // stays as drawn and the next press waits (holds clipped to the gap were

@@ -3,8 +3,9 @@ import type { Locator, Page } from 'patchright-core';
 import { DEFAULTS, draw, isDefaulted, rate, samplesOf } from './defaults.js';
 import { WHEEL_BURST_GAP_MS, type MeasureName } from './measures.js';
 import { planPath, type Box, type Pt, type TimedPt } from './mouse.js';
-import { sampleKde, type PaceProfile } from './profile.js';
+import { kdeSampler, sampleKde, type PaceProfile } from './profile.js';
 import { cryptoRng, type Rng } from './rng.js';
+import { calibrateHolds } from './holds.js';
 import { planKeys } from './typing.js';
 
 export type Optional =
@@ -125,6 +126,15 @@ export function createPace(
   let lastMoveAt: number | null = null;
   /** How long a box read takes here (a moving average): see `hoverThenCheck`. */
   let boxCost: number | null = null;
+  /**
+   * Key holds. The profile's keyHold samples are holds as the recorder pairs
+   * them (oldest-first, by key class), not true holds; these are calibrated
+   * so the runner's own keys, paired the same way, read like the author's
+   * (Ruling R37). Worked out here, before any input: it takes about half a
+   * second, which at the first key would show as a pause before typing.
+   */
+  const trueHold = kdeSampler(calibrateHolds(profile, rng));
+  const keyHold = () => trueHold(rng, { min: 1 });
 
   /**
    * Input sent without waiting for each ack. CDP keeps the order, and the
@@ -407,15 +417,15 @@ export function createPace(
     return on;
   }
 
-  /** `down`, then `up` a draw of `hold` after `down` was sent. */
+  /** `down`, then `up` `ms` after `down` was sent. */
   async function hold(
-    name: MeasureName,
+    ms: number,
     down: () => Promise<void>,
     up: () => Promise<void>,
   ): Promise<void> {
     const sent = now();
     await down();
-    await wait(sent + draw(profile, name, rng) - now());
+    await wait(sent + ms - now());
     await up();
   }
 
@@ -435,7 +445,7 @@ export function createPace(
       }
     }
     await hold(
-      'pressRelease',
+      draw(profile, 'pressRelease', rng),
       () => page.mouse.down(),
       () => page.mouse.up(),
     );
@@ -447,7 +457,7 @@ export function createPace(
     // Lay keydowns and keyups out on one timeline; holds may overlap the next key.
     const keys: { at: number; up: number; ch: string }[] = [];
     let at = 0;
-    for (const k of planKeys(text, profile, rng)) {
+    for (const k of planKeys(text, profile, rng, keyHold)) {
       at += k.gapBefore;
       keys.push({ at, up: at + k.hold, ch: k.ch });
     }
@@ -507,7 +517,7 @@ export function createPace(
       const lastUp = Math.max(...keys.slice(i, j + 1).map((k) => k.up));
       const next = keys[j + 1]?.at ?? Infinity;
       const release = Math.min(
-        lastUp + draw(profile, 'keyHold', rng, { min: 1 }) * SHIFT_TRAIL_SHARE,
+        lastUp + keyHold() * SHIFT_TRAIL_SHARE,
         keys[j].at + (next - keys[j].at) * 0.8,
       );
       out.push({ at: keys[i].at - lead, key: 'Shift', down: true });
@@ -561,7 +571,7 @@ export function createPace(
   /** One key press with the author's hold. */
   async function press(key: string): Promise<void> {
     await hold(
-      'keyHold',
+      keyHold(),
       () => page.keyboard.down(key),
       () => page.keyboard.up(key),
     );

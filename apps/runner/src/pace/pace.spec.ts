@@ -1,9 +1,15 @@
 import type { Locator, Page } from 'patchright-core';
 import type { Box } from './mouse.js';
+import { calibrateHolds } from './holds.js';
 import { createPace } from './pace.js';
 import type { PaceProfile } from './profile.js';
 import { cryptoRng, seededRng } from './rng.js';
 import { flat, testProfile } from './testing/profiles.js';
+
+vi.mock('./holds.js', async (importOriginal) => {
+  const orig = await importOriginal<typeof import('./holds.js')>();
+  return { ...orig, calibrateHolds: vi.fn(orig.calibrateHolds) };
+});
 
 vi.mock('./rng.js', async (importOriginal) => {
   const orig = await importOriginal<typeof import('./rng.js')>();
@@ -673,6 +679,24 @@ describe('createPace', () => {
         expect((next?.t ?? 0) - d.t).toBeGreaterThan(0);
       }
     }
+  });
+
+  it('holds keys for calibrated true holds, worked out once per pace (R37)', async () => {
+    vi.mocked(calibrateHolds).mockClear();
+    vi.mocked(calibrateHolds).mockReturnValueOnce([33, 33, 33]);
+    const { pace, log, locator, select } = setup();
+    await pace.type(locator([BOX]), 'abc');
+    const s = select({ disabled: [false, false, false], checked: 0 });
+    await pace.pick(s.loc, 1);
+    const downs = of(log, 'kdown');
+    expect(downs.length).toBeGreaterThan(3);
+    for (const d of downs) {
+      const u = log.find(
+        (e) => e.kind === 'kup' && e.key === d.key && e.t >= d.t,
+      );
+      expect((u?.t ?? 0) - d.t).toBeCloseTo(33, 6);
+    }
+    expect(calibrateHolds).toHaveBeenCalledTimes(1);
   });
 
   it('glance sends no keys', async () => {
