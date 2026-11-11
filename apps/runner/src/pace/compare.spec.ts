@@ -161,6 +161,71 @@ describe('compare', () => {
       expect(c.detail).toMatch(/spread 3\.0 px/);
     });
 
+    it('pages on different sites that share the path / each use their own page record', () => {
+      const runner = runnerSet(2);
+      const [one, two] = runner;
+      for (const r of [one, two]) {
+        for (const p of r.pages) p.ctx = { ...p.ctx, path: '/' };
+        for (const e of r.events) e.ctx = { ...e.ctx, path: '/' };
+      }
+      // The second visit's window sits elsewhere: its own record says so.
+      const shift = 400;
+      for (const p of two.pages)
+        p.win = { ...p.win, screenX: p.win.screenX + shift };
+      for (const e of two.events) if (e.sx !== undefined) e.sx += shift;
+      const t0 = (one.events.at(-1)?.t ?? 0) + 5000;
+      const dt = t0 - two.pages[0].t;
+      for (const p of two.pages) p.t += dt;
+      for (const e of two.events) e.t += dt;
+      const merged: Recording = {
+        ...one,
+        pages: [...one.pages, ...two.pages],
+        events: [...one.events, ...two.events],
+      };
+      expect(
+        check(
+          compare(author, [merged, runnerSet(1, {}, 9)[0]], seededRng(1)),
+          'coordinates',
+        ),
+      ).toMatchObject({ passed: true });
+    });
+
+    it('a window moved mid-page with no new page record: the later steady part is skipped and reported', () => {
+      const runner = runnerSet(2);
+      const pts = runner[0].events.filter((e) => e.sx !== undefined);
+      const from = pts.length - 30;
+      // One point mid-drag, then the window rests 1500 px further left.
+      pts[from].sx = (pts[from].sx ?? 0) - 800;
+      for (const e of pts.slice(from + 1)) {
+        e.sx = (e.sx ?? 0) + 1500;
+        e.sy = (e.sy ?? 0) - 900;
+      }
+      const c = check(compare(author, runner, seededRng(1)), 'coordinates');
+      expect(c.passed).toBe(true);
+      expect(c.detail).toMatch(/skipped 30 events after 2 window moves/);
+    });
+
+    it('still checks the part before a window move against the model', () => {
+      const runner = runnerSet(2);
+      const pts = runner[0].events.filter((e) => e.sx !== undefined);
+      for (const e of pts) e.sx = (e.sx ?? 0) + 10;
+      for (const e of pts.slice(-20)) e.sx = (e.sx ?? 0) + 1500;
+      const c = check(compare(author, runner, seededRng(1)), 'coordinates');
+      expect(c.passed).toBe(false);
+      expect(c.detail).toMatch(/off the author's model by 10/);
+    });
+
+    it('fails a page whose offset keeps jumping (not a window move)', () => {
+      const runner = runnerSet(2);
+      const pts = runner[0].events.filter((e) => e.sx !== undefined);
+      pts.forEach((e, i) => {
+        if (i > 10 && i % 7 === 0) e.sx = (e.sx ?? 0) + 50 * i;
+      });
+      const c = check(compare(author, runner, seededRng(1)), 'coordinates');
+      expect(c.passed).toBe(false);
+      expect(c.detail).toMatch(/offset jumps \d+ times/);
+    });
+
     it('derives device pixels when the author screen coordinates scale with dpr', () => {
       const device: Opts = { ...second, screenUnit: 'device' };
       const a = authorSet(device);

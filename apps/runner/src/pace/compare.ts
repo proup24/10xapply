@@ -45,6 +45,14 @@ export const KS_LOW_POWER_N = 20;
 export const OFFSET_SPREAD_PX = 1;
 /** Runner screen offsets may sit this far from the author's model, CSS px. */
 export const OFFSET_MODEL_PX = 2;
+/**
+ * An offset change larger than this between two events of one page is the
+ * window moving (someone dragged it); the recorder sends no new page record
+ * for that, so the part after it can't be checked against the model.
+ */
+export const WINDOW_MOVE_PX = 20;
+/** More offset jumps than this in one page is not a window being moved. */
+export const WINDOW_MOVES_MAX = 3;
 /** Largest allowed gap in the share of pointermoves with no movement. */
 export const ZERO_MOVE_SHARE_DIFF = 0.05;
 /** How many inter-event gaps and path points `runsDiffer` compares. */
@@ -270,7 +278,10 @@ function deriveUnit(groups: PageGroup[]): ScreenUnit | null {
  * unit of sx/sy (CSS or device px, see `deriveUnit`) and a constant on top
  * of that geometry. Each runner page's offset must then be steady within
  * OFFSET_SPREAD_PX and within OFFSET_MODEL_PX of what the model gives for
- * the runner's own window and dpr.
+ * the runner's own window and dpr. A window moved mid-page (an offset jump
+ * over WINDOW_MOVE_PX) gets no new page record, so only the part before the
+ * first move is checked; the rest is counted as skipped. More than
+ * WINDOW_MOVES_MAX jumps in a page fails.
  *
  * Chrome reports some events at screen (0, 0): a pick in a native select
  * popup ends with pointerup, mouseup and click there. Runner events at
@@ -321,6 +332,8 @@ function coordinatesCheck(author: Recording[], runner: Recording[]): Check {
   const problems: string[] = [];
   let pages = 0;
   let points = 0;
+  let skipped = 0;
+  let windowMoves = 0;
   for (const g of pageGroups(runner)) {
     const used = g.points.filter(
       (p) => !(atScreenOrigin(p) && originKeys.has(scriptKey(p.e))),
@@ -334,7 +347,24 @@ function coordinatesCheck(author: Recording[], runner: Recording[]): Check {
       continue;
     }
     const page = g.page;
-    const o = used.map((p) => offsetOf(p, unit, page.dpr));
+    const all = used.map((p) => offsetOf(p, unit, page.dpr));
+    // The page record describes the window up to its first move.
+    const moves = all.flatMap((v, i) =>
+      i > 0 &&
+      Math.max(Math.abs(v.x - all[i - 1].x), Math.abs(v.y - all[i - 1].y)) >
+        WINDOW_MOVE_PX
+        ? [i]
+        : [],
+    );
+    if (moves.length > WINDOW_MOVES_MAX) {
+      problems.push(`${where}: offset jumps ${moves.length} times`);
+      continue;
+    }
+    if (moves.length > 0) {
+      skipped += all.length - moves[0];
+      windowMoves += moves.length;
+    }
+    const o = moves.length > 0 ? all.slice(0, moves[0]) : all;
     const spread = Math.max(
       spreadOf(o.map((v) => v.x)),
       spreadOf(o.map((v) => v.y)),
@@ -363,7 +393,11 @@ function coordinatesCheck(author: Recording[], runner: Recording[]): Check {
       `${problems.length} of ${pages} runner pages: ${problems.slice(0, 3).join('; ')}; ${model}`,
     );
   }
-  return ok(name, `${pages} runner pages, ${points} events; ${model}`);
+  const moved =
+    skipped > 0
+      ? `; skipped ${skipped} events after ${windowMoves} window moves (no new page record)`
+      : '';
+  return ok(name, `${pages} runner pages, ${points} events${moved}; ${model}`);
 }
 
 /** Share of mouse pointermoves (with movement recorded) reporting none. */
