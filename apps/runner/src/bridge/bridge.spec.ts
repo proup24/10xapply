@@ -45,6 +45,14 @@ async function fakeExtension(port: number): Promise<WebSocket> {
   }
 }
 
+// Waits for the bridge to record a stop, polling every 5 ms for up to 2 s:
+// the event, not a guessed delay, ends the wait.
+async function stopReasonOf(bridge: Bridge): Promise<string | null> {
+  const deadline = Date.now() + 2000;
+  while (bridge.stopReason() === null && Date.now() < deadline) await sleep(5);
+  return bridge.stopReason();
+}
+
 const fakeCdp = (() =>
   Promise.resolve({
     contexts: () => [],
@@ -98,8 +106,9 @@ describe('connectBridge', () => {
         params: { tabId: 1, reason: 'canceled_by_user' },
       }),
     );
-    await sleep(100);
-    expect(bridge.stopReason()).toBe('debugger detached: canceled_by_user');
+    expect(await stopReasonOf(bridge)).toBe(
+      'debugger detached: canceled_by_user',
+    );
   });
 
   it('records a hand-closed run tab', async () => {
@@ -154,8 +163,7 @@ describe('connectBridge', () => {
     await replied;
     expect(bridge.stopReason()).toBeNull();
     ext.send(JSON.stringify({ method: 'tabs.removed', params: { tabId: 5 } }));
-    await sleep(100);
-    expect(bridge.stopReason()).toBe('debugger detached: tab closed');
+    expect(await stopReasonOf(bridge)).toBe('debugger detached: tab closed');
   });
 
   it('records a minimised window', async () => {
@@ -166,15 +174,32 @@ describe('connectBridge', () => {
         params: { tabId: 1, state: 'minimized' },
       }),
     );
-    await sleep(100);
-    expect(bridge.stopReason()).toBe('run window minimized');
+    expect(await stopReasonOf(bridge)).toBe('run window minimized');
   });
 
   it('records an extension disconnect', async () => {
     const { bridge, ext } = await connected();
     ext.close();
-    await sleep(100);
-    expect(bridge.stopReason()).toBe('extension disconnected');
+    expect(await stopReasonOf(bridge)).toBe('extension disconnected');
+  });
+
+  it('starts the recorder in runner mode', async () => {
+    const { bridge, ext } = await connected();
+    const seen: unknown[] = [];
+    ext.on('message', (data) => {
+      const msg = JSON.parse(data.toString()) as {
+        id?: number;
+        method: string;
+        params: unknown;
+      };
+      if (msg.id === undefined) return;
+      seen.push([msg.method, msg.params]);
+      ext.send(JSON.stringify({ id: msg.id, result: {} }));
+    });
+    await bridge.startRecording('salt-1');
+    expect(seen).toEqual([
+      ['recorder.start', { salt: 'salt-1', mode: 'runner' }],
+    ]);
   });
 
   it('close never throws, even when the browser close fails', async () => {
