@@ -1,0 +1,93 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  # Works out which areas the change touches, so `checks` can skip what it does not need.
+  # Still to come, each gated on its own output:
+  #   - `database` (Postgres and row-level security tests): slice 08
+  #   - `web` (Next.js build and tests): slice 09
+  # Add each new job to the `needs` of `ci-ok`.
+  changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      hooks: ${{ steps.changes.outputs.hooks }}
+      code: ${{ steps.changes.outputs.code }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          filter: tree:0
+
+      - id: changes
+        run: node scripts/ci-changes.mjs "$BASE" "$HEAD"
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD: ${{ github.sha }}
+
+  checks:
+    needs: changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          filter: tree:0
+
+      # Installs the pnpm version pinned in package.json's packageManager field
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # Sets NX_BASE and NX_HEAD for `nx affected` and `nx format:check`
+      - uses: nrwl/nx-set-shas@3e9ad7370203c1e93d109be57f3b72eb0eb511b1 # v4.4.0
+
+      - uses: actions/cache@v4
+        with:
+          path: .nx/cache
+          key: nx-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}-${{ github.sha }}
+          restore-keys: |
+            nx-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}-
+            nx-${{ runner.os }}-
+
+      - run: pnpm nx format:check --base="$NX_BASE" --head="$NX_HEAD"
+
+      - if: needs.changes.outputs.hooks == 'true' || github.event_name == 'push'
+        run: pnpm test:hooks
+
+      - if: needs.changes.outputs.code == 'true'
+        run: pnpm test:scripts
+
+      - if: needs.changes.outputs.code == 'true'
+        run: pnpm nx affected -t lint test build typecheck
+
+  ci-ok:
+    needs: [changes, checks]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - run: |
+          echo "$NEEDS" | jq 'map_values(.result)'
+          echo "$NEEDS" | jq -e 'all(.[]; .result == "success" or .result == "skipped")'
+        env:
+          NEEDS: ${{ toJSON(needs) }}
