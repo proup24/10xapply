@@ -420,8 +420,11 @@ test('runner (real name): non-dry launches blocked', () => {
     'cd apps/runner && pnpm exec tsx src/main.ts apply x',
     'tsx apps/runner/src/main.ts apply x',
     'node apps/runner/src/main.ts apply x',
+    'node dist/apps/runner/main.js apply x',
   ]) {
-    assert.equal(bash(command).block, true, command);
+    const r = bash(command);
+    assert.equal(r.block, true, command);
+    assert.match(r.reason, /Runner blocked/, command);
   }
 });
 
