@@ -39,9 +39,9 @@ Decision marks: _(user)_ means the user decided it; _(my call)_ means Claude pro
   - **Phases 0–1:** Claude may run `--dry-run` only, against at most a small number of jobs a day, and only when the author asked for it in that session. Real submits are run by the author. Run reports go under `private/` but also have a redacted copy (no personal facts, no cookies) in a git-ignored, Claude-readable folder so Claude can debug from them. Saved page snapshots are committed as test fixtures only after being scrubbed of personal data.
   - **From slice 14:** once the runner itself enforces pacing, the daily cap and the safety stops, Claude may start the runner, real submits included, because every run goes through those limits whoever started it.
   - Slice 01's guard enforces the first stage. Slice 14 relaxes it.
-- **Author's everyday Chrome first, a dedicated profile before servers** _(user)_. Through Phases 1 and 2 the runner uses the author's normal Windows Chrome and the LinkedIn sign-in it already has. The switch to a dedicated profile comes with the move to servers in Phase 3. Two things for slice 03 to settle:
-  - Recent Chrome versions refuse automation (remote debugging) on the default profile folder. Slice 03 has to find a way that works, for example a copy of the everyday profile, a second profile kept signed in, or a small extension. If none is safe, it brings the choice back to the author.
-  - The browser should be Windows Chrome, not Chrome inside WSL, so LinkedIn sees the same device as always _(my call)_.
+- **Author's everyday Chrome first, a dedicated profile before servers** _(user)_. Through Phases 1 and 2 the runner uses the author's normal Windows Chrome and the LinkedIn sign-in it already has. The switch to a dedicated profile comes with the move to servers in Phase 3. Slice 03 settled two things (see [its spec](../superpowers/specs/2026-11-11-local-browser-and-session-design.md)):
+  - Recent Chrome versions refuse automation (remote debugging) on the default profile folder. Slice 03 uses our own small bridge extension in the everyday profile, not a copy of the profile or a second profile.
+  - The browser is Windows Chrome, not Chrome inside WSL, so LinkedIn sees the same device as always _(my call)_. The relay runs in WSL and the extension reaches it over WSL's mirrored networking.
 - **One fixed resume now, tailored resumes soon** _(user)_. Phases 1–2 upload one fixed resume. Tailored per-job resumes come right after Phase 2's launch check (slice 17), reusing the author's existing resume engine from its own repo. Slice 12's webhook payload leaves room for a per-job resume reference.
 - **Safety stops apply from Phase 1 on.** Every run stops, without submitting, on a captcha, a security check, a sign-in prompt, an unfamiliar field type or an unexpected page. No run retries its way past one of these.
 
@@ -76,21 +76,39 @@ The author gives the runner one LinkedIn job URL. A real Chrome window on the au
 
 **Exit criteria:** from a terminal command with one job URL, a real Easy Apply application is submitted from the author's account with every answer correct and none invented. A question the facts can't answer stops the run and asks in the terminal. A second command on the same job refuses to apply. Each safety stop (captcha, security check, signed out, unfamiliar field) ends the run without submitting.
 
-| #   | Slice                                  | Depends on |
-| --- | -------------------------------------- | ---------- |
-| 03  | Local browser and the LinkedIn session | 02         |
-| 04  | Fact bank file                         | 02         |
-| 05  | Answering form questions               | 04         |
-| 06  | Walk the form without submitting       | 03, 05     |
-| 07  | Submit, and never twice                | 06         |
+| #   | Slice                                         | Depends on  |
+| --- | --------------------------------------------- | ----------- |
+| 03  | Local browser and the LinkedIn session        | 02          |
+| 03b | Human pace from the author's own applications | 03          |
+| 04  | Fact bank file                                | 02          |
+| 05  | Answering form questions                      | 04          |
+| 06  | Walk the form without submitting              | 03, 03b, 05 |
+| 07  | Submit, and never twice                       | 06          |
 
-03 and 04–05 are independent and can be built in either order.
+03→03b and 04→05 are independent of each other and can be built in either order.
 
 ### 03 Local browser and the LinkedIn session
 
 - **Scope:** the first Nx app, a Node CLI runner (name decided in the spec). It drives the author's everyday Windows Chrome, already signed in to LinkedIn, from the WSL workspace. One command checks whether the session is still signed in. The runner never types a password and never reads or logs cookies.
-- **Locked:** Playwright is the browser library (from `CLAUDE.md`). The author's everyday Chrome on Windows, not a Chrome inside WSL _(user, Windows is my call)_. The browser runs headed on the author's machine, on the home connection, with no proxy.
+- **Locked:** Patchright (Playwright API) is the browser library, through our own bridge extension in the everyday profile (from `CLAUDE.md`). The author's everyday Chrome on Windows, not a Chrome inside WSL _(user, Windows is my call)_. The browser runs headed on the author's machine, on the home connection, with no proxy.
 - **Spec answers:** how to attach to the everyday Chrome, given that recent Chrome refuses remote debugging on the default profile folder (a copy of the profile, a second signed-in profile, or an extension), and whether runs share the window the author is browsing in; what Playwright changes about the browser fingerprint. Also: how "signed out" and "security check" pages are recognised; the human-pace rules (delays, scrolling, typing speed) all later slices use.
+
+### 03b Human pace from the author's own applications
+
+- **Scope:**
+  - A recorder in the bridge extension, switched on by the author. It records only timings: page load, scroll, dwell on the description, mouse path and speed, gaps between keystrokes, time per form step, and time from opening the form to Submit. It never records what is typed, which keys, or page text. It listens from an isolated content-script world and changes nothing on the page. Recordings go to `private/`.
+  - The author applies to 5–10 jobs by hand with it on.
+  - The pace module all later slices use, built from those ranges _(user: "should look human, but also, should be random, not repeatable / robotic")_:
+    - every delay drawn fresh from the recorded ranges, with occasional long pauses;
+    - a per-run "mood" that shifts the overall pace;
+    - reading time that scales with the length of the description, plus noise;
+    - action order and optional actions (scrolling the description or not) that vary;
+    - curved mouse paths with slight overshoot, never jumping onto a button;
+    - typing with per-key timing from the recordings;
+    - fresh randomness every run, never a fixed seed;
+    - no fake typos, because a typo left on a form would be a wrong answer.
+  - It is checked against deviceandbrowserinfo's behaviour test.
+- **Spec answers:** whether adding a content script changes the extension's visibility (it adds no `web_accessible_resources`, so the reported probe still can't see it); how ranges are stored; how many recordings are enough.
 
 ### 04 Fact bank file
 

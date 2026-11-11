@@ -31,8 +31,9 @@ Failure even if it technically works:
 ## Stack
 
 - Nx 24 monorepo with pnpm, TypeScript strict with nodenext. The workspace is empty so far.
-- Expected, mirroring 10xjobs, **not built yet**: NestJS API (webhook intake) and workers (browser runs), Next.js web app, Supabase (Auth and Postgres with per-user row-level security), Prisma, Redis queues, LLMs through OpenRouter, browsers with Playwright on our own server. Each piece is decided in its own slice.
+- Expected, mirroring 10xjobs, **not built yet**: NestJS API (webhook intake) and workers (browser runs), Next.js web app, Supabase (Auth and Postgres with per-user row-level security), Prisma, Redis queues, LLMs through OpenRouter, browsers on our own server. Each piece is decided in its own slice.
 - **Set up** (slice 02): ESLint, Vitest and Prettier, all run through Nx.
+- **Set up** (slice 03): Patchright (Playwright API) through our own bridge extension in the author's everyday Chrome (`apps/bridge-extension`, and the runner in `apps/runner`).
 
 ## Workflow
 
@@ -44,6 +45,11 @@ Build in small slices, one per session: brainstorm, then spec (`docs/superpowers
 - `pnpm test:scripts` runs the tests for the repo's own scripts (added in slice 02).
 - `pnpm lint`, `pnpm test`, `pnpm build` and `pnpm typecheck` run that target on all projects through Nx.
 - `pnpm format` writes Prettier formatting and `pnpm format:check` checks it, on changed files; add `--all` for everything.
+- `pnpm nx run runner:bridge-install` copies the bridge extension to the Windows side and creates the token.
+- `pnpm nx run runner:bridge-check` starts the relay and opens and closes one blank window. It never touches LinkedIn.
+- `pnpm nx run runner:bot-check` loads three public bot-detection pages and prints a pass/fail table. It never touches LinkedIn.
+- `pnpm nx run runner:session` loads LinkedIn's feed once and reports whether the session is signed in.
+- The runner's local config (the token, and an optional `RUNNER_RELAY_PORT`, default 9333) lives in the untracked `apps/runner/.env.local`, written by `bridge-install`.
 - CI runs `nx affected` for lint, test, build and typecheck, and only on code changes.
 
 ## Roadmap
@@ -65,7 +71,9 @@ See [docs/roadmap/README.md](docs/roadmap/README.md): phases, slice order and th
 - The author runs every real submit and takes over when a form goes wrong.
 - Claude debugs from `run-reports/` and from scrubbed page snapshots committed as fixtures.
 - Claude may start a `--dry-run` against a real job only when the author asks in that session, and only a few a day.
-- `guard.mjs` blocks runner launches without `--dry-run` (after the target or file, not in front of it). `RUNNER_NAME` and `RUNNER_SAFE_SUBCOMMANDS` are filled in by slice 03.
+- `guard.mjs` blocks runner launches without `--dry-run` (after the target or file, not in front of it). In `guard.mjs`, `RUNNER_NAME = 'runner'` and `RUNNER_SAFE_SUBCOMMANDS = ['bridge', 'bridge-install', 'bridge-check', 'bot-check', 'session']`.
+- Claude may run `runner:session` only when the author asks in that session. `bridge-install`, `bridge-check` and `bot-check` never touch LinkedIn and need no ask.
+- No scripts run in LinkedIn's page; the runner reads through locators only. An ESLint rule in `apps/runner` bans `evaluate`, `evaluateHandle`, `$eval`, `$$eval`, `evaluateAll`, `exposeFunction`, `exposeBinding` and `addInitScript`. The relay and extension also refuse cookie and storage reads, `Browser.close`, `Runtime.addBinding`, and `Page.addScriptToEvaluateOnNewDocument` (except Patchright's own empty-source utility-world script).
 - From slice 07, a real submit also asks for a typed confirmation at the keyboard. Slice 14 removes that prompt when the runner goes unattended, and relaxes the guard's runner rule.
 
 <!-- nx configuration start-->
