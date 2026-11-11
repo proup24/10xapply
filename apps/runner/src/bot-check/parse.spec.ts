@@ -5,6 +5,7 @@ import {
   formatTable,
   parseBrowserscan,
   parseDabi,
+  parseDabiInteractions,
   parseRebrowser,
 } from './parse.js';
 
@@ -92,5 +93,24 @@ describe('formatTable', () => {
     expect(out.split('\n')).toHaveLength(2);
     expect(out).toContain('PASS');
     expect(out).toContain('FAIL  x, y');
+  });
+});
+
+describe('parseDabiInteractions', () => {
+  it('dabi-interactions passes when all behaviour flags are false', () => {
+    const r = parseDabiInteractions(fx('dabi-interactions-clean.txt'));
+    expect(r).toEqual({ page: 'dabi-interactions', passed: true, detail: [] });
+  });
+  it('dabi-interactions fails and names hasCDPMouseLeak', () => {
+    const r = parseDabiInteractions(fx('dabi-interactions-leak.txt'));
+    expect(r.passed).toBe(false);
+    expect(r.detail).toContain('hasCDPMouseLeak');
+  });
+  it('dabi-interactions is unparseable without the flags', () => {
+    for (const s of ['', 'nope', '{"isBot": false}']) {
+      const r = parseDabiInteractions(s);
+      expect(r.passed).toBe(false);
+      expect(r.detail).toEqual(['unparseable']);
+    }
   });
 });

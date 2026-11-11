@@ -1,0 +1,131 @@
+Search proxy IP
+Proxy Detection Database
+Pricing
+My Device
+APIs
+Data
+Blog
+Login
+
+🔥 New: Bot detection & fingerprinting playground — test your browser signals
+
+Login Form
+Email address
+Password
+Login
+❌
+You are a bot!
+Raw detection details
+Copy
+{
+  "isBot": true,
+  "details": {
+    "hasBotUserAgent": false,
+    "hasWebdriverTrue": false,
+    "hasWebdriverInFrameTrue": false,
+    "isPlaywright": false,
+    "hasInconsistentChromeObject": false,
+    "isPhantom": false,
+    "isNightmare": false,
+    "isSequentum": false,
+    "isSeleniumChromeDefault": false,
+    "isHeadlessChrome": false,
+    "isWebGLInconsistent": false,
+    "hasInconsistentWebGLShaderLang": false,
+    "hasInconsistentTimingResolution": false,
+    "isAutomatedWithCDP": false,
+    "isAutomatedWithCDPInWebWorker": false,
+    "hasInconsistentClientHints": false,
+    "hasInconsistentGPUFeatures": false,
+    "isIframeOverridden": false,
+    "hasInconsistentWorkerValues": false,
+    "hasHighHardwareConcurrency": false,
+    "hasHeadlessChromeDefaultScreenResolution": false,
+    "hasSuspiciousWeakSignals": false,
+    "suspiciousClientSideBehavior": true,
+    "superHumanSpeed": false,
+    "hasCDPMouseLeak": true,
+    "hasAutomationFrameworkStackTrace": false
+  }
+}
+How does this test work?
+
+This page demonstrates bot detection during a login attempt. The test is based on fingerprinting signals and user interactions (mouse movements, typing speed, etc.) It contains the same detection tests as the Are you a bot? page. It also detects suspicious client-side behavior, such as mouse movements, typing speed, and form submission, as well as other asynchronous signals such as CDP mouse leak and automation framework stack traces.
+
+This test does not use IP reputation or any persistent user behavior. You can run several tests in a row; it won't affect the result.
+
+How to use? Complete the login form with any random email and password. The test will analyze the user's behavior and determine if they are a bot or not. The bot detection results only appear after the form is submitted.
+
+▶
+Detection signals explained
+
+suspiciousClientSideBehavior: True if the user has performed suspicious client-side behavior, such as mouse movements, typing speed, and form submission.
+
+superHumanSpeed: True if the user has performed a super-human speed login.
+
+hasCDPMouseLeak:True if the browser is detected as using CDP (Chrome DevTools Protocol) because of inconsistent mouse coordinates.
+
+hasBotUserAgent: True if the User-Agent string (navigator.userAgent) matches known bot, crawler, or automation tool patterns.
+
+hasWebdriverTrue: True if navigator.webdriver is set to true, which is a direct indicator of browser automation (e.g., Selenium, Puppeteer, Playwright).
+
+hasWebdriverInFrameTrue: True if navigator.webdriver is detected as true inside an iframe.
+
+isPlaywright: True if Playwright-specific global variables or bindings are present in the window object.
+
+hasInconsistentChromeObject: True if the window.chrome object is missing or inconsistent for a Chromium-based browser.
+
+isPhantom: True if PhantomJS-specific properties are detected.
+
+isNightmare: True if the window.__nightmare property is present.
+
+isSequentum: True if the Sequentum web scraping tool is detected.
+
+isSeleniumChromeDefault: True if the Selenium Chrome default automation object is present.
+
+isHeadlessChrome: True if the browser is running in headless Chrome mode.
+
+isWebGLInconsistent: True if the WebGL renderer or vendor information is inconsistent.
+
+hasInconsistentWebGLShaderLang: True if the GPU shading language reported by the browser's shader compiler does not match the renderer backend claimed in the WebGL renderer string.
+
+hasInconsistentTimingResolution: True if the JavaScript runtime exhibits timing resolution inconsistencies that are characteristic of instrumented or automated environments.
+
+isAutomatedWithCDP: True if Chrome DevTools Protocol (CDP) automation is detected.
+
+isAutomatedWithCDPInWebWorker: True if CDP automation is detected inside a web worker context.
+
+hasInconsistentClientHints: True if browser client hints are inconsistent or manipulated.
+
+hasInconsistentGPUFeatures: True if reported GPU features do not match expected values.
+
+isIframeOverridden: True if iframe behavior is overridden.
+
+hasInconsistentWorkerValues: True if values collected in web workers differ from main context.
+
+hasHighHardwareConcurrency: True if the reported number of CPU cores is unusually high.
+
+hasHeadlessChromeDefaultScreenResolution: True if the screen resolution matches known defaults for headless Chrome.
+
+hasSuspiciousWeakSignals: True if a combination of minor signals suggest possible automation.
+
+DEVICE AND BROWSER INFO
+
+All the data you need about devices:
+
+Browser fingerprint
+User agent
+HTTP headers
+Proxy/TOR IP addresses
+Disposable email domains
+Disposable phone numbers
+
+Useful Links
+About us
+See you browser fingerprint
+List of temporary email domains
+List of temporary phone numbers
+List of proxy IP ranges
+Blog articles
+© Copyright Device and browser info. All Rights Reserved
+Designed by BootstrapMade - Privacy policy - Terms of service

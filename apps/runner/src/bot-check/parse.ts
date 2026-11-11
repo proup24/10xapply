@@ -40,6 +40,22 @@ export function parseDabi(text: string): CheckResult {
   return { page, passed, detail };
 }
 
+export function parseDabiInteractions(text: string): CheckResult {
+  const page = 'dabi-interactions';
+  const text_ = typeof text === 'string' ? text : '';
+  const flag = (name: string) =>
+    new RegExp(`"${name}"\\s*:\\s*(true|false)`).exec(text_)?.[1];
+  const flags = [
+    'isBot',
+    'suspiciousClientSideBehavior',
+    'superHumanSpeed',
+    'hasCDPMouseLeak',
+  ].map((n) => flag(n));
+  if (flags.some((f) => f === undefined)) return unparseable(page);
+  const detail = [...text_.matchAll(/"(\w+)"\s*:\s*true\b/g)].map((m) => m[1]);
+  return { page, passed: flags.every((f) => f === 'false'), detail };
+}
+
 export function parseBrowserscan(text: string): CheckResult {
   const page = 'browserscan';
   const lines = (typeof text === 'string' ? text : '').split(/\r?\n/);
