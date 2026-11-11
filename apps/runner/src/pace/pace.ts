@@ -121,6 +121,38 @@ export function createPace(
   const dwell = (name: MeasureName) => wait(draw(profile, name, rng) * mood);
 
   let pos: Pt | null = null;
+  /** When the last move was sent: the hover before a press counts from it. */
+  let lastMoveAt: number | null = null;
+  /** How long a box read takes here (a moving average): see `hoverThenCheck`. */
+  let boxCost: number | null = null;
+
+  /**
+   * Input sent without waiting for each ack. CDP keeps the order, and the
+   * page sees each event about when it was sent: live, pipelined moves
+   * landed within ±1.5 ms of their schedule, awaited ones within ±7 ms
+   * (each waits a 8–17 ms round trip). The first failure stops later sends
+   * and is thrown by `flush`.
+   */
+  function pipeline() {
+    const pending: Promise<void>[] = [];
+    let failure: { error: unknown } | null = null;
+    return {
+      get failed() {
+        return failure !== null;
+      },
+      send(call: () => Promise<void>) {
+        pending.push(
+          call().catch((error: unknown) => {
+            failure ??= { error };
+          }),
+        );
+      },
+      async flush() {
+        await Promise.all(pending);
+        if (failure) throw failure.error;
+      },
+    };
+  }
 
   /** The viewport, or a refusal: pace never guesses where the window ends. */
   async function viewport(): Promise<{ width: number; height: number }> {
@@ -135,13 +167,16 @@ export function createPace(
    * an edge never leaves the window). A point where the pointer already is
    * (whole-pixel rounding at the slow start and end of a stroke, or edge
    * clamping) is not sent: Chrome would report it as a pointermove with no
-   * movement, which a real mouse at rest never sends.
+   * movement, which a real mouse at rest never sends. Moves are pipelined
+   * (see `pipeline`). `stop` ends the stroke early when it turns true.
    */
   async function emit(
     points: TimedPt[],
     start: number,
     view: { width: number; height: number },
+    stop: () => boolean = () => false,
   ): Promise<void> {
+    const out = pipeline();
     for (let i = 0; i < points.length; i++) {
       const p = points[i];
       const x = Math.min(view.width - 1, Math.max(0, p.x));
@@ -149,11 +184,14 @@ export function createPace(
       // Not waited for either: the pointer stopped at the last move sent.
       if (pos && pos.x === x && pos.y === y) continue;
       await wait(start + p.at - now());
+      if (out.failed || stop()) break;
       const next = points[i + 1];
       if (next && now() >= start + next.at) continue;
-      await page.mouse.move(x, y);
+      lastMoveAt = now();
+      out.send(() => page.mouse.move(x, y));
       pos = { x, y };
     }
+    await out.flush();
   }
 
   /** The first position: from a viewport edge into the middle 60%. */
@@ -194,11 +232,15 @@ export function createPace(
     return { x: x0, y: y0, width: x1 - x0, height: y1 - y0 };
   }
 
-  /** The part of the target's box inside the viewport. */
+  /** The part of the target's box inside the viewport; times the read. */
   async function visibleBox(target: Locator): Promise<Box> {
+    const t0 = now();
     const box = await target.boundingBox();
     if (!box) throw new Error('pace: target has no box (hidden or detached)');
-    return clip(box, await viewport());
+    const shown = clip(box, await viewport());
+    const cost = now() - t0;
+    boxCost = boxCost === null ? cost : 0.7 * boxCost + 0.3 * cost;
+    return shown;
   }
 
   /**
@@ -331,13 +373,50 @@ export function createPace(
     const total = plan.points[plan.points.length - 1].at;
     const cut = plan.points.findIndex((p) => p.at >= total * APPROACH_AT);
     await emit(plan.points.slice(0, cut), start, view);
-    const fresh = await visibleBox(target);
-    if (inside(plan.end, fresh)) {
-      await emit(plan.points.slice(cut), start, view);
-    } else {
-      const again = planPath(pos ?? from, fresh, profile, rng);
+    // The box is read while the stroke goes on (a read takes ~40 ms; a
+    // pause mid-stroke shows up as a long sample interval). A target that
+    // moved ends the stroke where it is and gets a new one.
+    let read: { box: Box } | { error: unknown } | null = null;
+    const reading = visibleBox(target).then(
+      (box) => void (read = { box }),
+      (error: unknown) => void (read = { error }),
+    );
+    const moved = () =>
+      read !== null && (!('box' in read) || !inside(plan.end, read.box));
+    await emit(plan.points.slice(cut), start, view, moved);
+    await reading;
+    const done = read as { box: Box } | { error: unknown } | null;
+    if (!done || !('box' in done)) throw done?.error;
+    if (!inside(plan.end, done.box)) {
+      const again = planPath(pos ?? from, done.box, profile, rng);
       await emit(again.points, now(), view);
     }
+  }
+
+  /**
+   * Waits a hoverToPress draw from the last move sent, reading the target's
+   * box at the end of it: the read's usual cost comes off the wait, so the
+   * page sees the author's hover and the read is still the last thing
+   * before the press. True when the pointer is on the target.
+   */
+  async function hoverThenCheck(target: Locator): Promise<boolean> {
+    const due = (lastMoveAt ?? now()) + draw(profile, 'hoverToPress', rng);
+    await wait(due - (boxCost ?? 0) - now());
+    const on = await onTarget(target);
+    await wait(due - now());
+    return on;
+  }
+
+  /** `down`, then `up` a draw of `hold` after `down` was sent. */
+  async function hold(
+    name: MeasureName,
+    down: () => Promise<void>,
+    up: () => Promise<void>,
+  ): Promise<void> {
+    const sent = now();
+    await down();
+    await wait(sent + draw(profile, name, rng) - now());
+    await up();
   }
 
   /** True when the mouse rests inside the target's current box. */
@@ -348,18 +427,18 @@ export function createPace(
 
   async function click(target: Locator): Promise<void> {
     await approach(target);
-    await wait(draw(profile, 'hoverToPress', rng));
     // The box is read once more right before the press: never a stale click.
-    if (!(await onTarget(target))) {
+    if (!(await hoverThenCheck(target))) {
       await approach(target);
-      await wait(draw(profile, 'hoverToPress', rng));
-      if (!(await onTarget(target))) {
+      if (!(await hoverThenCheck(target))) {
         throw new Error('pace: target keeps moving; not pressing');
       }
     }
-    await page.mouse.down();
-    await wait(draw(profile, 'pressRelease', rng));
-    await page.mouse.up();
+    await hold(
+      'pressRelease',
+      () => page.mouse.down(),
+      () => page.mouse.up(),
+    );
   }
 
   async function type(field: Locator, text: string): Promise<void> {
@@ -386,12 +465,20 @@ export function createPace(
     // Stable sort; at equal times a release goes before a press.
     events.sort((p, q) => p.at - q.at || Number(p.down) - Number(q.down));
     const start = now() - Math.min(0, ...events.map((e) => e.at));
+    // Pipelined like moves, so each key lands on its schedule.
+    const out = pipeline();
     for (const e of events) {
       await wait(start + e.at - now());
-      if (e.text) await page.keyboard.insertText(e.key);
-      else if (e.down) await page.keyboard.down(e.key);
-      else await page.keyboard.up(e.key);
+      if (out.failed) break;
+      out.send(() =>
+        e.text
+          ? page.keyboard.insertText(e.key)
+          : e.down
+            ? page.keyboard.down(e.key)
+            : page.keyboard.up(e.key),
+      );
     }
+    await out.flush();
   }
 
   /**
@@ -473,9 +560,11 @@ export function createPace(
 
   /** One key press with the author's hold. */
   async function press(key: string): Promise<void> {
-    await page.keyboard.down(key);
-    await wait(draw(profile, 'keyHold', rng));
-    await page.keyboard.up(key);
+    await hold(
+      'keyHold',
+      () => page.keyboard.down(key),
+      () => page.keyboard.up(key),
+    );
   }
 
   /** The checked option's index, read through CSS (no script). */

@@ -44,6 +44,12 @@ interface Opts {
   depView?: () => Promise<View>;
   /** Leave out `deps.uploadOnChooser`. */
   noUpload?: boolean;
+  /** Mouse and key calls ack on a later macrotask, like a CDP round trip. */
+  slowAcks?: boolean;
+  /** ms that `mouse.down` and `keyboard.down` take to ack. */
+  downLag?: number;
+  /** ms a box read takes; time passes only as other work moves the clock. */
+  boxLag?: number;
 }
 
 function fake(opts: Opts = {}) {
@@ -51,30 +57,80 @@ function fake(opts: Opts = {}) {
   const log: Ev[] = [];
   /** How far the page has scrolled, in CSS px, from the wheel events. */
   let scrolled = 0;
+  /** Box reads in flight: each resolves once the clock reaches its due time. */
+  const reads: { due: number; done: () => void }[] = [];
+  const settle = () => {
+    for (const r of reads.filter((x) => x.due <= t)) {
+      reads.splice(reads.indexOf(r), 1);
+      r.done();
+    }
+  };
   const clock = {
     now: () => t,
     sleep: async (ms: number) => {
       t += Math.max(0, ms);
+      settle();
     },
   };
+  /** Calls whose ack has not come back yet, and the most at once. */
+  let inFlight = 0;
+  let maxInFlight = 0;
+  const ack = async () => {
+    if (!opts.slowAcks) return;
+    inFlight++;
+    maxInFlight = Math.max(maxInFlight, inFlight);
+    await new Promise((r) => setImmediate(r));
+    inFlight--;
+  };
+  /**
+   * Waits until the clock reaches `due` through other work's sleeps; when
+   * nothing else runs (the read is awaited alone), the clock moves there.
+   */
+  const until = (due: number) =>
+    new Promise<void>((done) => {
+      reads.push({ due, done });
+      // Other work's sleeps resolve in microtasks, before this runs.
+      setImmediate(() => {
+        if (!reads.some((r) => r.done === done)) return;
+        t = Math.max(t, due);
+        settle();
+      });
+    });
   const page = {
     mouse: {
       move: async (x: number, y: number) => {
         log.push({ kind: 'move', t, x, y });
         t += opts.moveLag ?? 0;
+        await ack();
       },
-      down: async () => void log.push({ kind: 'down', t }),
-      up: async () => void log.push({ kind: 'up', t }),
+      down: async () => {
+        log.push({ kind: 'down', t });
+        t += opts.downLag ?? 0;
+        await ack();
+      },
+      up: async () => {
+        log.push({ kind: 'up', t });
+        await ack();
+      },
       wheel: async (dx: number, dy: number) => {
         log.push({ kind: 'wheel', t, dx, dy });
         scrolled += dy;
       },
     },
     keyboard: {
-      down: async (key: string) => void log.push({ kind: 'kdown', t, key }),
-      up: async (key: string) => void log.push({ kind: 'kup', t, key }),
-      insertText: async (key: string) =>
-        void log.push({ kind: 'text', t, key }),
+      down: async (key: string) => {
+        log.push({ kind: 'kdown', t, key });
+        t += opts.downLag ?? 0;
+        await ack();
+      },
+      up: async (key: string) => {
+        log.push({ kind: 'kup', t, key });
+        await ack();
+      },
+      insertText: async (key: string) => {
+        log.push({ kind: 'text', t, key });
+        await ack();
+      },
     },
     viewportSize: () => (opts.view === undefined ? VIEW : opts.view),
     /** Only what `pick` asks for: a pseudo-class to combine with `and`. */
@@ -99,7 +155,9 @@ function fake(opts: Opts = {}) {
     return {
       boundingBox: async () => {
         log.push({ kind: 'box', t });
-        return boxes[Math.min(i++, boxes.length - 1)];
+        const box = boxes[Math.min(i++, boxes.length - 1)];
+        if (opts.boxLag) await until(t + opts.boxLag);
+        return box;
       },
       selectOption: async (arg: unknown) =>
         void log.push({ kind: 'select', t, arg }),
@@ -177,6 +235,7 @@ function fake(opts: Opts = {}) {
     scrolling,
     select,
     uploadOnChooser,
+    maxInFlight: () => maxInFlight,
   };
 }
 
@@ -452,6 +511,80 @@ describe('createPace', () => {
         expect(same, `seed ${seed}, move ${i}`).toBe(false);
       }
     }
+  });
+
+  it('sends moves and keys without waiting for each ack', async () => {
+    const { pace, locator, maxInFlight } = setup(testProfile(), 1, {
+      slowAcks: true,
+    });
+    await pace.type(locator([BOX]), 'hello there');
+    expect(maxInFlight()).toBeGreaterThan(1);
+  });
+
+  it('times the release from when the press was sent, not from its ack', async () => {
+    const { pace, log, locator } = setup(testProfile(), 1, { downLag: 12 });
+    await pace.click(locator([BOX]));
+    const [down] = of(log, 'down');
+    const [up] = of(log, 'up');
+    expect(up.t - down.t).toBeCloseTo(90, 6);
+  });
+
+  it('holds keys in an open select from when each keydown was sent', async () => {
+    const { pace, log, select } = setup(testProfile(), 1, { downLag: 12 });
+    const s = select({ disabled: [false, false, false], checked: 0 });
+    await pace.pick(s.loc, 2);
+    const downs = of(log, 'kdown');
+    for (const d of downs) {
+      const u = log.find(
+        (e) => e.kind === 'kup' && e.key === d.key && e.t >= d.t,
+      );
+      expect((u?.t ?? 0) - d.t).toBeCloseTo(70, 6);
+    }
+  });
+
+  it("the hover before a press absorbs the box read's cost and the read stays last", async () => {
+    for (const seed of [1, 2, 3]) {
+      const { pace, log, locator } = setup(testProfile(), seed, {
+        boxLag: 40,
+      });
+      await pace.click(locator([BOX]));
+      const [down] = of(log, 'down');
+      const before = log.slice(0, log.indexOf(down));
+      const last = of(before, 'move').at(-1);
+      // Hover 150 ms; the moving average of the read's cost is a few ms off.
+      expect(down.t - (last?.t ?? 0)).toBeGreaterThanOrEqual(150);
+      expect(down.t - (last?.t ?? 0)).toBeLessThan(165);
+      expect(before.at(-1)?.kind).toBe('box');
+    }
+  });
+
+  it('keeps moving while the box is read mid-stroke (no pause in the stroke)', async () => {
+    const strokeOf = async (seed: number, boxLag: number) => {
+      const { pace, log, locator } = setup(testProfile(), seed, { boxLag });
+      await pace.click(locator([BOX]));
+      const ev = afterBox(log);
+      const moves = of(ev.slice(0, ev.indexOf(of(ev, 'down')[0])), 'move');
+      return moves.map((m) => `${m.x},${m.y}@${(m.t - moves[0].t).toFixed(3)}`);
+    };
+    for (const seed of [1, 2, 3, 4]) {
+      // A 40 ms read changes nothing in the stroke: it runs alongside it.
+      expect(await strokeOf(seed, 40), `seed ${seed}`).toEqual(
+        await strokeOf(seed, 0),
+      );
+    }
+  });
+
+  it('a failed move stops the stroke and the click rejects', async () => {
+    const { pace, page, log, locator } = setup();
+    let n = 0;
+    const move = page.mouse.move.bind(page.mouse);
+    page.mouse.move = async (x: number, y: number) => {
+      if (++n === 5) throw new Error('relay gone');
+      return move(x, y);
+    };
+    await expect(pace.click(locator([BOX]))).rejects.toThrow(/relay gone/);
+    expect(of(log, 'move').length).toBeLessThan(6);
+    expect(of(log, 'down')).toHaveLength(0);
   });
 
   it('lagging moves skip points instead of slowing the move', async () => {
