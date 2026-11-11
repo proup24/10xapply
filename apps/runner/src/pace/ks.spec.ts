@@ -60,4 +60,9 @@ describe('ksTwoSample', () => {
   it('refuses an empty sample', () => {
     expect(() => ksTwoSample([], [1])).toThrow();
   });
+
+  it('refuses NaN and infinite values instead of hanging', () => {
+    expect(() => ksTwoSample([1, NaN, 2], [1, 2])).toThrow(/finite/);
+    expect(() => ksTwoSample([1, 2], [Infinity])).toThrow(/finite/);
+  });
 });

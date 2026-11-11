@@ -1,6 +1,12 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { compare, type Check, type CompareReport } from './compare.js';
+import {
+  compare,
+  ksCheck,
+  normalisedMoves,
+  type Check,
+  type CompareReport,
+} from './compare.js';
 import type { RecordedEvent, Recording } from './recording.js';
 import { seededRng } from './rng.js';
 import {
@@ -114,12 +120,28 @@ describe('compare', () => {
 
     it('holds for a runner window at a negative screenX, with other chrome', () => {
       const runner = runnerSet(3, {
-        win: { ...RUNNER_WIN, screenX: -1920, screenY: 200, innerHeight: 640 },
+        win: { ...RUNNER_WIN, screenX: -1920, screenY: 200, innerHeight: 600 },
         dpr: 1.25,
       });
       expect(
         check(compare(author, runner, seededRng(1)), 'coordinates'),
       ).toMatchObject({ passed: true });
+    });
+
+    it('holds at dpr 1.5 on a monitor left of and below the main one', () => {
+      const below: Opts = {
+        win: { ...AUTHOR_WIN, screenX: -1500, screenY: 900 },
+        dpr: 1.5,
+      };
+      const a = authorSet(below);
+      const runner = runnerSet(3, {
+        win: { ...RUNNER_WIN, screenX: -1500, screenY: 900 },
+        dpr: 1.5,
+      });
+      const c = check(compare(a, runner, seededRng(1)), 'coordinates');
+      expect(c).toMatchObject({ passed: true });
+      expect(c.detail).toMatch(/CSS px/);
+      expect(c.detail).not.toMatch(/assumed/);
     });
 
     it('fails a runner page whose offset is 10 px off the model', () => {
@@ -170,8 +192,8 @@ describe('compare', () => {
         t,
         type,
         trusted: true,
-        x: 264,
-        y: 160,
+        x: 310,
+        y: 215,
         sx: 0,
         sy: 0,
         target: { kind: 'select', options: 3 },
@@ -224,6 +246,12 @@ describe('compare', () => {
       expect(check(r, 'trusted').passed).toBe(true);
       expect(check(r, 'clickSequence').passed).toBe(true);
       expect(check(r, 'coordinates').passed).toBe(true);
+      // The author's script click on another source doesn't cover it.
+      const elsewhere = authorSet();
+      elsewhere[0].events.push(scriptClick(1_000_700)); // a LinkedIn recording
+      expect(
+        check(compare(elsewhere, runner, seededRng(1)), 'trusted').passed,
+      ).toBe(false);
       // Without the author's own, the same event is a leak.
       expect(
         check(compare(author, runner, seededRng(1)), 'trusted').passed,
@@ -312,6 +340,88 @@ describe('compare', () => {
   });
 
   describe('timing', () => {
+    function normals(n: number, mean: number, seed: number): number[] {
+      const rng = seededRng(seed);
+      return Array.from({ length: n }, () => {
+        const u = 1 - rng.next();
+        return (
+          mean +
+          Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * rng.next())
+        );
+      });
+    }
+
+    it('gates on the median p of 101 draws, so seeds agree on a borderline pair', () => {
+      const a = normals(1000, 0, 5);
+      const r = normals(60, 0.3, 6);
+      const checks = [1, 2, 3, 4, 5].map((s) =>
+        ksCheck('x', a, r, seededRng(s)),
+      );
+      // Borderline: a single draw would go either way.
+      expect(checks[0].ks?.failShare).toBeGreaterThan(0.1);
+      expect(checks[0].ks?.failShare).toBeLessThan(0.9);
+      expect(checks[0].ks?.pMin).toBeLessThan(0.01);
+      expect(checks[0].ks?.pMax).toBeGreaterThan(0.01);
+      expect(new Set(checks.map((c) => c.passed)).size).toBe(1);
+      expect(checks[0].ks).toMatchObject({ n: 60, draws: 101 });
+      expect(checks[0].detail).toMatch(
+        /^p=0\.\d{3} \[0\.\d{3}\.\.0\.\d{3}\] d=0\.\d{3} p<0\.01 in \d+% of 101 \(a=1000, r=60, n=60\)$/,
+      );
+    });
+
+    it('draws once when both sides are the same size', () => {
+      const c = ksCheck(
+        'x',
+        normals(30, 0, 1),
+        normals(30, 0, 2),
+        seededRng(1),
+      );
+      expect(c.ks?.draws).toBe(1);
+    });
+
+    it('flags a pass on fewer than 20 values a side as low power', () => {
+      const low = ksCheck(
+        'x',
+        normals(200, 0, 1),
+        normals(8, 0, 2),
+        seededRng(1),
+      );
+      expect(low).toMatchObject({ passed: true, lowPower: true });
+      expect(low.detail).toMatch(/low power: n < 20$/);
+      const enough = ksCheck(
+        'x',
+        normals(200, 0, 1),
+        normals(40, 0, 2),
+        seededRng(1),
+      );
+      expect(enough.passed).toBe(true);
+      expect(enough.lowPower).toBeUndefined();
+      const failed = ksCheck(
+        'x',
+        normals(200, 0, 1),
+        normals(8, 5, 2),
+        seededRng(1),
+      );
+      expect(failed.passed).toBe(false);
+      expect(failed.lowPower).toBeUndefined();
+    });
+
+    it('normalises every move with the fixed W when the fit used one', () => {
+      const move = {
+        distance: 120,
+        duration: 400,
+        travel: 300,
+        targetSize: 10,
+      };
+      const fitted = { a: 100, b: 50, residuals: [] };
+      expect(normalisedMoves([move], { ...fitted, wFixed: 40 })).toEqual([
+        200 / Math.log2(120 / 40 + 1),
+      ]);
+      expect(normalisedMoves([move], fitted)).toEqual([
+        200 / Math.log2(120 / 10 + 1),
+      ]);
+    });
+
     it('layout timings use the practice baseline only', () => {
       // The author lingers on LinkedIn's steps, not on the practice page's.
       const a = authorSet({ stepPause: 4000 }, {});

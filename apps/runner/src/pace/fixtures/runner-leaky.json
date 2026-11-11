@@ -15,18 +15,18 @@
         },
         "desc": null,
         "win": {
-          "screenX": -1283,
-          "screenY": 1122,
-          "outerWidth": 1282,
-          "outerHeight": 752,
-          "innerWidth": 1267,
-          "innerHeight": 601
+          "screenX": 100,
+          "screenY": 80,
+          "outerWidth": 1300,
+          "outerHeight": 800,
+          "innerWidth": 1284,
+          "innerHeight": 640
         },
         "screen": {
           "width": 1920,
           "height": 1080
         },
-        "dpr": 1.5
+        "dpr": 1.25
       }
     ],
     "events": [
@@ -2225,18 +2225,18 @@
         },
         "desc": null,
         "win": {
-          "screenX": -1283,
-          "screenY": 1122,
-          "outerWidth": 1282,
-          "outerHeight": 752,
-          "innerWidth": 1267,
-          "innerHeight": 601
+          "screenX": 100,
+          "screenY": 80,
+          "outerWidth": 1300,
+          "outerHeight": 800,
+          "innerWidth": 1284,
+          "innerHeight": 640
         },
         "screen": {
           "width": 1920,
           "height": 1080
         },
-        "dpr": 1.5
+        "dpr": 1.25
       }
     ],
     "events": [

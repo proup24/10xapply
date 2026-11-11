@@ -9,23 +9,21 @@ import type {
 } from '../recording.js';
 import type { Rng } from '../rng.js';
 
-/** The author's real window: a second monitor above-left, at 150%. */
 export const AUTHOR_WIN: PageInfo['win'] = {
-  screenX: -1283,
-  screenY: 1122,
-  outerWidth: 1281,
-  outerHeight: 752,
-  innerWidth: 1280,
-  innerHeight: 665,
+  screenX: 100,
+  screenY: 80,
+  outerWidth: 1300,
+  outerHeight: 800,
+  innerWidth: 1290,
+  innerHeight: 700,
 };
-/** The runner's window: same place, but not maximised and with an infobar. */
 export const RUNNER_WIN: PageInfo['win'] = {
-  screenX: -1283,
-  screenY: 1122,
-  outerWidth: 1282,
-  outerHeight: 752,
-  innerWidth: 1267,
-  innerHeight: 601,
+  screenX: 100,
+  screenY: 80,
+  outerWidth: 1300,
+  outerHeight: 800,
+  innerWidth: 1284,
+  innerHeight: 640,
 };
 
 export interface SynthOptions {
@@ -67,7 +65,7 @@ const round1 = (x: number) => Math.round(x * 10) / 10;
  */
 export function synthRecording(opts: SynthOptions, rng: Rng): Recording {
   const win = opts.win ?? AUTHOR_WIN;
-  const dpr = opts.dpr ?? 1.5;
+  const dpr = opts.dpr ?? 1.25;
   const unit = opts.screenUnit ?? 'css';
   const zeroShare = opts.zeroMoveShare ?? 0.03;
   const pointerType = opts.pointerType ?? 'mouse';

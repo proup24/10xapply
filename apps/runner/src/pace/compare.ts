@@ -1,7 +1,7 @@
 import { ksTwoSample } from './ks.js';
 import { extractMeasures, type MeasureName, type Models } from './measures.js';
 import { sortedEvents } from './phases.js';
-import { FITTS_FIXED_W, fitFitts } from './profile.js';
+import { FITTS_FIXED_W, fitFitts, type PaceProfile } from './profile.js';
 import type { PageInfo, RecordedEvent, Recording } from './recording.js';
 import type { Rng } from './rng.js';
 
@@ -9,6 +9,22 @@ export interface Check {
   name: string;
   passed: boolean;
   detail: string;
+  /** Timing checks: the p-values over the subsample draws. */
+  ks?: KsStats;
+  /** A timing pass on fewer than KS_LOW_POWER_N values a side. */
+  lowPower?: boolean;
+}
+export interface KsStats {
+  /** Values per side after subsampling. */
+  n: number;
+  draws: number;
+  pMin: number;
+  pMedian: number;
+  pMax: number;
+  /** Share of draws with p below KS_MIN_P. */
+  failShare: number;
+  /** D of the median-p draw. */
+  d: number;
 }
 export interface CompareReport {
   passed: boolean;
@@ -21,6 +37,10 @@ export interface CompareReport {
 export const KS_MIN_P = 0.01;
 /** Fewer values than this on either side fail the check. */
 export const KS_MIN_SAMPLES = 5;
+/** Subsample draws per KS check; the check gates on the median p. */
+export const KS_DRAWS = 101;
+/** A timing pass with fewer values a side than this is flagged low power. */
+export const KS_LOW_POWER_N = 20;
 /** Runner screen offsets may move this much within one page, CSS px. */
 export const OFFSET_SPREAD_PX = 1;
 /** Runner screen offsets may sit this far from the author's model, CSS px. */
@@ -81,19 +101,23 @@ const trustedEvents = (r: Recording) =>
 
 // ---------------------------------------------------------------- shape
 
+/** An event's type and the kind of its target, e.g. `click/file`. */
+const scriptKey = (e: RecordedEvent) => `${e.type}/${e.target.kind}`;
+/** `scriptKey` within one recording source, e.g. `practice:click/file`. */
+const sourceKey = (r: Recording, e: RecordedEvent) =>
+  `${r.source}:${scriptKey(e)}`;
+
 /**
  * Untrusted events come from page scripts. The practice page's own
- * `input.click()` on the file input is one; the author's recordings show it
- * too. So an untrusted runner event is fine only when the author's
- * recordings hold an untrusted event of the same type on the same kind of
- * target.
+ * `input.click()` on the file input is one; the author's practice
+ * recordings show it too. So an untrusted runner event is fine only when the
+ * author's recordings of the same source hold an untrusted event of the same
+ * type on the same kind of target.
  */
-const scriptKey = (e: RecordedEvent) => `${e.type}/${e.target.kind}`;
-
 function pageScriptKeys(author: Recording[]): Set<string> {
   const keys = new Set<string>();
   for (const r of author)
-    for (const e of r.events) if (!e.trusted) keys.add(scriptKey(e));
+    for (const e of r.events) if (!e.trusted) keys.add(sourceKey(r, e));
   return keys;
 }
 
@@ -101,19 +125,21 @@ function trustedCheck(author: Recording[], runner: Recording[]): Check {
   const scripted = pageScriptKeys(author);
   const events = runner.flatMap((r) => r.events);
   if (events.length === 0) return bad('trusted', 'no runner events');
-  const untrusted = events.filter((e) => !e.trusted);
-  const leaks = untrusted.filter((e) => !scripted.has(scriptKey(e)));
+  const untrustedOf = (r: Recording) =>
+    r.events.filter((e) => !e.trusted).map((e) => sourceKey(r, e));
+  const untrusted = runner.flatMap(untrustedOf);
+  const leaks = untrusted.filter((k) => !scripted.has(k));
   if (leaks.length > 0) {
     return bad(
       'trusted',
-      `${leaks.length} untrusted events the author's pages never fire: ${tally(leaks.map(scriptKey))}`,
+      `${leaks.length} untrusted events the author's pages never fire: ${tally(leaks)}`,
     );
   }
   return ok(
     'trusted',
     `${events.length - untrusted.length} of ${events.length} events trusted` +
       (untrusted.length
-        ? `; ignored ${untrusted.length} page-script events the author's pages also fire (${tally(untrusted.map(scriptKey))})`
+        ? `; ignored ${untrusted.length} page-script events the author's pages also fire (${tally(untrusted)})`
         : ''),
   );
 }
@@ -480,35 +506,73 @@ function subsample(xs: number[], n: number, rng: Rng): number[] {
 }
 
 /**
- * KS on the two samples after cutting the larger one down to the smaller's
- * size at random, so large samples don't fail on trivial differences.
+ * KS on the two samples. The larger one is cut down to the smaller's size at
+ * random, so large samples don't fail on trivial differences; that is done
+ * KS_DRAWS times and the check gates on the median p, so one unlucky draw
+ * can't flip the verdict. A pass on fewer than KS_LOW_POWER_N values a side
+ * is flagged `lowPower`: it still passes, but says little.
  */
-function ksCheck(name: string, a: number[], r: number[], rng: Rng): Check {
+export function ksCheck(
+  name: string,
+  a: number[],
+  r: number[],
+  rng: Rng,
+): Check {
   const counts = `a=${a.length}, r=${r.length}`;
   if (a.length < KS_MIN_SAMPLES || r.length < KS_MIN_SAMPLES) {
     return bad(name, `too few samples (${counts})`);
   }
   const n = Math.min(a.length, r.length);
-  const { d, p } = ksTwoSample(
-    a.length > n ? subsample(a, n, rng) : a,
-    r.length > n ? subsample(r, n, rng) : r,
-  );
-  const detail = `p=${p.toFixed(3)} d=${d.toFixed(3)} (${counts}, n=${n})`;
-  return p >= KS_MIN_P ? ok(name, detail) : bad(name, detail);
+  // Equal sizes leave nothing to draw: every draw would be the same.
+  const draws = a.length === r.length ? 1 : KS_DRAWS;
+  const results: { d: number; p: number }[] = [];
+  for (let i = 0; i < draws; i++) {
+    results.push(
+      ksTwoSample(
+        a.length > n ? subsample(a, n, rng) : a,
+        r.length > n ? subsample(r, n, rng) : r,
+      ),
+    );
+  }
+  results.sort((x, y) => x.p - y.p);
+  const mid = results[results.length >> 1];
+  const ks: KsStats = {
+    n,
+    draws,
+    pMin: results[0].p,
+    pMedian: mid.p,
+    pMax: results[results.length - 1].p,
+    failShare: results.filter((x) => x.p < KS_MIN_P).length / draws,
+    d: mid.d,
+  };
+  const passed = ks.pMedian >= KS_MIN_P;
+  const lowPower = passed && n < KS_LOW_POWER_N;
+  const detail =
+    `p=${ks.pMedian.toFixed(3)} [${ks.pMin.toFixed(3)}..${ks.pMax.toFixed(3)}]` +
+    ` d=${ks.d.toFixed(3)} p<${KS_MIN_P} in ${(ks.failShare * 100).toFixed(0)}% of ${draws}` +
+    ` (${counts}, n=${n})` +
+    (lowPower ? ` low power: n < ${KS_LOW_POWER_N}` : '');
+  return { name, passed, detail, ks, ...(lowPower ? { lowPower } : {}) };
 }
 
 /**
  * Move time with the Fitts part taken out: (travel − a) / log2(D/W + 1),
  * W = min(w, h) of the pressed target, or FITTS_FIXED_W when not recorded.
- * Travel, not duration, because the Fitts fit is on travel.
+ * When the fit itself used a fixed W (too few sized moves), every move uses
+ * it, so both sides are normalised the way `a` was fitted. Travel, not
+ * duration, because the Fitts fit is on travel.
  */
-function normalisedMoves(moves: Models['moves'], a: number): number[] {
+export function normalisedMoves(
+  moves: Models['moves'],
+  fitts: PaceProfile['fitts'],
+): number[] {
   return moves
     .filter((m) => m.distance > 0 && Number.isFinite(m.travel))
     .map((m) => {
       const w =
-        (m.targetSize ?? 0) > 0 ? (m.targetSize as number) : FITTS_FIXED_W;
-      return (m.travel - a) / Math.log2(m.distance / w + 1);
+        fitts.wFixed ??
+        ((m.targetSize ?? 0) > 0 ? (m.targetSize as number) : FITTS_FIXED_W);
+      return (m.travel - fitts.a) / Math.log2(m.distance / w + 1);
     });
 }
 
@@ -529,13 +593,13 @@ function timingChecks(
   const rm = extractMeasures(runner);
   const ap = extractMeasures(author.filter((r) => r.source === 'practice'));
   const rp = extractMeasures(runner.filter((r) => r.source === 'practice'));
-  const { a } = fitFitts(am.models.moves);
+  const fitts = fitFitts(am.models.moves);
   return [
     ...LINKEDIN_TIMING.map((n) => ksCheck(n, am[n], rm[n], rng)),
     ksCheck(
       'moveDuration',
-      normalisedMoves(am.models.moves, a),
-      normalisedMoves(rm.models.moves, a),
+      normalisedMoves(am.models.moves, fitts),
+      normalisedMoves(rm.models.moves, fitts),
       rng,
     ),
     ...PRACTICE_TIMING.map((n) => ksCheck(n, ap[n], rp[n], rng)),

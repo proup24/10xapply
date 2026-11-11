@@ -33,6 +33,10 @@ export function ksTwoSample(
   if (a.length === 0 || b.length === 0) {
     throw new Error('ksTwoSample needs two non-empty samples');
   }
+  // NaN never equals itself, so the tie loops below would never advance.
+  if (!a.every(Number.isFinite) || !b.every(Number.isFinite)) {
+    throw new Error('ksTwoSample needs finite values');
+  }
   const x = [...a].sort((p, q) => p - q);
   const y = [...b].sort((p, q) => p - q);
   let i = 0;

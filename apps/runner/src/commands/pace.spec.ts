@@ -291,7 +291,10 @@ describe('pace compare', () => {
       'pace compare: 14 author recordings, 5 runner recordings',
     );
     expect(output).toMatch(/^\s+coordinates\s+pass\s/m);
-    expect(output).toMatch(/^\s+appTime\s+pass\s+p=/m);
+    // 5 practice runs: a pass, but flagged in the table and the JSON.
+    expect(output).toMatch(/^\s+appTime\s+pass \(low power\)\s+p=/m);
+    expect(output).toMatch(/^\s+keyHold\s+pass\s+p=/m);
+    expect(output).toMatch(/PASS \(\d+ low-power passes\)/);
     expect(output).toContain('PASS');
     const [file] = reports(d);
     const report = JSON.parse(readFileSync(join(d, file), 'utf8'));
@@ -300,6 +303,11 @@ describe('pace compare', () => {
       recordings: { author: 14, runner: 5 },
     });
     expect(report.timing).toHaveLength(10);
+    const appTime = report.timing.find(
+      (c: { name: string }) => c.name === 'appTime',
+    );
+    expect(appTime).toMatchObject({ passed: true, lowPower: true });
+    expect(appTime.ks).toMatchObject({ n: 5 });
   });
 
   it('exits 2 and names the failing checks when one fails', () => {

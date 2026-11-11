@@ -13,7 +13,7 @@ import {
   type MeasureName,
   type Measures,
 } from '../pace/measures.js';
-import { compare, type Check } from '../pace/compare.js';
+import { compare, KS_DRAWS, KS_MIN_P, type Check } from '../pace/compare.js';
 import { PACE_DIR, writeAtomic } from '../pace/paths.js';
 import { buildProfile, wheelDefaulted } from '../pace/profile.js';
 import { isApplication } from '../pace/phases.js';
@@ -325,9 +325,12 @@ export function buildCommand(
 function checkRows(title: string, checks: Check[], out: (t: string) => void) {
   out(`\n${title}\n`);
   for (const c of checks) {
-    out(
-      `  ${c.name.padEnd(18)}${(c.passed ? 'pass' : 'FAIL').padEnd(6)}${c.detail}\n`,
-    );
+    const status = c.passed
+      ? c.lowPower
+        ? 'pass (low power)'
+        : 'pass'
+      : 'FAIL';
+    out(`  ${c.name.padEnd(18)}${status.padEnd(18)}${c.detail}\n`);
   }
 }
 
@@ -366,12 +369,20 @@ export function compareCommand(
     `pace compare: ${author.length} author recordings, ${runner.length} runner recordings\n`,
   );
   checkRows('shape', report.shape, out);
-  checkRows('timing (two-sample KS, pass at p >= 0.01)', report.timing, out);
+  checkRows(
+    `timing (two-sample KS, median p of ${KS_DRAWS} subsample draws, pass at p >= ${KS_MIN_P})`,
+    report.timing,
+    out,
+  );
   checkRows('variety', report.variety, out);
   const checks = [...report.shape, ...report.timing, ...report.variety];
   const failed = checks.filter((c) => !c.passed).length;
+  const low = checks.filter((c) => c.lowPower).length;
+  const verdict = report.passed
+    ? 'PASS'
+    : `FAIL: ${failed} of ${checks.length} checks`;
   out(
-    `\n${report.passed ? 'PASS' : `FAIL: ${failed} of ${checks.length} checks`}\nreport: ${path}\n`,
+    `\n${verdict}${low ? ` (${low} low-power passes)` : ''}\nreport: ${path}\n`,
   );
   return report.passed ? 0 : 2;
 }
