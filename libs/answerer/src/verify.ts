@@ -103,12 +103,18 @@ function sameBlindValue(
   return option !== null && option === checked;
 }
 
-function blindMismatch(q: FormQuestion): string {
-  if (q.type === 'number') return 'the verifier picked a different number';
-  if ((CHOICE_TYPES as readonly string[]).includes(q.type))
-    return 'the verifier picked a different option';
-  return 'the verifier gave a different answer';
-}
+// Fixed feedback lines. Blind and fit feedback never says what the verifier
+// picked or why, so the generator cannot steer toward the verifier's value.
+export const BLIND_REJECTED =
+  'the verifier did not confirm this answer from the bank';
+export const FIT_REJECTED =
+  'the cited entry does not answer this question as asked';
+export const NO_CLAIMS = 'the verifier found no checkable claims';
+export const DECLARE_INFERENCES =
+  'declare each as an inference with its source, or drop it';
+
+const isEmptyValue = (v: AnswerValue): boolean =>
+  Array.isArray(v) ? v.length === 0 : v.trim() === '';
 
 /**
  * The independent verifier: fresh calls with their own system prompt. Runs
@@ -116,8 +122,9 @@ function blindMismatch(q: FormQuestion): string {
  * no check is rejected, never confirmed. Each returned call's
  * stat is pushed onto `calls`.
  *
- * Feedback lines go only into the next generator prompt. They never hold the
- * verifier's own value, which is never used.
+ * Feedback lines go only into the next generator prompt, never into a
+ * result's detail. Blind and fit lines are fixed text: they never hold the
+ * verifier's own value or reasons. Claims lines name the rejected claims.
  */
 export async function verifyCandidate(
   q: FormQuestion,
@@ -147,19 +154,11 @@ export async function verifyCandidate(
 
   if (checks.includes('blind')) {
     const blind = toCandidate(await call(blindPrompt(q, ctx), generatorOutput));
-    if (blind.outcome === 'cannot-answer') {
-      return {
-        verdict: 'rejected',
-        check: 'blind',
-        feedback: ['the verifier could not back an answer from the bank'],
-      };
-    }
-    if (!sameBlindValue(q, blind.value, value)) {
-      return {
-        verdict: 'rejected',
-        check: 'blind',
-        feedback: [blindMismatch(q)],
-      };
+    if (
+      blind.outcome === 'cannot-answer' ||
+      !sameBlindValue(q, blind.value, value)
+    ) {
+      return { verdict: 'rejected', check: 'blind', feedback: [BLIND_REJECTED] };
     }
   }
 
@@ -169,7 +168,7 @@ export async function verifyCandidate(
       return {
         verdict: 'rejected',
         check: 'fit',
-        feedback: ['the cited entry does not answer this question', fit.why],
+        feedback: [FIT_REJECTED],
       };
     }
   }
@@ -182,6 +181,18 @@ export async function verifyCandidate(
       )
       .map((x) => `${x.claim} (${x.mark})`);
     if (claims.storyDetailAdded) feedback.push('a story detail was added');
+    // A non-empty answer always makes at least one claim.
+    if (claims.claims.length === 0 && !isEmptyValue(value)) {
+      feedback.push(NO_CLAIMS);
+    }
+    // Every inference the verifier finds must have been declared.
+    const inferred = claims.claims.filter((x) => x.mark === 'inferred');
+    if (inferred.length > c.inferences.length) {
+      feedback.push(
+        ...inferred.map((x) => `${x.claim} (an undeclared inference)`),
+        DECLARE_INFERENCES,
+      );
+    }
     if (feedback.length > 0) {
       return { verdict: 'rejected', check: 'claims', feedback };
     }

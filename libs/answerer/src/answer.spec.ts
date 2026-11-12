@@ -100,7 +100,8 @@ const expectBlocked = (r: AnswerResult, reason: string, detail: string) => {
   expect(r.detail).toBe(detail);
 };
 
-const BLIND_FEEDBACK = 'the verifier picked a different option';
+const BLIND_FEEDBACK = 'the verifier did not confirm this answer from the bank';
+const FIT_FEEDBACK = 'the cited entry does not answer this question as asked';
 
 describe('answerQuestion: before any model call', () => {
   it('blocks an unknown type as unsupported-field, with 0 calls', async () => {
@@ -252,7 +253,7 @@ describe('answerQuestion: verify', () => {
     expect(result.calls).toHaveLength(2);
   });
 
-  it('rejects a blind verifier cannot-answer, with its own feedback line', async () => {
+  it('rejects a blind verifier cannot-answer, with the same neutral line', async () => {
     const { result, requests } = await run(sponsorshipRadio, [
       pick('Yes'),
       () => cannot('bank-silent'),
@@ -260,9 +261,7 @@ describe('answerQuestion: verify', () => {
     ]);
     expectBlocked(result, 'bank-silent', 'generator: bank-silent');
     expect(requests[2]?.prompt).toBe(
-      generatorPrompt(sponsorshipRadio, promptCtx, [
-        'the verifier could not back an answer from the bank',
-      ]),
+      generatorPrompt(sponsorshipRadio, promptCtx, [BLIND_FEEDBACK]),
     );
 
     const once = await run(
@@ -439,9 +438,7 @@ describe('answerQuestion: verify', () => {
       ]);
       expectBlocked(result, 'bank-silent', 'generator: bank-silent');
       expect(requests[2]?.prompt).toBe(
-        generatorPrompt(salary, promptCtx, [
-          'the verifier picked a different number',
-        ]),
+        generatorPrompt(salary, promptCtx, [BLIND_FEEDBACK]),
       );
       expect(requests[2]?.prompt).not.toContain('6000');
     });
@@ -464,10 +461,10 @@ describe('answerQuestion: verify', () => {
     ]);
     expect(requests.map((r) => r.role)).toEqual(['answer', 'verify', 'answer']);
     const feedbackPrompt = requests[2]?.prompt ?? '';
-    expect(feedbackPrompt).toContain(
-      'the cited entry does not answer this question',
+    expect(feedbackPrompt).toBe(
+      generatorPrompt(heard, promptCtx, [FIT_FEEDBACK]),
     );
-    expect(feedbackPrompt).toContain(why);
+    expect(feedbackPrompt).not.toContain(why);
     expectBlocked(result, 'bank-silent', 'generator: bank-silent');
 
     const once = await run(
@@ -525,12 +522,16 @@ describe('answerQuestion: verify', () => {
 
   it('confirms a composed answer whose claims are all backed or inferred', async () => {
     const story = q({ label: 'Tell us about a hard bug.', type: 'textarea' });
+    const bugStory = src({ kind: 'story', id: 'intermittent-queue-bug' });
     const { result, requests } = await run(story, [
-      pick(
-        'I found that two workers could claim the same job, and added a lock.',
-        'composed',
-        [src({ kind: 'story', id: 'intermittent-queue-bug' })],
-      ),
+      () =>
+        out({
+          value:
+            'I found that two workers could claim the same job, and added a lock.',
+          derivation: 'composed',
+          sources: [bugStory],
+          inferences: [{ claim: 'Found the race.', source: bugStory }],
+        }),
       () => ({
         claims: [
           {
@@ -548,6 +549,87 @@ describe('answerQuestion: verify', () => {
       verification: { verdict: 'confirmed', rounds: 1 },
     });
     expect(requests.map((r) => r.role)).toEqual(['answer', 'verify']);
+  });
+
+  describe('claims coverage', () => {
+    const story = q({ label: 'Tell us about a hard bug.', type: 'textarea' });
+    const bugStory = src({ kind: 'story', id: 'intermittent-queue-bug' });
+    const value =
+      'I found that two workers could claim the same job, and added a lock.';
+    const composed = (inferences: unknown[] = []) => () =>
+      out({ value, derivation: 'composed', sources: [bugStory], inferences });
+
+    it('rejects an empty claims list for a non-empty answer', async () => {
+      const { result, requests } = await run(story, [
+        composed(),
+        () => ({ claims: [], storyDetailAdded: false }),
+        () => cannot('no-story-fits'),
+      ]);
+      expect(requests[2]?.prompt).toBe(
+        generatorPrompt(story, promptCtx, [
+          'the verifier found no checkable claims',
+        ]),
+      );
+      expectBlocked(result, 'no-story-fits', 'generator: no-story-fits');
+
+      const once = await run(
+        story,
+        [composed(), () => ({ claims: [], storyDetailAdded: false })],
+        0,
+      );
+      expectBlocked(
+        once.result,
+        'verifier-rejected',
+        'verifier rejected: claims',
+      );
+    });
+
+    it('rejects more inferred claims than the generator declared, listing them in the prompt only', async () => {
+      const first = 'The author knows distributed locking well.';
+      const second = 'The author debugs production issues calmly.';
+      const claims = () => ({
+        claims: [
+          { claim: 'Added a lock.', mark: 'backed', source: 'story' },
+          { claim: first, mark: 'inferred', source: 'story' },
+          { claim: second, mark: 'inferred', source: 'story' },
+        ],
+        storyDetailAdded: false,
+      });
+      const declared = [{ claim: first, source: bugStory }];
+      const { result, requests } = await run(story, [
+        composed(declared),
+        claims,
+        () => cannot('no-story-fits'),
+      ]);
+      expect(requests[2]?.prompt).toBe(
+        generatorPrompt(story, promptCtx, [
+          `${first} (an undeclared inference)`,
+          `${second} (an undeclared inference)`,
+          'declare each as an inference with its source, or drop it',
+        ]),
+      );
+
+      const once = await run(story, [composed(declared), claims], 0);
+      expectBlocked(
+        once.result,
+        'verifier-rejected',
+        'verifier rejected: claims',
+      );
+      if (once.result.status === 'blocked') {
+        expect(once.result.detail).not.toContain(first);
+        expect(once.result.detail).not.toContain(second);
+      }
+      expect(result.status).toBe('blocked');
+
+      const enough = await run(story, [
+        composed([...declared, { claim: second, source: bugStory }]),
+        claims,
+      ]);
+      expect(enough.result).toMatchObject({
+        status: 'backed',
+        verification: { verdict: 'confirmed', rounds: 1 },
+      });
+    });
   });
 
   it('blocks a regenerated candidate that fails a check as check-failed', async () => {

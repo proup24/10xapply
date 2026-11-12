@@ -127,7 +127,7 @@ ${OUTPUT_RULES}
 
 # When <feedback> is present
 
-A verifier rejected your last answer to this question. Each line says what it rejected and why.
+A verifier rejected your last answer to this question. Each line says what it rejected. A line about the value or the cited entry does not say what the verifier would pick, so never guess it. Give another value or entry only when the bank backs it as asked; otherwise return cannot-answer.
 - Fix only what was rejected. Keep the rest of the answer as it was.
 - Drop or replace each rejected claim, value or source. Do not argue for it.
 - cannot-answer is allowed, and it is the right answer when the bank cannot back one without the rejected part. When what is left still answers the question, return what is left, with no new claim in place of the dropped one.`;
