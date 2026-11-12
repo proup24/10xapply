@@ -59,6 +59,7 @@ Build in small slices, one per session: brainstorm, then spec (`docs/superpowers
 - `pnpm nx run runner:facts-check [-- <path>]` checks the fact bank file and prints counts and problems, never a value. The optional path is resolved from the repo root. In a non-TTY shell add `--outputStyle=stream` to see its output.
 - `pnpm nx run runner:answers-eval [-- --set example|private --answer-model m --verify-model m --judge-model m --repeat n --case id]` runs the answerer's golden eval. It uses the subscription, never in CI. The default set is `example`. The private set prints and reports only ids and counts, and writes the full results under `private/answers-eval/`. The author runs the private set; see Guardrails.
 - `pnpm nx run runner:apply -- <job-url> --dry-run` walks an Easy Apply form, answers and fills it, and stops on the review page. It never submits; without `--dry-run` it exits 2.
+- Quote a long LinkedIn job URL given to `runner:apply`, or replace it with `https://www.linkedin.com/jobs/view/<id>/`: an unquoted `&` backgrounds the command.
 - `pnpm nx run runner:snapshot -- <job-url>` opens the job in a run window while the author drives by hand and presses Enter to save each page's DOM (shadow roots included) under the private folder's `snapshots/`. It touches LinkedIn.
 - `pnpm nx run runner:snapshot-scrub` turns the raw snapshots into scrubbed copies in `snapshots/`, printing counts only. It never touches LinkedIn.
 - `pnpm nx run runner:session` loads LinkedIn's feed once and reports whether the session is signed in.

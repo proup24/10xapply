@@ -12,6 +12,13 @@
           "command": "tsx --conditions=@xapply/source src/main.ts session"
         }
       },
+      "apply": {
+        "executor": "nx:run-commands",
+        "options": {
+          "cwd": "apps/runner",
+          "command": "tsx --conditions=@xapply/source src/main.ts apply"
+        }
+      },
       "snapshot": {
         "executor": "nx:run-commands",
         "options": {

@@ -9,6 +9,7 @@ import {
   summaryCommand,
 } from './commands/pace.js';
 import { answersEvalCommand } from './commands/answers.js';
+import { applyCommand } from './commands/apply.js';
 import { factsCheckCommand } from './commands/facts.js';
 import { sessionCommand } from './commands/session.js';
 import { snapshotCommand, snapshotScrubCommand } from './commands/snapshot.js';
@@ -18,6 +19,7 @@ import { RelayPortInUseError } from './relay/relay.js';
 
 const USAGE = `usage: runner <command>
   session          sign in to LinkedIn through the bridge
+  apply <job-url> --dry-run   walk an Easy Apply form to the review page; never submits
   snapshot <url>   save pages of a job's apply flow by hand (Enter = save, q = finish)
   snapshot scrub   scrub the raw saves into snapshots/
   bot-check        run the bot-detection check (--repeat N: repeat the behaviour pages; --record: record the run)
@@ -75,6 +77,7 @@ export async function main(argv: string[]): Promise<number> {
   try {
     const [a, b] = argv;
     if (a === 'session') return await sessionCommand();
+    if (a === 'apply') return await applyCommand(argv.slice(1));
     if (a === 'snapshot' && b === 'scrub') return await snapshotScrubCommand();
     if (a === 'snapshot') return await snapshotCommand(argv.slice(1));
     if (a === 'bot-check')

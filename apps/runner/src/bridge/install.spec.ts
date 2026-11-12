@@ -4,6 +4,8 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  statSync,
+  utimesSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -12,6 +14,7 @@ import {
   ensureToken,
   installExtension,
   installPracticeFile,
+  installResume,
   PRACTICE_FILE,
   windowsExtensionDir,
   windowsPracticeFile,
@@ -155,5 +158,46 @@ describe('the practice upload file', () => {
     expect(() => windowsPracticeFile(() => answers.shift() ?? '')).toThrow(
       /bridge-install/,
     );
+  });
+});
+
+describe('installResume', () => {
+  it('installResume copies once and returns a Windows path', () => {
+    const local = tmp();
+    const bankDir = tmp();
+    const source = join(bankDir, 'my-resume.pdf');
+    writeFileSync(source, '%PDF-1.4 one');
+    const calls: string[][] = [];
+    const exec = (cmd: string, args: string[]): string => {
+      calls.push([cmd, ...args]);
+      if (cmd === 'cmd.exe') return 'C:\\Users\\u\\AppData\\Local\r\n';
+      if (args[0] === '-u') return `${local}\n`;
+      return 'C:\\Users\\u\\AppData\\Local\\10xapply\\resume\\my-resume.pdf\n';
+    };
+    const target = join(local, '10xapply', 'resume', 'my-resume.pdf');
+
+    const r = installResume(source, exec);
+    expect(r).toEqual({
+      fileName: 'my-resume.pdf',
+      windowsPath:
+        'C:\\Users\\u\\AppData\\Local\\10xapply\\resume\\my-resume.pdf',
+    });
+    expect(calls.at(-1)).toEqual(['wslpath', '-w', target]);
+    expect(readFileSync(target, 'utf8')).toBe('%PDF-1.4 one');
+    expect(
+      Math.abs(statSync(target).mtimeMs - statSync(source).mtimeMs),
+    ).toBeLessThan(1);
+
+    // Same size and time: left alone.
+    writeFileSync(target, '%PDF-1.4 two');
+    const t = statSync(source).mtime;
+    utimesSync(target, t, t);
+    installResume(source, exec);
+    expect(readFileSync(target, 'utf8')).toBe('%PDF-1.4 two');
+
+    // A newer source: copied again.
+    writeFileSync(source, '%PDF-1.4 three!');
+    installResume(source, exec);
+    expect(readFileSync(target, 'utf8')).toBe('%PDF-1.4 three!');
   });
 });
