@@ -1,6 +1,7 @@
 import { basename } from 'node:path';
 import type { FactBank } from '@xapply/fact-bank';
 import { parsePage } from '../linkedin/dom.js';
+import { secretPattern } from './secrets.js';
 
 export interface ScrubCounts {
   removedElements: number;
@@ -44,6 +45,35 @@ const KEEP_TEXT_TAGS = new Set([
   'button',
   'option',
 ]);
+const DROP_STATE_ATTRIBUTES = new Set([
+  'selected',
+  'checked',
+  'aria-checked',
+  'aria-selected',
+  'aria-pressed',
+]);
+// Free text in attributes: kept as x's of the same length.
+const BLANK_ATTRIBUTES = new Set([
+  'title',
+  'placeholder',
+  'alt',
+  'aria-valuetext',
+  'aria-description',
+]);
+const BLANK_VALUE_TAGS = new Set(['option', 'button', 'select', 'li', 'data']);
+const URL_VALUE = /^\s*(https?:|\/\/|data:|javascript:)/i;
+// Kept text does not flow into these descendants; they must qualify alone.
+const BLOCK_TAGS = new Set([
+  'div',
+  'p',
+  'li',
+  'ul',
+  'ol',
+  'section',
+  'article',
+  'table',
+  'dl',
+]);
 const KEEP_TEXT_ROLES = new Set(['option', 'radio', 'checkbox']);
 const KEEP_ARIA_LABEL_TAGS = new Set(['input', 'select', 'textarea', 'button']);
 const KEEP_ARIA_LABEL_ROLES = new Set([
@@ -85,8 +115,13 @@ const CDATA = 4;
 const attr = (el: DomElement, name: string) =>
   (el.getAttribute(name) ?? '').trim().toLowerCase();
 
-function escapeRegex(s: string): string {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const blank = (text: string) => text.replace(/\S/g, 'x');
+
+/** Text typed by a person: blank it whatever its ancestors keep. */
+function isFreeText(el: DomElement, tag: string): boolean {
+  if (tag === 'textarea' || attr(el, 'role') === 'textbox') return true;
+  const editable = el.getAttribute('contenteditable');
+  return editable !== null && editable.trim().toLowerCase() !== 'false';
 }
 
 function isEmbeddedJson(el: DomElement, tag: string): boolean {
@@ -133,16 +168,10 @@ export function scrubSnapshot(
     droppedAttributes: 0,
   };
 
-  const usable = [
-    ...new Set(secrets.map((s) => s.trim()).filter((s) => s.length > 0)),
-  ].sort((a, b) => b.length - a.length);
-  const secretPattern =
-    usable.length > 0
-      ? new RegExp(usable.map(escapeRegex).join('|'), 'gi')
-      : undefined;
+  const pattern = secretPattern(secrets);
   const replaceSecrets = (value: string): string => {
-    if (!secretPattern) return value;
-    return value.replace(secretPattern, () => {
+    if (!pattern) return value;
+    return value.replace(pattern, () => {
       counts.secretsReplaced++;
       return '[secret]';
     });
@@ -169,7 +198,7 @@ export function scrubSnapshot(
         const text = child.nodeValue ?? '';
         let next = text;
         if (!keep) {
-          next = text.replace(/\S/g, 'x');
+          next = blank(text);
           if (next !== text) counts.blankedTexts++;
         }
         next = replaceSecrets(next);
@@ -184,10 +213,16 @@ export function scrubSnapshot(
         counts.removedElements++;
         continue;
       }
+      const childKeep = isFreeText(el, tag)
+        ? false
+        : keepsText(el, tag, described) || (keep && !BLOCK_TAGS.has(tag));
+      const ownText = (el.textContent ?? '').trim().toLowerCase();
       for (const { name, value } of Array.from(el.attributes)) {
         const lower = name.toLowerCase();
         const drop =
+          URL_VALUE.test(value) ||
           DROP_ATTRIBUTES.has(lower) ||
+          DROP_STATE_ATTRIBUTES.has(lower) ||
           lower.startsWith('on') ||
           (lower.startsWith('data-') && !lower.startsWith('data-test')) ||
           (lower === 'value' && (tag === 'input' || tag === 'textarea')) ||
@@ -197,10 +232,19 @@ export function scrubSnapshot(
           counts.droppedAttributes++;
           continue;
         }
-        const next = replaceSecrets(value);
+        let next = value;
+        const blankValue =
+          BLANK_ATTRIBUTES.has(lower) ||
+          (lower === 'value' &&
+            BLANK_VALUE_TAGS.has(tag) &&
+            !(childKeep && value.trim().toLowerCase() === ownText));
+        if (blankValue) {
+          next = blank(value);
+          if (next !== value) counts.blankedTexts++;
+        }
+        next = replaceSecrets(next);
         if (next !== value) el.setAttribute(name, next);
       }
-      const childKeep = keep || keepsText(el, tag, described);
       visit(el, childKeep);
       // An ordinary <template> keeps its markup in a separate fragment.
       if (el.content) visit(el.content, childKeep);
@@ -237,9 +281,25 @@ export function bankSecrets(bank: FactBank): string[] {
   add(bank.fields.phone.full.replace(/\s+/g, ''));
   add(basename(bank.fields.resume.replace(/\\/g, '/')));
   for (const fact of bank.facts) add(fact.text);
+  // A one-word answer with no digit or @ (Yes, Immediately) is option wording
+  // the form shows to everyone, so it is not a secret.
+  const addAnswer = (value: string | undefined): void => {
+    if (value === undefined) return;
+    const v = value.trim();
+    if (/^\S+$/.test(v) && !/\d/.test(v) && !v.includes('@')) return;
+    add(v);
+  };
   for (const answer of bank.answers) {
-    add(answer.answer);
-    for (const variant of answer.variants ?? []) add(variant.answer);
+    addAnswer(answer.answer);
+    for (const variant of answer.variants ?? []) addAnswer(variant.answer);
+  }
+  const slug = /\/in\/([^/?#\s]+)/.exec(bank.fields.links.linkedin)?.[1];
+  if (slug) {
+    try {
+      add(decodeURIComponent(slug));
+    } catch {
+      add(slug);
+    }
   }
   for (const story of bank.stories) {
     add(story.title);

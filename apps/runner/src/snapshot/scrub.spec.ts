@@ -135,9 +135,143 @@ describe('scrubSnapshot', () => {
       expect(html.toLowerCase()).not.toContain(s.toLowerCase());
     expect(JSON.stringify(counts).toLowerCase()).not.toContain('sam');
     expect(counts.removedElements).toBe(1);
-    expect(counts.blankedTexts).toBe(2);
+    expect(counts.blankedTexts).toBe(3);
     expect(counts.droppedAttributes).toBe(2);
-    expect(counts.secretsReplaced).toBe(2);
+    expect(counts.secretsReplaced).toBe(1);
+  });
+});
+
+describe('scrubSnapshot, fix round 1', () => {
+  const scrub = (h: string, s: string[] = []) => scrubSnapshot(h, s);
+
+  it('blanks textarea, contenteditable and textbox text inside kept text', () => {
+    const { html } = scrub(
+      '<label>Cover letter<textarea>I am Sam</textarea></label>' +
+        '<button>Go<div contenteditable="true">Draft one</div>' +
+        '<div contenteditable>Draft two</div><span contenteditable="false">Fixed</span>' +
+        '<span role="textbox">Typed here</span></button>',
+    );
+    expect(html).toContain('Cover letter');
+    expect(html).not.toContain('I am Sam');
+    expect(html).not.toContain('Draft');
+    expect(html).not.toContain('Typed here');
+    expect(html).toContain('Fixed');
+  });
+
+  it('does not inherit kept text into block descendants', () => {
+    const { html } = scrub(
+      '<label>Resume <div><h3>CV.pdf</h3><p>Last used on 10/1/2026</p></div></label>',
+    );
+    expect(html).toContain('Resume');
+    expect(html).toContain('<h3>CV.pdf</h3>');
+    expect(html).not.toContain('Last used');
+    expect(html).toContain('<p>xxxx xxxx xx xxxxxxxxx</p>');
+  });
+
+  it('inline descendants of kept text still inherit', () => {
+    const { html } = scrub(
+      '<button><span>Next</span></button><label><b>Bold</b> <em>em</em></label>',
+    );
+    expect(html).toContain('<span>Next</span>');
+    expect(html).toContain('<b>Bold</b>');
+  });
+
+  it('keeps text for role option and checkbox', () => {
+    const { html } = scrub(
+      '<div role="option">Option text</div><div role="checkbox">Check text</div>' +
+        '<div role="listitem">Other</div>',
+    );
+    expect(html).toContain('Option text');
+    expect(html).toContain('Check text');
+    expect(html).not.toContain('Other');
+  });
+
+  it('drops selection and state attributes and counts them', () => {
+    const { html, counts } = scrub(
+      '<select><option selected>A</option></select><input type="checkbox" checked>' +
+        '<div role="checkbox" aria-checked="true" aria-selected="true" aria-pressed="true">z</div>',
+    );
+    for (const a of [
+      'selected',
+      'checked',
+      'aria-checked',
+      'aria-selected',
+      'aria-pressed',
+    ])
+      expect(html).not.toContain(a);
+    expect(counts.droppedAttributes).toBe(5);
+  });
+
+  it('blanks free-text attributes', () => {
+    const { html, counts } = scrub(
+      '<input title="Sam at home" placeholder="Enter 07700" aria-valuetext="Ten of 12">' +
+        '<img alt="photo">' +
+        '<div aria-description="Last used 5 days ago" alt="Jo">q</div>',
+    );
+    expect(html).toContain('title="xxx xx xxxx"');
+    expect(html).toContain('placeholder="xxxxx xxxxx"');
+    expect(html).toContain('aria-valuetext="xxx xx xx"');
+    expect(html).toContain('aria-description="xxxx xxxx x xxxx xxx"');
+    expect(html).toContain('alt="xx"');
+    expect(counts.blankedTexts).toBeGreaterThanOrEqual(5);
+  });
+
+  it('blanks value attributes unless they equal the element text', () => {
+    const { html } = scrub(
+      '<select><option value="Sam-123">Yes</option><option value=" yes ">Yes</option></select>' +
+        '<button value="Secret">Go</button><ul><li value="5">Item</li></ul><data value="42">n</data>',
+    );
+    expect(html).toContain('value="xxxxxxx"');
+    expect(html).toContain('value=" yes "');
+    expect(html).toContain('value="xxxxxx"');
+    expect(html).toContain('<li value="x">');
+    expect(html).toContain('<data value="xx">');
+    expect(html).not.toContain('Sam-123');
+    expect(html).not.toContain('"Secret"');
+  });
+
+  it('drops any attribute whose value is a URL', () => {
+    const { html, counts } = scrub(
+      '<div data="https://a.example/x" foo=" HTTP://b" bar="//c.example" baz="data:text/plain,hi" qux="javascript:1" ok="https-like">t</div>',
+    );
+    for (const a of ['data=', 'foo=', 'bar=', 'baz=', 'qux=', 'example'])
+      expect(html).not.toContain(a);
+    expect(html).toContain('ok="https-like"');
+    expect(counts.droppedAttributes).toBe(5);
+  });
+
+  it('replaces a secret in a kept attribute on an input', () => {
+    const { html } = scrub('<input aria-label="Email sam@example.com">', [
+      'sam@example.com',
+    ]);
+    expect(html).toContain('aria-label="Email [secret]"');
+  });
+
+  it('matches secrets on word boundaries only', () => {
+    const { html } = scrub('<label>Yes Yesterday Yes. xYes</label>', ['Yes']);
+    expect(html).toBe('<label>[secret] Yesterday [secret]. xYes</label>');
+  });
+
+  it('matches a secret across whitespace, nbsp and separators', () => {
+    const { html } = scrub(
+      '<label>Sam\n  Example | Sam Example | sam_example | SAM.EXAMPLE | sam-example | SamExample</label>',
+      ['Sam Example'],
+    );
+    expect(html).not.toMatch(/sam/i);
+    expect(html).toContain('[secret]');
+  });
+
+  it('matches a phone number written in any layout', () => {
+    const { html, counts } = scrub(
+      '<label>+44 7700 900123, (+44) 7700-900-123, 447700900123, +447700900123</label>',
+      ['+447700900123'],
+    );
+    expect(html).toBe(
+      '<label>+[secret], (+[secret], [secret], +[secret]</label>',
+    );
+    expect(counts.secretsReplaced).toBe(4);
+    const near = scrub('<label>9447700900123</label>', ['+447700900123']);
+    expect(near.html).toContain('9447700900123');
   });
 });
 
@@ -152,9 +286,23 @@ describe('bankSecrets', () => {
     );
     for (const f of bank.facts) expect(secrets).toContain(f.text);
     expect(secrets).toContain('resume.pdf');
-    for (const a of bank.answers)
-      if (a.answer) expect(secrets).toContain(a.answer);
+    expect(secrets).toContain('5000 USD per month');
     for (const s of bank.stories) expect(secrets).toContain(s.title);
+  });
+
+  it('drops option-like single words and adds the profile slug', () => {
+    const bank = loadFactBank(EXAMPLE);
+    const answers = bank.answers.flatMap((a) => [
+      ...(a.answer ? [a.answer] : []),
+      ...(a.variants ?? []).map((v) => v.answer),
+    ]);
+    for (const a of answers) {
+      const optionLike = /^\S+$/.test(a) && !/\d/.test(a) && !a.includes('@');
+      expect(secrets.includes(a.trim())).toBe(
+        !optionLike && a.trim().length >= 3,
+      );
+    }
+    expect(secrets).toContain('sam-example');
   });
 
   it('drops short strings and sorts longest first', () => {
