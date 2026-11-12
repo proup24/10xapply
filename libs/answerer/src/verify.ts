@@ -105,12 +105,10 @@ function sameBlindValue(
 
 // Fixed feedback lines. Blind and fit feedback never says what the verifier
 // picked or why, so the generator cannot steer toward the verifier's value.
-export const BLIND_REJECTED =
-  'the verifier did not confirm this answer from the bank';
-export const FIT_REJECTED =
-  'the cited entry does not answer this question as asked';
-export const NO_CLAIMS = 'the verifier found no checkable claims';
-export const DECLARE_INFERENCES =
+const BLIND_REJECTED = 'the verifier did not confirm this answer from the bank';
+const FIT_REJECTED = 'the cited entry does not answer this question as asked';
+const NO_CLAIMS = 'the verifier found no checkable claims';
+const DECLARE_INFERENCES =
   'declare each as an inference with its source, or drop it';
 
 const isEmptyValue = (v: AnswerValue): boolean =>
