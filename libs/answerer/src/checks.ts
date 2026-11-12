@@ -49,9 +49,27 @@ function monthNames(month: number): string {
 
 const ANY_MONTH = Object.keys(MONTHS).join('|');
 
-/** True when the text holds `<month> <year>` or `<month>, <year>`. */
-function hasMonthYear(text: string, names: string, year: number): boolean {
-  return new RegExp(String.raw`\b(?:${names})\b,?\s+${year}\b`, 'i').test(text);
+/** Regex source matching the month as a number, with or without a leading 0. */
+const monthDigits = (month: number): string => `0?${month}`;
+
+const ANY_MONTH_DIGITS = '0?[1-9]|1[0-2]';
+
+/**
+ * True when the text holds the year with one of the months next to it: by
+ * name (`<month> <year>`, `<month>, <year>`) or by number (`03/2021`,
+ * `3/2021`, `2021-03`, `2021/03`).
+ */
+function hasMonthYear(
+  text: string,
+  names: string,
+  digits: string,
+  year: number,
+): boolean {
+  return [
+    String.raw`\b(?:${names})\b,?\s+${year}\b`,
+    String.raw`\b(?:${digits})/${year}\b`,
+    String.raw`\b${year}[-/](?:${digits})\b`,
+  ].some((form) => new RegExp(form, 'i').test(text));
 }
 
 /** Same source, compared by its identifying keys (fact text and quotes trimmed). */
@@ -94,14 +112,17 @@ function checkMath(
       }
       if (spec.month !== undefined) {
         const names = monthNames(spec.month);
+        const digits = monthDigits(spec.month);
         if (
           names === '' ||
-          !authorTexts.some((t) => hasMonthYear(t, names, spec.year))
+          !authorTexts.some((t) => hasMonthYear(t, names, digits, spec.year))
         ) {
           return fail('number not in sources');
         }
       } else if (
-        authorTexts.some((t) => hasMonthYear(t, ANY_MONTH, spec.year))
+        authorTexts.some((t) =>
+          hasMonthYear(t, ANY_MONTH, ANY_MONTH_DIGITS, spec.year),
+        )
       ) {
         // The source gives a month; dropping it would overstate the years.
         return fail('math does not match');

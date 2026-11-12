@@ -796,6 +796,23 @@ describe('checkCandidate: math', () => {
       ),
     ).toEqual({ ok: true, value: '4' });
   });
+  it('years-since reads a numeric month next to the year', () => {
+    for (const written of ['03/2021', '3/2021', '2021-03', '2021/03']) {
+      const numeric = inlineFact(`I have used Go since ${written}.`);
+      const run = (value: string, math: Answer['math']) =>
+        checkCandidate(
+          number,
+          ans({ value, derivation: 'math', sources: [numeric], math }),
+          withFacts(numeric.text),
+        );
+      expect(run('5', since(2021, 3)), written).toEqual({
+        ok: true,
+        value: '5',
+      });
+      fails(run('5', since(2021)), 'math does not match');
+      fails(run('5', since(2021, 4)), 'number not in sources');
+    }
+  });
   it('years-since needs the month and year together in one author text', () => {
     const apart = inlineFact(
       'I may have started in 2021, and I studied in March.',
