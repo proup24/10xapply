@@ -169,6 +169,34 @@ describe('checkCandidate: choices', () => {
       ),
     ).toEqual({ ok: true, value: 'Yes' });
   });
+  it('fails a choice that contradicts the cited answer', () => {
+    for (const derivation of ['as-written', 'fitted'] as const) {
+      fails(
+        check(radio, ans({ value: 'No', derivation, sources: [sponsorship] })),
+        'not as written',
+      );
+      expect(
+        check(radio, ans({ value: 'Yes', derivation, sources: [sponsorship] })),
+      ).toEqual({ ok: true, value: 'Yes' });
+    }
+  });
+  it('as-written on a choice needs exactly one answer source', () => {
+    fails(
+      check(
+        radio,
+        ans({ value: 'Yes', derivation: 'as-written', sources: [authorFact] }),
+      ),
+      'not as written',
+    );
+  });
+  it('fitted on a choice whose cited answer is not an option is left to the option check', () => {
+    expect(
+      check(
+        radio,
+        ans({ value: 'No', derivation: 'fitted', sources: [salary] }),
+      ),
+    ).toEqual({ ok: true, value: 'No' });
+  });
   it('fails a value that is not offered', () => {
     fails(
       check(
@@ -339,21 +367,18 @@ describe('checkCandidate: numbers and number fields', () => {
       ),
     ).toEqual({ ok: true, value: 'The launch slipped two weeks.' });
   });
-  it('allows the run date numbers only when a run-date source is cited', () => {
-    const value = 'As of 2026 I build backends.';
-    fails(
-      check(q({ type: 'text' }), ans({ value, sources: [authorFact] })),
-      'number not in sources',
-    );
-    expect(
-      check(
-        q({ type: 'text' }),
-        ans({ value, sources: [authorFact, runDate] }),
-      ),
-    ).toEqual({
-      ok: true,
-      value,
-    });
+  it('never allows the run date numbers as free numbers in a value', () => {
+    for (const value of [
+      'As of 2026 I build backends.',
+      'I have 12 years of experience.',
+    ]) {
+      for (const sources of [[authorFact], [authorFact, runDate]]) {
+        fails(
+          check(q({ type: 'text' }), ans({ value, sources })),
+          'number not in sources',
+        );
+      }
+    }
   });
 });
 
@@ -512,6 +537,21 @@ describe('checkCandidate: math', () => {
     ...ctx,
     bank: { ...bank, facts: [...bank.facts, { text: kube.text, tags: [] }] },
   };
+  const inlineFact = (text: string) => ({ kind: 'fact' as const, text });
+  const withFacts = (...texts: string[]) => ({
+    ...ctx,
+    bank: {
+      ...bank,
+      facts: [...bank.facts, ...texts.map((text) => ({ text, tags: [] }))],
+    },
+  });
+  const sinceFact = inlineFact('I have written Go since 2021.');
+  const yearOnly = (value: string, math: Answer['math']) =>
+    checkCandidate(
+      number,
+      ans({ value, derivation: 'math', sources: [sinceFact], math }),
+      withFacts(sinceFact.text),
+    );
   const years = (value: string, math: Answer['math'], when = '2026-11-12') =>
     checkCandidate(
       number,
@@ -525,7 +565,6 @@ describe('checkCandidate: math', () => {
       ok: true,
       value: '4',
     });
-    expect(years('5', since(2021))).toEqual({ ok: true, value: '5' });
   });
   it('years-since fails a wrong value, a year or month not in the sources, or no math', () => {
     fails(years('6', since(2021, 3)), 'math does not match');
@@ -533,6 +572,126 @@ describe('checkCandidate: math', () => {
     fails(years('5', since(2021, 6)), 'number not in sources');
     fails(years('5', since(2021, 13)), 'number not in sources');
     fails(years('5', undefined), 'math missing');
+  });
+  it('years-since without a month works on a year-only fact', () => {
+    expect(yearOnly('5', since(2021))).toEqual({ ok: true, value: '5' });
+    fails(yearOnly('5', since(2021, 3)), 'number not in sources');
+  });
+  it('years-since fails when the source has a month and the month is dropped', () => {
+    const december = inlineFact('I have used Go since December 2021.');
+    const r = checkCandidate(
+      number,
+      ans({
+        value: '5',
+        derivation: 'math',
+        sources: [december],
+        math: since(2021),
+      }),
+      withFacts(december.text),
+    );
+    fails(r, 'math does not match');
+    fails(
+      checkCandidate(
+        number,
+        ans({
+          value: '4',
+          derivation: 'math',
+          sources: [december],
+          math: since(2021),
+        }),
+        withFacts(december.text),
+      ),
+      'math does not match',
+    );
+    expect(
+      checkCandidate(
+        number,
+        ans({
+          value: '4',
+          derivation: 'math',
+          sources: [december],
+          math: since(2021, 12),
+        }),
+        withFacts(december.text),
+      ),
+    ).toEqual({ ok: true, value: '4' });
+  });
+  it('years-since needs the month and year together in one author text', () => {
+    const apart = inlineFact(
+      'I may have started in 2021, and I studied in March.',
+    );
+    fails(
+      checkCandidate(
+        number,
+        ans({
+          value: '5',
+          derivation: 'math',
+          sources: [apart],
+          math: since(2021, 5),
+        }),
+        withFacts(apart.text),
+      ),
+      'number not in sources',
+    );
+    fails(
+      checkCandidate(
+        number,
+        ans({
+          value: '5',
+          derivation: 'math',
+          sources: [apart],
+          math: since(2021, 3),
+        }),
+        withFacts(apart.text),
+      ),
+      'number not in sources',
+    );
+    const comma = inlineFact('I started with Go in mar, 2021.');
+    expect(
+      checkCandidate(
+        number,
+        ans({
+          value: '5',
+          derivation: 'math',
+          sources: [comma],
+          math: since(2021, 3),
+        }),
+        withFacts(comma.text),
+      ),
+    ).toEqual({ ok: true, value: '5' });
+  });
+  it('years-since takes its year from a fact, answer or story only', () => {
+    const jobWithYear = {
+      ...ctx,
+      job: { ...job, description: `${job.description} We use Go since 2021.` },
+    };
+    const post: Source = { kind: 'job-post', quote: 'We use Go since 2021.' };
+    fails(
+      checkCandidate(
+        number,
+        ans({
+          value: '5',
+          derivation: 'math',
+          sources: [authorFact, post],
+          math: since(2021),
+        }),
+        jobWithYear,
+      ),
+      'number not in sources',
+    );
+    fails(
+      checkCandidate(
+        number,
+        ans({
+          value: '5',
+          derivation: 'math',
+          sources: [authorFact, runDate],
+          math: since(2026),
+        }),
+        ctx,
+      ),
+      'number not in sources',
+    );
   });
   it('years-since fails a start date after the run date', () => {
     fails(years('0', since(2021, 3), '2020-01-01'), 'math does not match');

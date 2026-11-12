@@ -28,17 +28,24 @@ const fail = (detail: string): CheckResult => ({ ok: false, detail });
 const NUMBER_ONLY = /^\d+(?:\.\d+)?$/;
 const WHOLE_NUMBER = /^\d+$/;
 
-function monthNamed(month: number, text: string): boolean {
-  const lower = text.toLowerCase();
-  return Object.entries(MONTHS).some(
-    ([name, n]) =>
-      n === month && new RegExp(String.raw`\b${name}\b`).test(lower),
-  );
+/** Regex source matching any name (full or three-letter) of the month. */
+function monthNames(month: number): string {
+  return Object.entries(MONTHS)
+    .filter(([, n]) => n === month)
+    .map(([name]) => name)
+    .join('|');
+}
+
+const ANY_MONTH = Object.keys(MONTHS).join('|');
+
+/** True when the text holds `<month> <year>` or `<month>, <year>`. */
+function hasMonthYear(text: string, names: string, year: number): boolean {
+  return new RegExp(String.raw`\b(?:${names})\b,?\s+${year}\b`, 'i').test(text);
 }
 
 function checkMath(
   c: AnswerCandidate,
-  texts: string[],
+  authorTexts: string[],
   allowed: Set<number>,
   runDate: string,
   value: string,
@@ -48,12 +55,23 @@ function checkMath(
   try {
     let result: number;
     if (spec.kind === 'years-since') {
-      if (!allowed.has(spec.year)) return fail('number not in sources');
-      if (
-        spec.month !== undefined &&
-        !texts.some((t) => monthNamed(spec.month as number, t))
-      ) {
+      // The year must come from the author's own entries, never the job post or the run date.
+      if (!authorTexts.some((t) => numbersIn(t).includes(spec.year))) {
         return fail('number not in sources');
+      }
+      if (spec.month !== undefined) {
+        const names = monthNames(spec.month);
+        if (
+          names === '' ||
+          !authorTexts.some((t) => hasMonthYear(t, names, spec.year))
+        ) {
+          return fail('number not in sources');
+        }
+      } else if (
+        authorTexts.some((t) => hasMonthYear(t, ANY_MONTH, spec.year))
+      ) {
+        // The source gives a month; dropping it would overstate the years.
+        return fail('math does not match');
       }
       result = yearsSince(spec, runDate);
     } else {
@@ -72,7 +90,12 @@ function checkMath(
   }
 }
 
-function checkChoice(q: FormQuestion, value: AnswerValue): CheckResult {
+function checkChoice(
+  q: FormQuestion,
+  c: AnswerCandidate,
+  answerTexts: string[],
+): CheckResult {
+  const value = c.value;
   const options = q.options ?? [];
   if (q.type === 'checkbox-group') {
     if (!Array.isArray(value)) return fail('wrong value shape');
@@ -94,9 +117,20 @@ function checkChoice(q: FormQuestion, value: AnswerValue): CheckResult {
   }
   if (typeof value !== 'string') return fail('wrong value shape');
   const option = matchOption(value, options);
-  return option === null
-    ? fail('option not offered')
-    : { ok: true, value: option };
+  if (option === null) return fail('option not offered');
+  // The value may not contradict the cited answer.
+  if (c.derivation === 'as-written') {
+    if (answerTexts.length !== 1) return fail('not as written');
+    if (matchOption(answerTexts[0], options) !== option) {
+      return fail('not as written');
+    }
+  } else if (c.derivation === 'fitted') {
+    for (const text of answerTexts) {
+      const cited = matchOption(text, options);
+      if (cited !== null && cited !== option) return fail('not as written');
+    }
+  }
+  return { ok: true, value: option };
 }
 
 /**
@@ -139,7 +173,10 @@ export function checkCandidate(
       : fail('not the resume');
   }
 
-  if (isChoice) return checkChoice(q, c.value);
+  const answerTexts = c.sources.flatMap((s, i) =>
+    s.kind === 'answer' ? [texts[i]] : [],
+  );
+  if (isChoice) return checkChoice(q, c, answerTexts);
 
   // Text and number values.
   const raw = c.value as string;
@@ -159,20 +196,26 @@ export function checkCandidate(
       return fail('not as written');
   }
 
-  // Numbers: each must be in a cited source (a cited answer, for fitted), or be checked math.
-  const fromTexts =
-    c.derivation === 'fitted'
-      ? c.sources.flatMap((s, i) => (s.kind === 'answer' ? [texts[i]] : []))
-      : texts;
-  const allowed = new Set(fromTexts.flatMap(numbersIn));
+  // Numbers: each must be in a cited source (a cited answer, for fitted), or be
+  // the result of checked math. The run date is never a free number in a value.
+  const free = c.sources.flatMap((s, i) =>
+    s.kind === 'run-date' || (c.derivation === 'fitted' && s.kind !== 'answer')
+      ? []
+      : [texts[i]],
+  );
+  const allowed = new Set(free.flatMap(numbersIn));
   if (c.derivation === 'math') {
-    const math = checkMath(
-      c,
-      texts,
-      new Set(texts.flatMap(numbersIn)),
-      ctx.runDate,
-      value,
+    // Arithmetic may use the run date's numbers when a run-date source is cited.
+    const inExpression = new Set(allowed);
+    if (c.sources.some((s) => s.kind === 'run-date')) {
+      numbersIn(ctx.runDate).forEach((n) => inExpression.add(n));
+    }
+    const authorTexts = c.sources.flatMap((s, i) =>
+      s.kind === 'fact' || s.kind === 'answer' || s.kind === 'story'
+        ? [texts[i]]
+        : [],
     );
+    const math = checkMath(c, authorTexts, inExpression, ctx.runDate, value);
     if ('ok' in math) return math;
     allowed.add(math.result);
   }
