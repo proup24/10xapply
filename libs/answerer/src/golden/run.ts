@@ -63,7 +63,12 @@ async function judgeRun(
   ctx: AnswerContext,
   judgeModel: string,
 ): Promise<JudgeRun> {
-  if (r.status !== 'backed' || !isText(c.question.type)) {
+  // Only free text is judged: fields and short values are graded by value.
+  if (
+    r.status !== 'backed' ||
+    !isText(c.question.type) ||
+    r.derivation !== 'composed'
+  ) {
     return { status: 'not-run' };
   }
   try {
@@ -83,10 +88,13 @@ async function judgeRun(
 
 /**
  * Runs a golden set: each case `repeat` times, one call at a time, judging
- * backed text answers. A case passes only when every run passes.
+ * backed composed text answers. A case passes only when every run passes.
  */
 export async function runGolden(opts: RunGoldenOptions): Promise<EvalReport> {
   const { file, bank, caller, models, repeat } = opts;
+  if (!Number.isInteger(repeat) || repeat < 1) {
+    throw new GoldenError('repeat must be a whole number of at least 1');
+  }
   const cases =
     opts.caseId === undefined
       ? file.cases

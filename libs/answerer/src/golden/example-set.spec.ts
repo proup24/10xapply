@@ -76,7 +76,12 @@ describe('golden/example.yaml', () => {
     for (const c of file.cases) {
       if (c.expect.status !== 'backed') continue;
       expect(c.expect.sources?.length ?? 0, c.id).toBeGreaterThan(0);
-      if (isText(c.question.type) && c.expect.derivation === undefined) {
+      // Free text: composed, or left open where the answerer may compose.
+      if (
+        isText(c.question.type) &&
+        (c.expect.derivation === undefined ||
+          c.expect.derivation === 'composed')
+      ) {
         expect(c.expect.mustNotClaim?.length ?? 0, c.id).toBeGreaterThan(0);
       }
     }
@@ -176,7 +181,8 @@ describe('golden/example.yaml', () => {
       expect(score.problems, c.id).toEqual([]);
       scored.push(c.id);
     }
-    // 14 filled fields, the empty website, the cover letter and the date field.
-    expect(scored).toHaveLength(17);
+    // 14 filled fields, the empty website, the email over maxLength, the
+    // cover letter and the date field.
+    expect(scored).toHaveLength(18);
   });
 });

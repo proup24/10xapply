@@ -294,6 +294,7 @@ cases:
     expect:
       status: backed
       sources: [{ answer: ai-perspective }]
+      derivation: composed
       mustNotClaim:
         - an AI tool or product named by brand
         - a percentage or amount of time saved
@@ -309,6 +310,7 @@ cases:
     expect:
       status: backed
       sources: [{ fact: 7 }]
+      derivation: composed
       mustNotClaim:
         - managing, hiring or line-managing engineers
         - a job title such as tech lead or team lead
@@ -325,6 +327,7 @@ cases:
     expect:
       status: backed
       sources: [{ fact: 5 }]
+      derivation: composed
       mustNotClaim:
         - a Kubernetes certification
         - Helm, Docker, Terraform or another tool by name
@@ -341,6 +344,7 @@ cases:
     expect:
       status: backed
       sources: [{ answer: ai-perspective }]
+      derivation: composed
       mustNotClaim:
         - a percentage or time saved
         - a tool not in the bank
@@ -355,6 +359,7 @@ cases:
     expect:
       status: backed
       sources: [{ story: missed-launch-date }]
+      derivation: composed
       mustNotClaim:
         - a number of customers, payments or money affected
         - a person or role besides the manager and a teammate
@@ -371,6 +376,7 @@ cases:
       status: backed
       sources:
         [{ story: missed-launch-date }, { story: intermittent-queue-bug }]
+      derivation: composed
       mustNotClaim:
         - a number not in either story
         - a person or team not in either story
@@ -387,15 +393,19 @@ cases:
 
   # About the role, with no known answer for the question: the post's
   # Kubernetes, TypeScript and code review combined with the author's facts.
-  # The post backs what the role asks for, never a claim about the author.
+  # The question asks which of the role's responsibilities match, so naming a
+  # responsibility (a claim about the role, which only the post backs) is
+  # unavoidable: jobPost stays required. The post never backs a claim about
+  # the author.
   - id: text-role-fit-from-post
     question:
-      label: How does your experience fit what this role asks for?
+      label: Which of this role's responsibilities match your experience?
       type: textarea
       required: true
     expect:
       status: backed
       sources: [{ fact: 5 }, { jobPost: true }]
+      derivation: composed
       mustNotClaim:
         - a technology the bank does not name, such as Go, Kafka or AWS
         - a number of years not computed from a fact
@@ -502,13 +512,13 @@ cases:
     question: { label: Earliest start date, type: date, required: true }
     expect: { status: blocked, reason: unsupported-field }
 
-  # A maxLength too short for the answer: a story question in 10 characters.
-  # An answer is never cut short. No reason: the generator's cannot-answer,
-  # or the too-long check.
+  # A maxLength too short for a field value: code fills fields as written
+  # and never cuts one short, so an email in 5 characters blocks as
+  # check-failed with no model call.
   - id: max-length-too-short
     question:
-      label: Describe a production problem you owned and how you fixed it.
+      label: Email address
       type: text
-      maxLength: 10
+      maxLength: 5
       required: true
-    expect: { status: blocked }
+    expect: { status: blocked, reason: check-failed }

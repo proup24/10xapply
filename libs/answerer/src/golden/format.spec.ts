@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, describe, expect, it, vi } from 'vitest';
 import { GoldenError, loadGolden } from './format.js';
 
 const dir = mkdtempSync(join(tmpdir(), 'golden-format-'));
@@ -235,6 +235,30 @@ cases:
     );
     expect(e).toBeInstanceOf(GoldenError);
     expect(e.message).not.toContain('secret');
+  });
+
+  it('prints nothing on a YAML warning, which would quote the source', () => {
+    // The yaml library warns through process.emitWarning, or console.warn without it.
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const emit = vi
+      .spyOn(process, 'emitWarning')
+      .mockImplementation(() => undefined);
+    try {
+      const file = loadGolden(
+        write(
+          header.replace(
+            "runDate: '2026-11-12'",
+            "runDate: !secret-tag '2026-11-12'",
+          ) + '  []\n',
+        ),
+      );
+      expect(file.runDate).toBe('2026-11-12');
+      expect(warn).not.toHaveBeenCalled();
+      expect(emit).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+      emit.mockRestore();
+    }
   });
 
   it('throws a GoldenError on a YAML syntax error or a missing file', () => {

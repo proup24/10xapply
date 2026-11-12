@@ -298,6 +298,33 @@ describe('scoreCase', () => {
     });
   });
 
+  it('a model-error block fails the case unless model-error is expected', () => {
+    const failed = {
+      id: 'case-1',
+      pass: false,
+      hardFail: false,
+      needlessBlock: false,
+      problems: ['model error'],
+    };
+    expect(
+      scoreCase(kase({ status: 'blocked' }), blocked('model-error'), ctx),
+    ).toEqual(failed);
+    expect(
+      scoreCase(
+        kase({ status: 'backed', value: '5' }),
+        blocked('model-error'),
+        ctx,
+      ),
+    ).toEqual(failed);
+    expect(
+      scoreCase(
+        kase({ status: 'blocked', reason: 'model-error' }),
+        blocked('model-error'),
+        ctx,
+      ).pass,
+    ).toBe(true);
+  });
+
   it('a different block reason fails the case, neither hard nor needless', () => {
     const s = scoreCase(
       kase({ status: 'blocked', reason: 'boundary' }),

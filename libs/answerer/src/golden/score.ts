@@ -75,8 +75,9 @@ function hasSource(want: ExpectSource, got: Source[], bank: FactBank): boolean {
 /**
  * Scores one result against its case. A hard failure is a backed result where
  * blocked was expected, a value, valueFrom, source or derivation that does not
- * match, or a judge finding. A judge model error fails the case without being
- * a hard failure.
+ * match, or a judge finding. A judge model error, or a result blocked as
+ * model-error where that was not expected, fails the case without being a
+ * hard failure or a needless block.
  */
 export function scoreCase(
   c: GoldenCase,
@@ -93,7 +94,14 @@ export function scoreCase(
     problems.push(problem);
   };
 
-  if (e.status === 'blocked') {
+  if (
+    r.status === 'blocked' &&
+    r.reason === 'model-error' &&
+    e.reason !== 'model-error'
+  ) {
+    // A model error says nothing about the answerer's rules: never a pass.
+    problems.push('model error');
+  } else if (e.status === 'blocked') {
     if (r.status === 'backed') {
       hard('expected blocked, got backed');
     } else if (e.reason !== undefined && e.reason !== r.reason) {

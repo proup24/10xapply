@@ -199,7 +199,8 @@ export function loadGolden(path: string): GoldenFile {
   }
   let raw: unknown;
   try {
-    raw = parse(text);
+    // logLevel 'error': a warning would print the source line to the console.
+    raw = parse(text, { logLevel: 'error' });
   } catch (e) {
     // The YAML library's message quotes the source line, so only the line number is kept.
     const line = e instanceof YAMLError ? e.linePos?.[0]?.line : undefined;

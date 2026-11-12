@@ -146,8 +146,7 @@ describe('runGolden', () => {
       () => kubeMath, // run 1: generator
       () => kubeMath, // run 1: blind verifier
       () => silent, // run 2: generator blocks
-      () => judgeClean, // email run 1: a backed text answer is judged
-      () => judgeClean, // email run 2
+      // email: a field answer, never judged
     ]);
     const seen: string[] = [];
     const report = await runGolden({
@@ -303,6 +302,88 @@ describe('runGolden', () => {
     ]);
   });
 
+  it('judges only composed text: never a field or an as-written text answer', async () => {
+    const asWritten: GoldenCase = {
+      id: 'heard',
+      question: {
+        id: 'heard',
+        label: 'How did you hear about this role?',
+        type: 'text',
+        required: true,
+      },
+      expect: { status: 'backed', valueFrom: { answer: 'heard-from' } },
+    };
+    const caller = fakeCaller([
+      () =>
+        out({
+          value: 'LinkedIn',
+          derivation: 'as-written',
+          sources: [src({ kind: 'answer', id: 'heard-from' })],
+        }),
+      () => ({ fits: true, why: 'same question' }),
+    ]);
+    const report = await runGolden({
+      file: file([fieldCase, asWritten]),
+      bank,
+      caller,
+      models,
+      repeat: 1,
+    });
+    expect(caller.requests.map((r) => r.role)).toEqual(['answer', 'verify']);
+    expect(report.cases.map((c) => [c.pass, c.judges])).toEqual([
+      [true, [{ status: 'not-run' }]],
+      [true, [{ status: 'not-run' }]],
+    ]);
+  });
+
+  it('throws on a repeat below 1 or not a whole number', async () => {
+    for (const repeat of [0, -1, 1.5, Number.NaN]) {
+      await expect(
+        runGolden({
+          file: file([fieldCase]),
+          bank,
+          caller: fakeCaller([]),
+          models,
+          repeat,
+        }),
+      ).rejects.toThrow('repeat must be a whole number of at least 1');
+    }
+  });
+
+  it('a model-error block fails the case, neither hard nor needless', async () => {
+    const report = await runGolden({
+      file: file([yearsCase, terraformCase]),
+      bank,
+      caller: fakeCaller([
+        () => {
+          throw new ModelCallError('model call failed');
+        },
+        () => {
+          throw new ModelCallError('model call failed');
+        },
+      ]),
+      models,
+      repeat: 1,
+    });
+    expect(report.cases.map((c) => c.runs[0])).toEqual([
+      {
+        id: 'kube-years',
+        pass: false,
+        hardFail: false,
+        needlessBlock: false,
+        problems: ['model error'],
+      },
+      {
+        id: 'terraform',
+        pass: false,
+        hardFail: false,
+        needlessBlock: false,
+        problems: ['model error'],
+      },
+    ]);
+    expect(report.totals).toMatchObject({ hardFails: 0, needlessBlockRate: 0 });
+  });
+
   it('a judge model error fails the case without a hard failure', async () => {
     const report = await runGolden({
       file: file([textCase]),
@@ -385,7 +466,6 @@ describe('runGolden', () => {
           sources: [src({ kind: 'answer', id: 'why-this-role' })],
         }),
       () => ({ fits: true, why: 'same question' }),
-      () => judgeClean,
     ]);
     const report = await runGolden({
       file: {

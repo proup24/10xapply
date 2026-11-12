@@ -126,6 +126,24 @@ describe('answerQuestion: before any model call', () => {
     expect(requests).toHaveLength(0);
   });
 
+  it('blocks a field value over maxLength as check-failed, never cut short, with 0 calls', async () => {
+    const { result, requests } = await run(
+      q({ label: 'Email address', maxLength: 5 }),
+      [],
+    );
+    expectBlocked(result, 'check-failed', 'too long');
+    expect(requests).toHaveLength(0);
+
+    const fits = await run(
+      q({ label: 'Email address', maxLength: 'sam@example.com'.length }),
+      [],
+    );
+    expect(fits.result).toMatchObject({
+      status: 'backed',
+      value: 'sam@example.com',
+    });
+  });
+
   it('blocks a field choice with no matching option as check-failed', async () => {
     const { result } = await run(
       q({ label: 'Country', type: 'select', options: ['France', 'Spain'] }),

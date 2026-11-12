@@ -48,6 +48,13 @@ export async function answerQuestion(
   const mapped = mapField(q, ctx.bank);
   switch (mapped.kind) {
     case 'filled':
+      // A field value is never cut short: one over the form's limit blocks.
+      if (
+        q.maxLength !== undefined &&
+        mapped.value.trim().length > q.maxLength
+      ) {
+        return blocked('check-failed', 'too long');
+      }
       return {
         ...base,
         status: 'backed',
