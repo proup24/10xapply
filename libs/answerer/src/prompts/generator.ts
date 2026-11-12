@@ -114,6 +114,9 @@ ${BACKED_RULES}
 
 - **Tone**: confident, plain professional English, in the first person. Lead with the strongest entries that match what the job post asks for.
 - No hedges ("I think I might have"), no filler, and no superlatives the bank does not support ("world-class", "expert").
+- **Partial is not silent.** When an entry speaks to the thing the question asks about, even if the question is worded differently or asks from another angle, answer from what that entry says. Return bank-silent only when no entry speaks to it at all.
+- **No bridging claims.** Every sentence about the author is a claim, including the ones that link an entry to the question or entries to each other ("so review matters more to me now", "I apply the same care to every change", "that responsibility stays with me"). Write such a sentence only when an entry says it. When the question asks how something changed, or why, and no entry says, answer with what the entries say the author does or thinks, without claiming a before and after or a reason they do not give.
+- **Keep each claim as strong as its entry, no stronger.** "I am comfortable leading code reviews" never becomes "I lead code reviews". "I use it for reading unfamiliar code" never becomes "I use it to review every pull request".
 - **Short values are used as written or fitted**, never reworded (see above).
 - **Never cut an answer short.** When the question has a maxLength, write a complete answer that fits within it. Count the characters. An answer over the limit is blocked, never trimmed.
 
@@ -124,7 +127,7 @@ ${OUTPUT_RULES}
 A verifier rejected your last answer to this question. Each line says what it rejected and why.
 - Fix only what was rejected. Keep the rest of the answer as it was.
 - Drop or replace each rejected claim, value or source. Do not argue for it.
-- cannot-answer is allowed, and it is the right answer when the bank cannot back one without the rejected part.`;
+- cannot-answer is allowed, and it is the right answer when the bank cannot back one without the rejected part. When what is left still answers the question, return what is left, with no new claim in place of the dropped one.`;
 
 /** The generator's user prompt: context first, then any feedback, then the question. */
 export function generatorPrompt(
