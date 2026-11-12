@@ -158,7 +158,11 @@ export async function verifyCandidate(
       blind.outcome === 'cannot-answer' ||
       !sameBlindValue(q, blind.value, value)
     ) {
-      return { verdict: 'rejected', check: 'blind', feedback: [BLIND_REJECTED] };
+      return {
+        verdict: 'rejected',
+        check: 'blind',
+        feedback: [BLIND_REJECTED],
+      };
     }
   }
 

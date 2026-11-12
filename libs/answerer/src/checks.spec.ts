@@ -445,7 +445,10 @@ describe('checkCandidate: numbers and number fields', () => {
         description: `${job.description} You have 5+ years of Go experience.`,
       },
     };
-    const post: Source = { kind: 'job-post', quote: '5+ years of Go experience' };
+    const post: Source = {
+      kind: 'job-post',
+      quote: '5+ years of Go experience',
+    };
     fails(
       checkCandidate(
         q({ type: 'textarea' }),

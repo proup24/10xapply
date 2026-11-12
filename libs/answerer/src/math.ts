@@ -239,12 +239,26 @@ const NUM = String.raw`(\d+(?:\.\d+)?)`;
 const UNIT = String.raw`(?:\s*(?:years?|yrs?|months?|weeks?|days?)(?:\s+(?:of\s+)?experience)?)?`;
 
 /** Each option form, with the test it puts on the number. */
-const OPTION_FORMS: Array<[RegExp, (n: number, a: number, b: number) => boolean]> = [
-  [new RegExp(String.raw`^${NUM}${UNIT}\s*(?:-|–|—|to)\s*${NUM}${UNIT}$`, 'i'), (n, a, b) => n >= a && n <= b],
+const OPTION_FORMS: Array<
+  [RegExp, (n: number, a: number, b: number) => boolean]
+> = [
+  [
+    new RegExp(String.raw`^${NUM}${UNIT}\s*(?:-|–|—|to)\s*${NUM}${UNIT}$`, 'i'),
+    (n, a, b) => n >= a && n <= b,
+  ],
   [new RegExp(String.raw`^${NUM}\s*\+${UNIT}$`, 'i'), (n, a) => n >= a],
-  [new RegExp(String.raw`^${NUM}${UNIT}\s+or\s+more${UNIT}$`, 'i'), (n, a) => n >= a],
-  [new RegExp(String.raw`^(?:more\s+than|over)\s+${NUM}${UNIT}$`, 'i'), (n, a) => n > a],
-  [new RegExp(String.raw`^(?:less\s+than|under)\s+${NUM}${UNIT}$`, 'i'), (n, a) => n < a],
+  [
+    new RegExp(String.raw`^${NUM}${UNIT}\s+or\s+more${UNIT}$`, 'i'),
+    (n, a) => n >= a,
+  ],
+  [
+    new RegExp(String.raw`^(?:more\s+than|over)\s+${NUM}${UNIT}$`, 'i'),
+    (n, a) => n > a,
+  ],
+  [
+    new RegExp(String.raw`^(?:less\s+than|under)\s+${NUM}${UNIT}$`, 'i'),
+    (n, a) => n < a,
+  ],
   [new RegExp(String.raw`^up\s+to\s+${NUM}${UNIT}$`, 'i'), (n, a) => n <= a],
   [new RegExp(String.raw`^${NUM}${UNIT}$`, 'i'), (n, a) => n === a],
 ];

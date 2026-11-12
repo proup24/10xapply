@@ -556,8 +556,10 @@ describe('answerQuestion: verify', () => {
     const bugStory = src({ kind: 'story', id: 'intermittent-queue-bug' });
     const value =
       'I found that two workers could claim the same job, and added a lock.';
-    const composed = (inferences: unknown[] = []) => () =>
-      out({ value, derivation: 'composed', sources: [bugStory], inferences });
+    const composed =
+      (inferences: unknown[] = []) =>
+      () =>
+        out({ value, derivation: 'composed', sources: [bugStory], inferences });
 
     it('rejects an empty claims list for a non-empty answer', async () => {
       const { result, requests } = await run(story, [

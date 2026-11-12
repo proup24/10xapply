@@ -186,10 +186,7 @@ function checkChoice(
   }
   // A bucket from math: the option's range must hold the computed number. An
   // option that is not a plain range is left to the verifier.
-  if (
-    computed !== null &&
-    optionContains(option, computed.result) === false
-  ) {
+  if (computed !== null && optionContains(option, computed.result) === false) {
     return fail('math does not match');
   }
   return { ok: true, value: option };
