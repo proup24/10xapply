@@ -86,7 +86,10 @@ export function redactApplyRun(
       role: u.role,
       inputType: u.inputType,
     })),
-    timings: run.timings,
+    timings: {
+      totalMs: run.timings.totalMs,
+      perStepMs: [...run.timings.perStepMs],
+    },
   };
 }
 
@@ -277,6 +280,8 @@ export function writeApplyReports(
     reports: REPORTS_DIR,
   },
 ): { full: string; redacted: string } {
+  if (!/^\d+$/.test(run.jobId))
+    throw new Error('apply report: job id is not all digits');
   mkdirSync(dirs.privateRuns, { recursive: true });
   mkdirSync(dirs.reports, { recursive: true });
   const stamp = run.startedAt.replaceAll(':', '-');

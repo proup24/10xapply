@@ -113,7 +113,7 @@ function makeRun(bank: FactBank): ApplyRun {
     detail: mk('block-detail'),
   };
   return {
-    jobId: 'job-abc',
+    jobId: '4489088601',
     startedAt: '2026-11-12T10:20:30.123Z',
     outcome: 'safety-stop',
     stop: {
@@ -180,7 +180,7 @@ function leaves(v: unknown, out: string[] = []): string[] {
 }
 
 const NOT_TEXT = new Set([
-  'job-abc',
+  '4489088601',
   '2026-11-12T10:20:30.123Z',
   'safety-stop',
   'error',
@@ -227,7 +227,9 @@ describe('apply reports', () => {
       expect(json, m).not.toContain(m);
       expect(summary, m).not.toContain(m);
     }
-    expect(json).not.toMatch(/\d{6,}/);
+    expect(redacted.jobId).toBe('4489088601');
+    // Only the job id may hold a long digit run.
+    expect(JSON.stringify({ ...redacted, jobId: '' })).not.toMatch(/\d{6,}/);
     expect(summary).not.toMatch(/\d{6,}/);
     expect(redacted.stop).toEqual({
       kind: 'error',
@@ -272,8 +274,8 @@ describe('apply reports', () => {
     };
     const out = writeApplyReports(makeRun(bank), bank, dirs);
     expect(readdirSync(dirs.privateRuns).sort()).toEqual([
-      '2026-11-12T10-20-30.123Z-job-abc.json',
-      '2026-11-12T10-20-30.123Z-job-abc.md',
+      '2026-11-12T10-20-30.123Z-4489088601.json',
+      '2026-11-12T10-20-30.123Z-4489088601.md',
     ]);
     expect(readdirSync(dirs.reports)).toEqual([
       'apply-2026-11-12T10-20-30.123Z.json',
@@ -283,5 +285,20 @@ describe('apply reports', () => {
     expect(out.redacted.startsWith(dirs.reports)).toBe(true);
     const redactedText = readFileSync(out.redacted, 'utf8');
     for (const m of markers) expect(redactedText).not.toContain(m);
+    const back = JSON.parse(redactedText) as { jobId: string };
+    expect(back.jobId).toBe('4489088601');
+    expect(JSON.stringify({ ...back, jobId: '' })).not.toMatch(/\d{6,}/);
+  });
+
+  it('refuses a job id that is not all digits', () => {
+    const bank = makeBank();
+    const root = mkdtempSync(join(tmpdir(), 'apply-report-'));
+    const dirs = { privateRuns: join(root, 'p'), reports: join(root, 'r') };
+    for (const bad of ['../x', 'job-abc', '', '12 3']) {
+      expect(() =>
+        writeApplyReports({ ...makeRun(bank), jobId: bad }, bank, dirs),
+      ).toThrow(/job id/);
+    }
+    expect(existsSync(dirs.privateRuns)).toBe(false);
   });
 });
