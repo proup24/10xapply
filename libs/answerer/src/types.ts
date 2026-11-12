@@ -36,6 +36,8 @@ export interface FormQuestion {
   helpText?: string;
   maxLength?: number;
   stepTitle?: string;
+  /** Labels of the other questions on the same step. */
+  stepLabels?: string[];
 }
 
 export interface Job {

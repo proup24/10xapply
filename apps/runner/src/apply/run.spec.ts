@@ -3,7 +3,12 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { Locator } from 'patchright-core';
-import type { AnswerResult, AnswerValue, FormQuestion } from '@xapply/answerer';
+import {
+  mapField,
+  type AnswerResult,
+  type AnswerValue,
+  type FormQuestion,
+} from '@xapply/answerer';
 import type { FactBank } from '@xapply/fact-bank';
 import { parsePage, type Document } from '../linkedin/dom.js';
 import { readStep } from '../linkedin/form-step.js';
@@ -623,6 +628,41 @@ describe('runApply', () => {
       pageErrors: ['Please enter a valid answer'],
     });
     expect(h.closed()).toBe(true);
+  });
+
+  it('the contact step’s phone gets the national number beside the country code', async () => {
+    const h = harness({
+      screens: fullFlow(),
+      values: { '#_r_1k_': '7700900123' },
+    });
+    const stub = {
+      fields: {
+        phone: {
+          countryCode: '+44',
+          country: 'United Kingdom',
+          number: '7700900123',
+          full: '+44 7700900123',
+        },
+      },
+    } as unknown as FactBank;
+    const fallback = h.deps.answer;
+    h.deps.answer = async (q, b, job) => {
+      const m = mapField(q, stub);
+      if (m.kind === 'filled' && m.key === 'phone') {
+        return result(q, m.value);
+      }
+      return fallback(q, b, job);
+    };
+    const run = await runApply('123', h.deps);
+    const phone = run.questions.find(
+      (q) => q.question.label === 'Mobile phone number',
+    );
+    expect(phone?.question.stepLabels).toContain('Phone country code');
+    expect(phone?.question.stepLabels).not.toContain('Mobile phone number');
+    expect(phone?.result).toMatchObject({ value: '7700900123' });
+    expect(phone?.changedFromLinkedIn).toBe(false);
+    expect(h.acts()).toContain('glance #_r_1k_');
+    expect(h.acts().some((a) => a.startsWith('type #_r_1k_'))).toBe(false);
   });
 
   it('follow-up field after fill is answered in round 2', async () => {

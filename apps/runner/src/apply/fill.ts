@@ -62,9 +62,24 @@ async function typeAndCheck(
 ): Promise<boolean> {
   const field = page.locator(selector);
   await pace.type(field, text);
-  if ((await page.value(selector)) === text) return true;
+  if (sameValue(await page.value(selector), text)) return true;
   await pace.clear(field);
   return false;
+}
+
+const PHONE_LIKE = /^[\d\s().+-]+$/;
+
+/**
+ * Equal as typed, or both phone-like (digits, spaces, brackets, dots, dashes,
+ * plus) and equal once spaces, brackets, dots and dashes are removed. The
+ * digits and the plus stay strict. Anything else must match exactly.
+ */
+function sameValue(a: string, b: string): boolean {
+  if (a === b) return true;
+  const phoneLike = (v: string) => PHONE_LIKE.test(v) && /\d/.test(v);
+  if (!phoneLike(a) || !phoneLike(b)) return false;
+  const strip = (v: string) => v.replace(/[\s().-]/g, '');
+  return strip(a) === strip(b);
 }
 
 /** Several picks for a text field read as the bank saves them. */
@@ -118,7 +133,7 @@ async function fillText(
     return fail('not-typeable');
   if (f.question.type === 'typeahead') return fillTypeahead(f, text, ctx);
   const current = await page.value(f.selector);
-  if (current === text) {
+  if (sameValue(current, text)) {
     await pace.glance(page.locator(f.selector));
     return done(false);
   }

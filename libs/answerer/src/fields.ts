@@ -76,6 +76,17 @@ function keyForLabel(label: string): FieldKey | null {
 }
 
 /**
+ * True when another question on the step is a phone country-code field: the
+ * form then wants the national number, since the code is chosen separately.
+ */
+function besideCountryCode(q: FormQuestion): boolean {
+  return (q.stepLabels ?? []).some((l) => {
+    const k = keyForLabel(l);
+    return k === 'phoneCountryCode' || k === 'phoneCountry';
+  });
+}
+
+/**
  * An option such as "United Kingdom (+44)": the code as a whole token (not
  * followed by a digit) and, once the code and its brackets and punctuation are
  * removed, exactly the country name. Null when none or more than one matches.
@@ -117,7 +128,10 @@ export function mapField(q: FormQuestion, bank: FactBank): FieldMapping {
     return { kind: 'none' };
   }
 
-  const value = fieldValue(key, bank);
+  const value =
+    key === 'phone' && besideCountryCode(q)
+      ? bank.fields.phone.number
+      : fieldValue(key, bank);
   if (value === undefined || value.trim() === '') {
     return {
       kind: 'blocked',

@@ -7,6 +7,7 @@ export type {
 export { ModelCallError, ModelUnavailableError } from './model/caller.js';
 export { createClaudeCliCaller } from './model/claude-cli.js';
 export { answerQuestion } from './answer.js';
+export { mapField, type FieldMapping } from './fields.js';
 export { redactResult, type RedactedResult } from './redact.js';
 export {
   GoldenError,

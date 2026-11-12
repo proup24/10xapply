@@ -133,7 +133,13 @@ export async function walkStep(w: Walk, first: FormRead): Promise<FormRead> {
     }
     for (const f of fresh) {
       seen.add(f.key);
-      const rec = await answerField(w, f, `s${step}-q${++n}`, title);
+      const rec = await answerField(
+        w,
+        f,
+        `s${step}-q${++n}`,
+        title,
+        read.fields,
+      );
       keyOf.set(rec, f.key);
       await w.pace.pause();
     }
@@ -159,8 +165,13 @@ async function answerField(
   f: ReadField,
   id: string,
   title: string | null,
+  onStep: ReadField[],
 ): Promise<QuestionRecord> {
-  const q: FormQuestion = { ...f.question, id };
+  const q: FormQuestion = {
+    ...f.question,
+    id,
+    stepLabels: onStep.filter((o) => o !== f).map((o) => o.question.label),
+  };
   if (title !== null) q.stepTitle = title;
   checkStop(w.deps);
   const result = await w.deps.answer(q, w.bank, jobOf(w));

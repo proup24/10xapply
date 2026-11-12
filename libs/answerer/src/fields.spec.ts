@@ -64,6 +64,41 @@ describe('mapField', () => {
       mapField(q({ label: 'Mobile phone number (optional)' }), bank),
     ).toMatchObject({ key: 'phone', value: bank.fields.phone.full });
   });
+  it('fills the national number when a country-code field sits beside it', () => {
+    for (const label of [
+      'Phone country code',
+      'Country code',
+      'Phone country',
+    ]) {
+      expect(
+        mapField(
+          q({
+            label: 'Mobile phone number',
+            stepLabels: ['Email address', label],
+          }),
+          bank,
+        ),
+      ).toEqual({
+        kind: 'filled',
+        key: 'phone',
+        value: bank.fields.phone.number,
+      });
+    }
+  });
+  it('keeps the full number when no country-code field is beside it', () => {
+    expect(
+      mapField(
+        q({
+          label: 'Mobile phone number',
+          stepLabels: ['Email address', 'City'],
+        }),
+        bank,
+      ),
+    ).toMatchObject({ key: 'phone', value: bank.fields.phone.full });
+    expect(
+      mapField(q({ label: 'Mobile phone number', stepLabels: [] }), bank),
+    ).toMatchObject({ key: 'phone', value: bank.fields.phone.full });
+  });
   it('never fills a longer question that merely contains a pattern', () => {
     expect(
       mapField(q({ label: 'Which city would you like to work in?' }), bank),

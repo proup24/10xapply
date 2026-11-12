@@ -127,6 +127,24 @@ describe('answerQuestion: before any model call', () => {
     expect(requests).toHaveLength(0);
   });
 
+  it('answers the phone with the national number beside a country-code field, from the bank, with 0 calls', async () => {
+    const { result, requests } = await run(
+      q({
+        label: 'Mobile phone number',
+        stepLabels: ['Email address', 'Phone country code'],
+      }),
+      [],
+    );
+    expect(result).toMatchObject({
+      status: 'backed',
+      value: bank.fields.phone.number,
+      sources: [{ kind: 'field', key: 'phone' }],
+      derivation: 'field',
+      verification: { verdict: 'not-needed', rounds: 0 },
+    });
+    expect(requests).toHaveLength(0);
+  });
+
   it('blocks a field value over maxLength as check-failed, never cut short, with 0 calls', async () => {
     const { result, requests } = await run(
       q({ label: 'Email address', maxLength: 5 }),

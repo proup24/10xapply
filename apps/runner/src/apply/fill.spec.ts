@@ -195,6 +195,51 @@ describe('fillField', () => {
     expect(result).toEqual({ ok: true, changedFromLinkedIn: false });
   });
 
+  it('a phone prefilled in another layout is only glanced at', async () => {
+    const { calls, result } = await run(field('text'), '7700 900123', {
+      values: { '#f': '7700900123' },
+    });
+    expect(calls).toEqual(['glance #f']);
+    expect(result).toEqual({ ok: true, changedFromLinkedIn: false });
+  });
+
+  it('a phone the field reformats after typing is taken', async () => {
+    const state: PageState = { values: {} };
+    const calls: string[] = [];
+    const pace = fakePace(calls, state);
+    const page = fakePage(state);
+    const reformat: Pace = {
+      ...pace,
+      type: async (f, text) => {
+        await pace.type(f, text);
+        state.values = { ...state.values, '#f': '7700 900 123' };
+      },
+    };
+    const result = await fillField(field('text'), '7700900123', {
+      pace: reformat,
+      page,
+      resume,
+    });
+    expect(result).toEqual({ ok: true, changedFromLinkedIn: false });
+  });
+
+  it('a phone that lost its plus or a digit is not the same', async () => {
+    const a = await run(field('text'), '+44 7700900123', {
+      values: { '#f': '447700900123' },
+    });
+    expect(a.calls[0]).toBe('clear #f');
+    expect(a.result).toEqual({ ok: true, changedFromLinkedIn: true });
+    const b = await run(field('text'), '7700 900123', {
+      values: { '#f': '770090012' },
+    });
+    expect(b.calls[0]).toBe('clear #f');
+    const c = await run(field('text'), '+447700900123', {
+      deaf: ['#f'],
+      values: { '#f': '' },
+    });
+    expect(c.result).toEqual({ ok: false, reason: 'not-taken' });
+  });
+
   it('prefilled differs clears and marks changed', async () => {
     const { calls, result } = await run(field('text'), '555 0100', {
       values: { '#f': '555 0199' },
