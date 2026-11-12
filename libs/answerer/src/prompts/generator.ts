@@ -83,7 +83,7 @@ One JSON object. Every key is always present; a key that does not apply is null 
 
 ## derivation
 - **as-written**: the value is one known answer's text (or one variant's text), placeholders filled, character for character, line breaks included. Cite exactly that one answer and no other. For a choice, that text must be the option.
-- **fitted**: one known answer fitted to the field: the option that matches it, or its number with the unit stripped. Every number in the value must appear in the cited known answer's own text. A choice must agree with the cited answer.
+- **fitted**: one known answer fitted to the field: the option that matches it, or its number with the unit stripped. Every number in the value must appear in the cited known answer's own text. A choice must agree with the cited answer. On a text, textarea or typeahead question, fitted is only a bare number, such as "5000", taken from one cited known answer with its unit stripped. Any other text from a known answer is as-written (unchanged) or composed (reworded).
 - **math**: a whole number that code computes from a cited entry. Fill in math.
 - **bucket**: a choice option that a cited fact falls inside. Also a Yes or No that a fact settles.
 - **composed**: text you wrote from entries.

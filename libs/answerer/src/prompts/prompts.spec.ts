@@ -166,6 +166,7 @@ describe('system prompts', () => {
       "Every inference's source must also be listed in sources",
       "The job post's numbers never back a number in a value",
       'at least 3 words',
+      'fitted is only a bare number',
     ]) {
       expect(GENERATOR_SYSTEM).toContain(s);
     }

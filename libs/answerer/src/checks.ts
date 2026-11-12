@@ -242,6 +242,17 @@ export function checkCandidate(
     if (expected === null || value !== expected.trim())
       return fail('not as written');
   }
+  // Fitted text is only a known answer's number with its unit stripped. Any
+  // other text from an answer is as-written or composed.
+  if (isText && c.derivation === 'fitted') {
+    if (
+      answerTexts.length !== 1 ||
+      !NUMBER_ONLY.test(value) ||
+      !numbersIn(answerTexts[0]).includes(Number(value))
+    ) {
+      return fail('not as written');
+    }
+  }
 
   // Numbers: each must be in a cited author source (a cited answer, for
   // fitted), or be the result of checked math. The job post never backs a

@@ -397,9 +397,9 @@ describe('checkCandidate: numbers and number fields', () => {
   it('fitted numbers must come from the cited answer, not other sources', () => {
     fails(
       check(
-        q({ type: 'text' }),
+        q({ type: 'number' }),
         ans({
-          value: 'about 2021',
+          value: '2026',
           derivation: 'fitted',
           sources: [salary, runDate],
         }),
@@ -526,6 +526,31 @@ describe('checkCandidate: as-written', () => {
       ),
       'not as written',
     );
+  });
+});
+
+describe('checkCandidate: fitted on text', () => {
+  const fitted = (type: string, value: string, sources: Source[]) =>
+    check(q({ type }), ans({ value, derivation: 'fitted', sources }));
+  it('accepts a bare number from the one cited answer', () => {
+    for (const type of ['text', 'textarea', 'typeahead']) {
+      expect(fitted(type, '5000', [salary])).toEqual({
+        ok: true,
+        value: '5000',
+      });
+    }
+  });
+  it('fails a fitted sentence', () => {
+    fails(
+      fitted('textarea', 'I expect 5000 USD per month.', [salary]),
+      'not as written',
+    );
+    fails(fitted('text', '5000 USD', [salary]), 'not as written');
+  });
+  it('fails a number that is not in the cited answer, or not exactly one answer', () => {
+    fails(fitted('text', '6000', [salary]), 'not as written');
+    fails(fitted('text', '5000', [authorFact]), 'not as written');
+    fails(fitted('text', '5000', [salary, sponsorship]), 'not as written');
   });
 });
 
