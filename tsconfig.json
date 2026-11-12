@@ -2,6 +2,13 @@
   "extends": "./tsconfig.base.json",
   "compileOnSave": false,
   "files": [],
-  "references": [{ "path": "./apps/runner" }],
+  "references": [
+    {
+      "path": "./apps/runner"
+    },
+    {
+      "path": "./libs/fact-bank"
+    }
+  ],
   "compilerOptions": {}
 }
