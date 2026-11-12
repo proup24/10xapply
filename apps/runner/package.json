@@ -12,6 +12,20 @@
           "command": "tsx --conditions=@xapply/source src/main.ts session"
         }
       },
+      "snapshot": {
+        "executor": "nx:run-commands",
+        "options": {
+          "cwd": "apps/runner",
+          "command": "tsx --conditions=@xapply/source src/main.ts snapshot"
+        }
+      },
+      "snapshot-scrub": {
+        "executor": "nx:run-commands",
+        "options": {
+          "cwd": "apps/runner",
+          "command": "tsx --conditions=@xapply/source src/main.ts snapshot scrub"
+        }
+      },
       "bot-check": {
         "executor": "nx:run-commands",
         "options": {

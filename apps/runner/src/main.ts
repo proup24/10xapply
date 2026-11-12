@@ -11,12 +11,15 @@ import {
 import { answersEvalCommand } from './commands/answers.js';
 import { factsCheckCommand } from './commands/facts.js';
 import { sessionCommand } from './commands/session.js';
+import { snapshotCommand, snapshotScrubCommand } from './commands/snapshot.js';
 import { ConfigError } from './config.js';
 import { redact } from './redact.js';
 import { RelayPortInUseError } from './relay/relay.js';
 
 const USAGE = `usage: runner <command>
   session          sign in to LinkedIn through the bridge
+  snapshot <url>   save pages of a job's apply flow by hand (Enter = save, q = finish)
+  snapshot scrub   scrub the raw saves into snapshots/
   bot-check        run the bot-detection check (--repeat N: repeat the behaviour pages; --record: record the run)
   bridge install   install the bridge extension
   pace record      record your own timing in Chrome (--typing: also print the typing page URL)
@@ -72,6 +75,8 @@ export async function main(argv: string[]): Promise<number> {
   try {
     const [a, b] = argv;
     if (a === 'session') return await sessionCommand();
+    if (a === 'snapshot' && b === 'scrub') return await snapshotScrubCommand();
+    if (a === 'snapshot') return await snapshotCommand(argv.slice(1));
     if (a === 'bot-check')
       return await botCheckCommand({
         repeat: intFlag(argv, '--repeat'),
