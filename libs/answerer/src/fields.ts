@@ -75,18 +75,31 @@ function keyForLabel(label: string): FieldKey | null {
   return null;
 }
 
-/** An option such as "United Kingdom (+44)": holds both the country and the code. */
+/**
+ * An option such as "United Kingdom (+44)": the code as a whole token (not
+ * followed by a digit) and, once the code and its brackets and punctuation are
+ * removed, exactly the country name. Null when none or more than one matches.
+ */
 function countryAndCodeOption(
   options: string[],
   bank: FactBank,
 ): string | null {
   const country = bank.fields.phone.country.trim().toLowerCase();
   const code = bank.fields.phone.countryCode.trim();
-  return (
-    options.find(
-      (o) => o.toLowerCase().includes(country) && o.includes(code),
-    ) ?? null
+  if (country === '' || code === '') return null;
+  const codeToken = new RegExp(
+    `(?<![\\d+])${code.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?!\\d)`,
   );
+  const matches = options.filter((o) => {
+    if (!codeToken.test(o)) return false;
+    const rest = o
+      .replace(codeToken, ' ')
+      .toLowerCase()
+      .replace(/[^\p{L}\p{N}]+/gu, ' ')
+      .trim();
+    return rest === country.replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+  });
+  return matches.length === 1 ? (matches[0] as string) : null;
 }
 
 /**

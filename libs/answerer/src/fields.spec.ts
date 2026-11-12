@@ -130,4 +130,64 @@ describe('mapField', () => {
       kind: 'none',
     });
   });
+
+  describe('phone country option matching', () => {
+    const us = {
+      ...bank,
+      fields: {
+        ...bank.fields,
+        phone: {
+          ...bank.fields.phone,
+          country: 'United States',
+          countryCode: '+1',
+        },
+      },
+    };
+    const pick = (options: string[]) =>
+      mapField(q({ label: 'Phone country code', type: 'select', options }), us);
+
+    it('does not let +1 match +1242', () => {
+      expect(pick(['Bahamas (+1242)', 'United States (+1)'])).toMatchObject({
+        kind: 'filled',
+        value: 'United States (+1)',
+      });
+      expect(pick(['Bahamas (+1242)'])).toMatchObject({ kind: 'no-option' });
+    });
+    it('does not pick a longer country name', () => {
+      expect(pick(['United States Minor Outlying Islands (+1)'])).toMatchObject(
+        { kind: 'no-option' },
+      );
+      expect(
+        pick([
+          'United States Minor Outlying Islands (+1)',
+          'United States (+1)',
+        ]),
+      ).toMatchObject({ value: 'United States (+1)' });
+    });
+    it('returns no-option when two options match equally', () => {
+      expect(pick(['United States (+1)', 'united states +1'])).toEqual({
+        kind: 'no-option',
+        detail: 'no option matches field phoneCountryCode',
+      });
+    });
+    it('never matches everything on an empty country or code', () => {
+      const empty = {
+        ...us,
+        fields: {
+          ...us.fields,
+          phone: { ...us.fields.phone, country: '', countryCode: '' },
+        },
+      };
+      expect(
+        mapField(
+          q({
+            label: 'Phone country',
+            type: 'select',
+            options: ['Anything (+1)'],
+          }),
+          empty,
+        ),
+      ).toMatchObject({ kind: 'no-option' });
+    });
+  });
 });
