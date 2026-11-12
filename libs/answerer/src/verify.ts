@@ -14,6 +14,7 @@ import {
 import { matchOption } from './sources.js';
 import {
   CHOICE_TYPES,
+  TEXT_TYPES,
   type AnswerContext,
   type AnswerValue,
   type CallStat,
@@ -27,7 +28,35 @@ export type VerifierCheck = 'blind' | 'fit' | 'claims';
 
 export type Verdict =
   | { verdict: 'confirmed' }
-  | { verdict: 'rejected'; check: VerifierCheck; feedback: string[] };
+  | {
+      verdict: 'rejected';
+      check: VerifierCheck | 'none';
+      feedback: string[];
+    };
+
+/**
+ * The verifier checks for a question and derivation, in the order they run.
+ * Blind runs for choice and number types, and for math and bucket on any type.
+ */
+export function checksFor(
+  q: FormQuestion,
+  derivation: AnswerCandidate['derivation'],
+): VerifierCheck[] {
+  const checks: VerifierCheck[] = [];
+  const isChoice = (CHOICE_TYPES as readonly string[]).includes(q.type);
+  if (
+    isChoice ||
+    q.type === 'number' ||
+    derivation === 'math' ||
+    derivation === 'bucket'
+  ) {
+    checks.push('blind');
+  }
+  if (derivation === 'as-written' || derivation === 'fitted')
+    checks.push('fit');
+  if (derivation === 'composed') checks.push('claims');
+  return checks;
+}
 
 const NUMBER_ONLY = /^\d+(?:\.\d+)?$/;
 
@@ -45,6 +74,15 @@ function sameBlindValue(
       return false;
     const v = verifierValue.trim();
     return NUMBER_ONLY.test(v) && Number(v) === Number(checked);
+  }
+  if ((TEXT_TYPES as readonly string[]).includes(q.type)) {
+    if (typeof verifierValue !== 'string' || typeof checked !== 'string')
+      return false;
+    const v = verifierValue.trim();
+    const w = checked.trim();
+    if (NUMBER_ONLY.test(v) && NUMBER_ONLY.test(w))
+      return Number(v) === Number(w);
+    return v.toLowerCase() === w.toLowerCase();
   }
   const options = q.options ?? [];
   if (q.type === 'checkbox-group') {
@@ -65,10 +103,17 @@ function sameBlindValue(
   return option !== null && option === checked;
 }
 
+function blindMismatch(q: FormQuestion): string {
+  if (q.type === 'number') return 'the verifier picked a different number';
+  if ((CHOICE_TYPES as readonly string[]).includes(q.type))
+    return 'the verifier picked a different option';
+  return 'the verifier gave a different answer';
+}
+
 /**
  * The independent verifier: fresh calls with their own system prompt. Runs
- * blind (choice and number types), then fit (as-written and fitted), then
- * claims (composed), stopping at the first rejection. Each returned call's
+ * the checks `checksFor` names, stopping at the first rejection. A round with
+ * no check is rejected, never confirmed. Each returned call's
  * stat is pushed onto `calls`.
  *
  * Feedback lines go only into the next generator prompt. They never hold the
@@ -94,25 +139,31 @@ export async function verifyCandidate(
   };
   const checked: AnswerCandidate = { ...c, value };
 
-  const isChoice = (CHOICE_TYPES as readonly string[]).includes(q.type);
-  if (isChoice || q.type === 'number') {
+  const checks = checksFor(q, c.derivation);
+  // Never confirm without an independent check.
+  if (checks.length === 0) {
+    return { verdict: 'rejected', check: 'none', feedback: [] };
+  }
+
+  if (checks.includes('blind')) {
     const blind = toCandidate(await call(blindPrompt(q, ctx), generatorOutput));
-    const same =
-      blind.outcome === 'answer' && sameBlindValue(q, blind.value, value);
-    if (!same) {
+    if (blind.outcome === 'cannot-answer') {
       return {
         verdict: 'rejected',
         check: 'blind',
-        feedback: [
-          q.type === 'number'
-            ? 'the verifier picked a different number'
-            : 'the verifier picked a different option',
-        ],
+        feedback: ['the verifier could not back an answer from the bank'],
+      };
+    }
+    if (!sameBlindValue(q, blind.value, value)) {
+      return {
+        verdict: 'rejected',
+        check: 'blind',
+        feedback: [blindMismatch(q)],
       };
     }
   }
 
-  if (c.derivation === 'as-written' || c.derivation === 'fitted') {
+  if (checks.includes('fit')) {
     const fit = await call(fitPrompt(q, ctx, checked), fitOutput);
     if (!fit.fits) {
       return {
@@ -123,7 +174,7 @@ export async function verifyCandidate(
     }
   }
 
-  if (c.derivation === 'composed') {
+  if (checks.includes('claims')) {
     const claims = await call(claimsPrompt(q, ctx, checked), claimsOutput);
     const feedback = claims.claims
       .filter(

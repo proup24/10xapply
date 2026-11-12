@@ -107,6 +107,12 @@ export async function answerQuestion(
           verification: { verdict: 'confirmed', rounds: round },
         };
       }
+      if (verdict.check === 'none') {
+        return blocked(
+          'verifier-rejected',
+          'verifier rejected: no check applied',
+        );
+      }
       if (round >= maxRounds) {
         return blocked(
           'verifier-rejected',

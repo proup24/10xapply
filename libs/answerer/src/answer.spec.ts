@@ -1,14 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import { answerQuestion } from './answer.js';
-import { fieldValue } from './fields.js';
-import { FIELD_PATTERNS } from './fields.js';
+import { FIELD_PATTERNS, fieldValue } from './fields.js';
 import { ModelCallError, ModelUnavailableError } from './model/caller.js';
 import { generatorPrompt } from './prompts/generator.js';
 import { blindPrompt, fitPrompt } from './prompts/verifier.js';
 import { fakeCaller } from './testing/fake-caller.js';
 import { bank, job } from './testing/bank.js';
+import { checksFor, verifyCandidate } from './verify.js';
 import type {
   AnswerContext,
+  CallStat,
+  Candidate,
   AnswerResult,
   FieldKey,
   FormQuestion,
@@ -232,13 +234,89 @@ describe('answerQuestion: verify', () => {
     expect(result.calls).toHaveLength(2);
   });
 
-  it('rejects a blind verifier cannot-answer', async () => {
-    const { result } = await run(
+  it('rejects a blind verifier cannot-answer, with its own feedback line', async () => {
+    const { result, requests } = await run(sponsorshipRadio, [
+      pick('Yes'),
+      () => cannot('bank-silent'),
+      () => cannot('bank-silent'),
+    ]);
+    expectBlocked(result, 'bank-silent', 'generator: bank-silent');
+    expect(requests[2]?.prompt).toBe(
+      generatorPrompt(sponsorshipRadio, promptCtx, [
+        'the verifier could not back an answer from the bank',
+      ]),
+    );
+
+    const once = await run(
       sponsorshipRadio,
       [pick('Yes'), () => cannot('bank-silent')],
       0,
     );
-    expectBlocked(result, 'verifier-rejected', 'verifier rejected: blind');
+    expectBlocked(once.result, 'verifier-rejected', 'verifier rejected: blind');
+  });
+
+  describe('math and bucket on a text field', () => {
+    const rate = q({ label: 'Your combined rate figure', type: 'text' });
+    const mathGen = () =>
+      out({
+        value: '5030',
+        derivation: 'math',
+        sources: [src({ kind: 'answer', id: 'contractor-rate', variant: 2 })],
+        math: {
+          kind: 'arithmetic',
+          year: null,
+          month: null,
+          expression: '5000 + 30',
+        },
+      });
+
+    it('runs a blind call on a math answer and rejects a mismatch', async () => {
+      const { result, requests } = await run(rate, [mathGen, pick('5031')], 0);
+      expectBlocked(result, 'verifier-rejected', 'verifier rejected: blind');
+      expect(requests.map((r) => r.role)).toEqual(['answer', 'verify']);
+      expect(requests[1]?.prompt).toBe(blindPrompt(rate, promptCtx));
+    });
+
+    it('compares a math answer on a text field numerically', async () => {
+      const { result } = await run(rate, [mathGen, pick('5030.0')]);
+      expect(result).toMatchObject({
+        status: 'backed',
+        value: '5030',
+        derivation: 'math',
+        verification: { verdict: 'confirmed', rounds: 1 },
+      });
+      expect(result.calls).toHaveLength(2);
+    });
+
+    it('runs a blind call on a bucket answer, compared case-insensitively', async () => {
+      const notice = q({ label: 'What is your notice period?', type: 'text' });
+      const noticeFact = src({
+        kind: 'fact',
+        text: 'My notice period is one month.',
+      });
+      const { result, requests } = await run(notice, [
+        pick('One month', 'bucket', [noticeFact]),
+        pick(' one MONTH '),
+      ]);
+      expect(result).toMatchObject({
+        status: 'backed',
+        value: 'One month',
+        verification: { verdict: 'confirmed', rounds: 1 },
+      });
+      expect(requests.map((r) => r.role)).toEqual(['answer', 'verify']);
+      expect(requests[1]?.prompt).toBe(blindPrompt(notice, promptCtx));
+
+      const mismatch = await run(
+        notice,
+        [pick('One month', 'bucket', [noticeFact]), pick('Two weeks')],
+        0,
+      );
+      expectBlocked(
+        mismatch.result,
+        'verifier-rejected',
+        'verifier rejected: blind',
+      );
+    });
   });
 
   it('rejects a blind verifier value that is not an option', async () => {
@@ -499,6 +577,58 @@ describe('answerQuestion: model failures', () => {
     await expect(
       run(sponsorshipRadio, [pick('Yes'), unavailable]),
     ).rejects.toBeInstanceOf(ModelUnavailableError);
+  });
+});
+
+describe('verifier checks', () => {
+  const text = q({ type: 'text' });
+  it('names the checks per type and derivation, in order', () => {
+    expect(checksFor(sponsorshipRadio, 'fitted')).toEqual(['blind', 'fit']);
+    expect(checksFor(sponsorshipRadio, 'bucket')).toEqual(['blind']);
+    expect(checksFor(sponsorshipRadio, 'composed')).toEqual([
+      'blind',
+      'claims',
+    ]);
+    expect(checksFor(q({ type: 'number' }), 'as-written')).toEqual([
+      'blind',
+      'fit',
+    ]);
+    expect(checksFor(text, 'math')).toEqual(['blind']);
+    expect(checksFor(text, 'bucket')).toEqual(['blind']);
+    expect(checksFor(text, 'as-written')).toEqual(['fit']);
+    expect(checksFor(text, 'fitted')).toEqual(['fit']);
+    expect(checksFor(text, 'composed')).toEqual(['claims']);
+  });
+
+  it('rejects, never confirms, a round with no check (unreachable from answerQuestion)', async () => {
+    // No answer derivation gets zero checks, so only a forced one reaches the guard.
+    const forced = {
+      outcome: 'answer',
+      value: 'x',
+      sources: [],
+      derivation: 'field',
+      inferences: [],
+    } as unknown as Extract<Candidate, { outcome: 'answer' }>;
+    expect(checksFor(text, forced.derivation)).toEqual([]);
+    const caller = fakeCaller([]);
+    const calls: CallStat[] = [];
+    const verdict = await verifyCandidate(
+      text,
+      {
+        ...promptCtx,
+        models: { answerModel: 'g', verifyModel: 'v', maxRegenerations: 1 },
+        caller,
+      },
+      forced,
+      'x',
+      calls,
+    );
+    expect(verdict).toEqual({
+      verdict: 'rejected',
+      check: 'none',
+      feedback: [],
+    });
+    expect(caller.requests).toHaveLength(0);
   });
 });
 
