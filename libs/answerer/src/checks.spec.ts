@@ -157,6 +157,20 @@ describe('checkCandidate: sources', () => {
       ),
     ).toEqual({ ok: true, value: 'I enjoy code review.' });
   });
+  it('fails a job-post quote shorter than 3 words', () => {
+    for (const quote of ['Kubernetes', 'code review']) {
+      fails(
+        check(
+          q(),
+          ans({
+            value: 'I enjoy code review.',
+            sources: [authorFact, { kind: 'job-post', quote }],
+          }),
+        ),
+        'unknown source',
+      );
+    }
+  });
   it('needs every inference source to exist and be among the cited sources', () => {
     const story: Source = { kind: 'story', id: 'missed-launch-date' };
     const withInference = (source: Source, sources: Source[]) =>
@@ -393,7 +407,7 @@ describe('checkCandidate: numbers and number fields', () => {
       'number not in sources',
     );
   });
-  it('allows numbers from a cited story, fact and job post', () => {
+  it('allows numbers from a cited story', () => {
     expect(
       check(
         q({ type: 'textarea' }),
@@ -403,6 +417,37 @@ describe('checkCandidate: numbers and number fields', () => {
         }),
       ),
     ).toEqual({ ok: true, value: 'The launch slipped two weeks.' });
+  });
+  it('never lets a job-post number back a number about the author', () => {
+    const goJob = {
+      ...ctx,
+      job: {
+        ...job,
+        description: `${job.description} You have 5+ years of Go experience.`,
+      },
+    };
+    const post: Source = { kind: 'job-post', quote: '5+ years of Go experience' };
+    fails(
+      checkCandidate(
+        q({ type: 'textarea' }),
+        ans({ value: 'I have 5 years of Go.', sources: [authorFact, post] }),
+        goJob,
+      ),
+      'number not in sources',
+    );
+    fails(
+      checkCandidate(
+        q({ type: 'number' }),
+        ans({
+          value: '5',
+          derivation: 'math',
+          sources: [authorFact, post],
+          math: { kind: 'arithmetic', expression: '5' },
+        }),
+        goJob,
+      ),
+      'number not in sources',
+    );
   });
   it('never allows the run date numbers as free numbers in a value', () => {
     for (const value of [

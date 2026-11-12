@@ -164,6 +164,8 @@ describe('system prompts', () => {
       'Never use arithmetic for years since a date; always use years-since.',
       "The run date's numbers are never usable in arithmetic",
       "Every inference's source must also be listed in sources",
+      "The job post's numbers never back a number in a value",
+      'at least 3 words',
     ]) {
       expect(GENERATOR_SYSTEM).toContain(s);
     }

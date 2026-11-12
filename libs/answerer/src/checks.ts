@@ -28,6 +28,16 @@ const fail = (detail: string): CheckResult => ({ ok: false, detail });
 const NUMBER_ONLY = /^\d+(?:\.\d+)?$/;
 const WHOLE_NUMBER = /^\d+$/;
 
+/** A job-post quote shorter than this is too loose to trace: it fails as unknown. */
+const MIN_QUOTE_WORDS = 3;
+
+/** The author's own entries: the only sources whose numbers may appear in a value. */
+const isAuthorSource = (s: Source): boolean =>
+  s.kind === 'field' ||
+  s.kind === 'fact' ||
+  s.kind === 'answer' ||
+  s.kind === 'story';
+
 /** Regex source matching any name (full or three-letter) of the month. */
 function monthNames(month: number): string {
   return Object.entries(MONTHS)
@@ -179,6 +189,12 @@ export function checkCandidate(
   for (const source of c.sources) {
     const text = sourceText(source, ctx);
     if (text === null) return fail('unknown source');
+    if (
+      source.kind === 'job-post' &&
+      text.split(' ').length < MIN_QUOTE_WORDS
+    ) {
+      return fail('unknown source');
+    }
     texts.push(text);
   }
   // Every inference rests on a source that exists and is cited.
@@ -227,17 +243,18 @@ export function checkCandidate(
       return fail('not as written');
   }
 
-  // Numbers: each must be in a cited source (a cited answer, for fitted), or be
-  // the result of checked math. The run date is never a free number in a value.
+  // Numbers: each must be in a cited author source (a cited answer, for
+  // fitted), or be the result of checked math. The job post never backs a
+  // number about the author, and the run date is never a free number.
   const free = c.sources.flatMap((s, i) =>
-    s.kind === 'run-date' || (c.derivation === 'fitted' && s.kind !== 'answer')
-      ? []
-      : [texts[i]],
+    isAuthorSource(s) && (c.derivation !== 'fitted' || s.kind === 'answer')
+      ? [texts[i]]
+      : [],
   );
   const allowed = new Set(free.flatMap(numbersIn));
   if (c.derivation === 'math') {
-    // Arithmetic never uses the run date's numbers: a span of time up to now
-    // is years-since, which counts months correctly.
+    // Arithmetic uses author numbers only. Never the job post's, and never the
+    // run date's: a span of time up to now is years-since, which counts months.
     const inExpression = new Set(allowed);
     const authorTexts = c.sources.flatMap((s, i) =>
       s.kind === 'fact' || s.kind === 'answer' || s.kind === 'story'
