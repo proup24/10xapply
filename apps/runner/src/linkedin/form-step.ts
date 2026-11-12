@@ -132,7 +132,7 @@ function readErrors(dialog: El): string[] {
  * name, aria-label or aria-describedby. Null when none is unique, so the
  * control is never aimed at through an ambiguous selector.
  */
-function selectorFor(doc: Document, el: El): string | null {
+export function selectorFor(doc: Document, el: El): string | null {
   const tag = el.tagName.toLowerCase();
   const candidates: string[] = [];
   const id = el.getAttribute('id');

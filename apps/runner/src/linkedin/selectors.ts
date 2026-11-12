@@ -49,6 +49,21 @@ export const UPLOAD_RESUME_TEXT = /^upload resume/i;
 /** Error messages inside the form (synthetic; none in the captures). */
 export const FORM_ERRORS = '[role="alert"], [id^="error-message"]';
 
+/**
+ * The form's own Dismiss (X) button, scoped to the dialog labelled by the
+ * form header: the "Save this application?" prompt has a Dismiss of its own
+ * (review.html, review-save-prompt.html).
+ */
+export const DISMISS =
+  'dialog[aria-labelledby="dialog-header"] button[aria-label="Dismiss"]';
+/**
+ * After Dismiss, LinkedIn asks "Save this application?" in a second
+ * `<dialog>` with "Discard" and "Save" buttons that carry no aria-label, so
+ * Discard is found by its text (review-save-prompt.html).
+ */
+export const SAVE_PROMPT_TITLE = 'Save this application?';
+export const DISCARD_TEXT = 'Discard';
+
 /** `[attr="value"]` with the value quoted for CSS. */
 export function attr(name: string, value: string): string {
   return `[${name}="${value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"]`;
