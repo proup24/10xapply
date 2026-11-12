@@ -44,6 +44,7 @@ const KEEP_TEXT_TAGS = new Set([
   'h6',
   'button',
   'option',
+  'fieldset',
 ]);
 const DROP_STATE_ATTRIBUTES = new Set([
   'selected',

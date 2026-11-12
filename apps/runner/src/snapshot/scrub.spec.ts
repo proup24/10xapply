@@ -300,6 +300,35 @@ describe('scrubSnapshot, fix round 1', () => {
   });
 });
 
+describe('fieldset text', () => {
+  const radios =
+    '<fieldset aria-describedby="error-message-_r_45_" role="radiogroup"><div><div><div><div><input id="_r_47_" aria-label="Do you have a residence permit in Portugal?" type="radio" name="radio-group-_r_45_"><label for="_r_47_"></label></div><div><p>Yes</p></div></div></div><div><div><div><input id="_r_49_" aria-label="Do you have a residence permit in Portugal?" type="radio" name="radio-group-_r_45_"><label for="_r_49_"></label></div><div><p>No</p></div></div></div></div></fieldset>';
+
+  it('keeps option text beside an empty label', () => {
+    const { html } = scrubSnapshot(radios, []);
+    expect(html).toContain('<p>Yes</p>');
+    expect(html).toContain('<p>No</p>');
+  });
+
+  it('still replaces a name secret inside a fieldset', () => {
+    const { html } = scrubSnapshot(
+      '<fieldset><p>Sam_Example_CV.pdf</p></fieldset>',
+      ['Sam Example'],
+      ['Sam Example'],
+    );
+    expect(html).toBe('<fieldset><p>[secret]_CV.pdf</p></fieldset>');
+  });
+
+  it('still blanks a textarea inside a fieldset', () => {
+    const { html } = scrubSnapshot(
+      '<fieldset><p>Why</p><textarea>my reasons</textarea></fieldset>',
+      [],
+    );
+    expect(html).toContain('<p>Why</p>');
+    expect(html).not.toContain('my reasons');
+  });
+});
+
 describe('name secrets', () => {
   const names = ['Sam Example', 'Sam', 'Example', 'sam-example'];
   const labels = [
