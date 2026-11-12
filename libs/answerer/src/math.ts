@@ -57,21 +57,58 @@ const NUMBER_WORDS: Record<string, number> = {
   eighty: 80,
   ninety: 90,
   hundred: 100,
-  thousand: 1000,
 };
 
+/** Scale words, after a number ("5 thousand") or on their own ("a million"). */
+const SCALE_WORDS: Record<string, number> = {
+  thousand: 1e3,
+  million: 1e6,
+  billion: 1e9,
+};
+
+/** Scale suffixes written onto a figure: "5k", "$5M", "5bn". */
+const SCALE_SUFFIXES: Record<string, number> = { k: 1e3, m: 1e6, bn: 1e9 };
+
+const FIGURE = String.raw`\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?`;
+const WORD = Object.keys(NUMBER_WORDS).join('|');
+const SCALE = Object.keys(SCALE_WORDS).join('|');
+
 const NUMBER_TOKEN = new RegExp(
-  String.raw`\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?|\b(?:${Object.keys(NUMBER_WORDS).join('|')})\b`,
+  String.raw`(${FIGURE})(?:(bn|k|m)\b|\s+(${SCALE})\b)?` +
+    String.raw`|\b(${WORD})\b(?:\s+(${SCALE})\b)?` +
+    String.raw`|\b(${SCALE})\b`,
   'gi',
 );
 
-/** Every number in the text, in order of appearance. A `-` is never a minus sign. */
+/** Avoids float noise such as 1.1 × 1000 = 1100.0000000000002. */
+const scaled = (n: number, by: number): number =>
+  Number((n * by).toPrecision(15));
+
+/**
+ * Every number in the text, in order of appearance. A `-` is never a minus
+ * sign. A scale is part of its number: "5k", "5M" and "5 thousand" are one
+ * number each (5000, 5000000, 5000), never also 5.
+ */
 export function numbersIn(text: string): number[] {
   const found: number[] = [];
-  for (const match of text.matchAll(NUMBER_TOKEN)) {
-    const token = match[0];
-    const word = NUMBER_WORDS[token.toLowerCase()];
-    found.push(word ?? Number(token.replaceAll(',', '')));
+  for (const m of text.matchAll(NUMBER_TOKEN)) {
+    const [, figure, suffix, figureScale, word, wordScale, bare] = m;
+    if (figure !== undefined) {
+      const n = Number(figure.replaceAll(',', ''));
+      const by = suffix
+        ? SCALE_SUFFIXES[suffix.toLowerCase()]
+        : figureScale
+          ? SCALE_WORDS[figureScale.toLowerCase()]
+          : 1;
+      found.push(scaled(n, by));
+    } else if (word !== undefined) {
+      const n = NUMBER_WORDS[word.toLowerCase()];
+      found.push(
+        wordScale ? scaled(n, SCALE_WORDS[wordScale.toLowerCase()]) : n,
+      );
+    } else if (bare !== undefined) {
+      found.push(SCALE_WORDS[bare.toLowerCase()]);
+    }
   }
   return found;
 }

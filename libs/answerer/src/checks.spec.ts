@@ -407,6 +407,25 @@ describe('checkCandidate: numbers and number fields', () => {
       'number not in sources',
     );
   });
+  it('reads magnitudes when checking numbers', () => {
+    const fiveEngineers: Source = {
+      kind: 'fact',
+      text: 'I am comfortable leading code reviews for a team of five engineers.',
+    };
+    fails(
+      check(
+        q({ type: 'textarea' }),
+        ans({ value: 'I ran a $5M budget.', sources: [fiveEngineers] }),
+      ),
+      'number not in sources',
+    );
+    expect(
+      check(
+        q({ type: 'textarea' }),
+        ans({ value: 'I expect about 5k USD a month.', sources: [salary] }),
+      ),
+    ).toEqual({ ok: true, value: 'I expect about 5k USD a month.' });
+  });
   it('allows numbers from a cited story', () => {
     expect(
       check(

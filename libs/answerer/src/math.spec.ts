@@ -28,6 +28,23 @@ describe('numbersIn', () => {
   it('never reads a minus sign', () => {
     expect(numbersIn('2026-11-12')).toEqual([2026, 11, 12]);
   });
+  it('reads magnitudes as one number, never the bare figure as well', () => {
+    expect(numbersIn('5k, 5K and 5 thousand')).toEqual([5000, 5000, 5000]);
+    expect(numbersIn('$5M, 5m and 5 million')).toEqual([
+      5_000_000, 5_000_000, 5_000_000,
+    ]);
+    expect(numbersIn('5bn and 5 billion')).toEqual([
+      5_000_000_000, 5_000_000_000,
+    ]);
+    expect(numbersIn('2.5k and 1.1k')).toEqual([2500, 1100]);
+    expect(numbersIn('five thousand')).toEqual([5000]);
+  });
+  it('reads bare magnitude words, and leaves other letters after a number alone', () => {
+    expect(numbersIn('a thousand users, a million rows')).toEqual([
+      1000, 1_000_000,
+    ]);
+    expect(numbersIn('5km and 5mb and 5 kg')).toEqual([5, 5, 5]);
+  });
 });
 
 describe('evaluate', () => {
@@ -53,6 +70,7 @@ describe('evaluate', () => {
     }
   });
   it('never quotes the input in the error', () => {
+    expect.assertions(1);
     try {
       evaluate('secret-value()');
     } catch (e) {
