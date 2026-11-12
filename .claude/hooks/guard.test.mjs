@@ -442,6 +442,9 @@ test('runner (real name): safe commands pass', () => {
     'pnpm nx run runner:pace-record',
     'pnpm nx run runner:facts-check',
     'pnpm nx run runner:answers-eval',
+    'pnpm nx run runner:snapshot -- https://www.linkedin.com/jobs/view/1/',
+    'pnpm nx run runner:snapshot-scrub',
+    'pnpm nx run runner:apply -- https://www.linkedin.com/jobs/view/1/ --dry-run',
     'tsx apps/runner/src/main.ts answers eval --set example --repeat 3',
     'tsx apps/runner/src/main.ts facts check',
     'tsx --conditions=@xapply/source apps/runner/src/main.ts facts check',
@@ -453,6 +456,14 @@ test('runner (real name): safe commands pass', () => {
   ]) {
     assert.equal(bash(command).block, false, command);
   }
+});
+
+test('runner (real name): apply without dry-run is blocked', () => {
+  const r = bash(
+    'pnpm nx run runner:apply -- https://www.linkedin.com/jobs/view/1/',
+  );
+  assert.equal(r.block, true);
+  assert.match(r.reason, /Runner blocked/);
 });
 
 test('runner (real name): no false positives', () => {

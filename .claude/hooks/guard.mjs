@@ -359,6 +359,8 @@ export const RUNNER_SAFE_SUBCOMMANDS = [
   'facts-check',
   'answers',
   'answers-eval',
+  'snapshot',
+  'snapshot-scrub',
 ];
 export const DEV_TARGETS = ['build', 'test', 'lint', 'typecheck'];
 

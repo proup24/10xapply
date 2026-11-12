@@ -76,17 +76,17 @@ The author gives the runner one LinkedIn job URL. A real Chrome window on the au
 
 **Exit criteria:** from a terminal command with one job URL, a real Easy Apply application is submitted from the author's account with every answer correct and none invented. A question the facts can't answer stops the run and asks in the terminal. A second command on the same job refuses to apply. Each safety stop (captcha, security check, signed out, unfamiliar field) ends the run without submitting.
 
-| #   | Slice                                         | Depends on       |
-| --- | --------------------------------------------- | ---------------- |
-| 03  | Local browser and the LinkedIn session        | 02               |
-| 03b | Human pace from the author's own applications | 03               |
-| 04  | Fact bank file                                | 02               |
-| 05  | Answering form questions                      | 04               |
-| 05b | Disqualification                              | 05               |
-| 06  | Walk the form without submitting              | 03, 03b, 05, 05b |
-| 07  | Submit, and never twice                       | 06               |
+| #   | Slice                                         | Depends on  |
+| --- | --------------------------------------------- | ----------- |
+| 03  | Local browser and the LinkedIn session        | 02          |
+| 03b | Human pace from the author's own applications | 03          |
+| 04  | Fact bank file                                | 02          |
+| 05  | Answering form questions                      | 04          |
+| 05b | Disqualification                              | 06          |
+| 06  | Walk the form without submitting              | 03, 03b, 05 |
+| 07  | Submit, and never twice                       | 06, 05b     |
 
-03→03b and 04→05→05b are independent of each other and can be built in either order.
+03→03b and 04→05 are independent; 05b follows 06.
 
 ### 03 Local browser and the LinkedIn session
 
@@ -136,13 +136,14 @@ The author gives the runner one LinkedIn job URL. A real Chrome window on the au
 - **Scope:** some jobs require something the author does not have, usually a work authorization or a location. The run should not apply to them. It marks the job **disqualified** instead.
   - A `claude -p` role extracts structured claims from the job page and from each form question's label, text and options (for example `{ requires: work-authorization, country: US }`).
   - Plain code checks those claims against a separate rules file, so the decision is deterministic and tested exactly.
-  - The check runs on the job page before the form is opened, and again on each form question.
+  - Slice 06 comes first; this slice adds its check to the run: on the job page before the form opens, and on each question.
   - A disqualified job is recorded and skipped. It is not a blocking question, because nothing the author answers would fix it.
 - **Locked:** the extractor is its own role and model in configuration, separate from the answerer, and it never sees the fact bank _(user)_. Disqualification is not the bank's job: the bank answers a work-authorization question truthfully like any other.
 - **Spec answers:** the rules file format, the extraction schema and where the verdict is recorded are left to this slice's own spec. In Phase 2 the same check can also run when a match arrives, before it reaches the approval list.
 
 ### 06 Walk the form without submitting
 
+- **Spec:** [slice 06 spec](../superpowers/specs/2026-11-12-walk-the-form-design.md).
 - **Scope:** `apply <job-url> --dry-run`: open the job, confirm it is Easy Apply and not already applied to, open the form, read each step's questions into a structured list, answer them through slice 05, fill them in, move through the steps and stop on the review page before Submit. It acts on the page only through the pace module. Print and save (under `private/`) a run report: each question, the answer, its confidence and source.
 - **Locked:** the safety stops listed at the top. Only Easy Apply; any other kind of job is reported and skipped.
 - **Spec answers:** which field types are supported at first and how an unknown one is detected; how the runner recognises each step and the review page; how many dry runs on real jobs are enough before slice 07 turns on submit.
@@ -151,7 +152,7 @@ The author gives the runner one LinkedIn job URL. A real Chrome window on the au
 
 - **Scope:** `apply <job-url>` without `--dry-run`. If every answer is confident, it submits. If something blocks, it asks the author in the terminal, then continues or stops. After submitting, it confirms LinkedIn shows the job as applied. A local record of applied jobs under `private/`, keyed on the LinkedIn job id, refuses a second application. LinkedIn's own "Applied" marker is checked too. The record also has a `disqualified` status (from slice 05b), and a disqualified job is never retried.
 - **Locked:** auto-submit unless blocked _(user)_. The local record is written before the Submit click, as "submitting", and updated after it, so a crash mid-submit never leads to a second attempt without the author checking.
-- **Spec answers:** whether a terminal answer is saved back into the fact bank for next time; what happens if the browser crashes mid-run; the format of the local record (it moves to Postgres in slice 14).
+- **Spec answers:** whether a terminal answer is saved back into the fact bank for next time (answered in slice 06: yes, as a known answer); what happens if the browser crashes mid-run; the format of the local record (it moves to Postgres in slice 14).
 
 ## Phase 2: Steady stream for the author
 
