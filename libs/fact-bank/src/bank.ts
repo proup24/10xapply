@@ -15,8 +15,27 @@ export interface Fact {
   confirmed?: string;
 }
 
-export interface FactBank extends Omit<FactBankFile, 'facts' | 'fields'> {
+type RawAnswer = FactBankFile['answers'][number];
+type RawVariant = NonNullable<RawAnswer['variants']>[number];
+type RawStory = FactBankFile['stories'][number];
+
+export type Variant = Omit<RawVariant, 'tags'> & { tags: string[] };
+export type Story = Omit<RawStory, 'tags'> & { tags: string[] };
+// Exactly one of answer or variants, as the file rule requires.
+export type Answer = Omit<RawAnswer, 'answer' | 'variants' | 'tags'> & {
+  tags: string[];
+} & (
+    | { answer: string; variants?: never }
+    | { variants: [Variant, ...Variant[]]; answer?: never }
+  );
+
+export interface FactBank extends Omit<
+  FactBankFile,
+  'facts' | 'fields' | 'answers' | 'stories'
+> {
   facts: Fact[];
+  answers: Answer[];
+  stories: Story[];
   fields: Omit<FactBankFile['fields'], 'phone'> & {
     phone: FactBankFile['fields']['phone'] & { full: string };
     fullName: string;
@@ -43,6 +62,22 @@ export class FactBankError extends Error {
   }
 }
 
+function buildAnswer(a: RawAnswer): Answer {
+  const { answer, variants, tags, ...rest } = a;
+  const base = { ...rest, tags: tags ?? [] };
+  if (variants !== undefined) {
+    return {
+      ...base,
+      variants: variants.map((v) => ({ ...v, tags: v.tags ?? [] })) as [
+        Variant,
+        ...Variant[],
+      ],
+    };
+  }
+  // The file rule guarantees answer is set when variants is not.
+  return { ...base, answer: answer as string };
+}
+
 function build(file: FactBankFile, baseDir: string): FactBank {
   const f = file.fields;
   const number = f.phone.number.replace(/ /g, '');
@@ -54,6 +89,8 @@ function build(file: FactBankFile, baseDir: string): FactBank {
       if (x.confirmed !== undefined) fact.confirmed = x.confirmed;
       return fact;
     }),
+    answers: file.answers.map(buildAnswer),
+    stories: file.stories.map((x) => ({ ...x, tags: x.tags ?? [] })),
     fields: {
       ...f,
       phone: { ...f.phone, number, full: `${f.phone.countryCode} ${number}` },

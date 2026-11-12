@@ -128,11 +128,21 @@ function flatten(issues: readonly Issue[], raw: unknown): Issue[] {
   return out;
 }
 
+function isEmptyString(issue: Issue): boolean {
+  return (
+    issue.code === 'too_small' &&
+    issue.origin === 'string' &&
+    Number(issue.minimum) === 1
+  );
+}
+
 function problemFor(issue: Issue, raw: unknown): Problem[] {
   const path = issue.path as Path;
   const where = whereOf(path, raw);
   // The issue's own text is only ever used as a lookup key, never shown.
-  const known = FORMAT_MESSAGES[issue.message];
+  const known = Object.hasOwn(FORMAT_MESSAGES, issue.message)
+    ? FORMAT_MESSAGES[issue.message]
+    : undefined;
   if (known !== undefined) return [{ where, message: known }];
 
   switch (issue.code) {
@@ -146,6 +156,10 @@ function problemFor(issue: Issue, raw: unknown): Problem[] {
       }
       return [{ where, message: `must be ${typeWords(issue.expected)}` }];
     }
+    case 'too_small':
+      if (isEmptyString(issue))
+        return [{ where, message: 'must not be empty' }];
+      return [{ where, message: NOT_VALID }];
     case 'unrecognized_keys':
       return (issue.keys as string[]).map((k) => ({
         where,
@@ -157,7 +171,12 @@ function problemFor(issue: Issue, raw: unknown): Problem[] {
 }
 
 export function problemsFromZod(error: z.ZodError, raw: unknown): Problem[] {
-  return flatten(error.issues as Issue[], raw).flatMap((i) =>
-    problemFor(i, raw),
+  const issues = flatten(error.issues as Issue[], raw);
+  // An empty value also fails every later check on it; say it once.
+  const empty = new Set(
+    issues.filter(isEmptyString).map((i) => JSON.stringify(i.path)),
   );
+  return issues
+    .filter((i) => isEmptyString(i) || !empty.has(JSON.stringify(i.path)))
+    .flatMap((i) => problemFor(i, raw));
 }

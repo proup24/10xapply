@@ -1,14 +1,24 @@
-import { isAlias, parseDocument, visit } from 'yaml';
+import { isAlias, isScalar, LineCounter, parseDocument, visit } from 'yaml';
 import type { Problem } from './problems.js';
 
 export function readYaml(text: string): { raw?: unknown; problems: Problem[] } {
   const source = text.charCodeAt(0) === 0xfeff ? text.slice(1) : text;
-  const doc = parseDocument(source, { schema: 'failsafe', uniqueKeys: true });
+  const lineCounter = new LineCounter();
+  // logLevel 'error' keeps the parser from printing warnings, which can quote
+  // the file.
+  const doc = parseDocument(source, {
+    schema: 'failsafe',
+    uniqueKeys: true,
+    logLevel: 'error',
+    lineCounter,
+  });
   const problems: Problem[] = [];
 
   // Only the position is reported; the parser's message can quote the file.
-  for (const err of doc.errors) {
-    const pos = err.linePos?.[0];
+  // Only the first error: one bad line can make the parser cascade.
+  const first = doc.errors[0];
+  if (first) {
+    const pos = first.linePos?.[0];
     problems.push({
       where: pos ? `line ${pos.line}, column ${pos.col}` : 'file',
       message: 'YAML syntax error',
@@ -17,6 +27,17 @@ export function readYaml(text: string): { raw?: unknown; problems: Problem[] } {
 
   let anchored = false;
   visit(doc, {
+    Pair(_key, pair) {
+      if (isScalar(pair.key)) return;
+      const offset = (pair.key as { range?: [number, number, number] } | null)
+        ?.range?.[0];
+      const pos =
+        offset === undefined ? undefined : lineCounter.linePos(offset);
+      problems.push({
+        where: pos ? `line ${pos.line}, column ${pos.col}` : 'file',
+        message: 'keys must be plain text',
+      });
+    },
     Node(_key, node) {
       if (isAlias(node) || (node as { anchor?: string }).anchor) {
         anchored = true;

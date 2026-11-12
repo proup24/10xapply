@@ -44,6 +44,15 @@ describe('checkFactBank', () => {
     expect(b.fields.phone.number).toBe('7700900123');
     expect(b.fields.phone.full).toBe('+44 7700900123');
     expect(b.facts[0]).toEqual({ text: 'I am a British citizen.', tags: [] });
+    expect(b.answers.every((a) => Array.isArray(a.tags))).toBe(true);
+    expect(b.stories.every((x) => Array.isArray(x.tags))).toBe(true);
+    for (const a of b.answers) {
+      expect((a.answer === undefined) !== (a.variants === undefined)).toBe(
+        true,
+      );
+      for (const v of a.variants ?? [])
+        expect(Array.isArray(v.tags)).toBe(true);
+    }
     expect(isAbsolute(b.fields.resume)).toBe(true);
     expect(b.fields.resume).toBe(join(dir, 'resume.pdf'));
   });

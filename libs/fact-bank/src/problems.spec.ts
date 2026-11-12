@@ -127,6 +127,11 @@ describe('problemsFromZod messages', () => {
       'answers[0] (id: notice-period).variants: is not valid',
     ],
     [
+      'empty value gives one message',
+      (f) => (f.fields.links.github = ''),
+      'fields.links.github: must not be empty',
+    ],
+    [
       'story without tags',
       (f) => (f.stories[0].tags = []),
       'stories[0] (id: migration-project).tags: is not valid',
@@ -162,6 +167,12 @@ describe('problemsFromZod messages', () => {
     const h = validFile();
     h.facts = [{ tags: ['x'] }];
     expect(lines(h)).toEqual(['facts[0].text: is required']);
+  });
+
+  it('reports an empty value exactly once', () => {
+    const f = validFile();
+    f.fields.links.github = '';
+    expect(lines(f)).toEqual(['fields.links.github: must not be empty']);
   });
 
   it('reports a fact of the wrong type simply', () => {

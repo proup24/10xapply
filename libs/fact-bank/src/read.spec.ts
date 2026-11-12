@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { formatProblem } from './problems.js';
 import { readYaml } from './read.js';
 
@@ -41,10 +41,37 @@ describe('readYaml', () => {
 
   it('reports a tab-indented line without quoting it', () => {
     const r = readYaml('a:\n\tsecret-value-here: 1\n');
-    expect(r.problems.length).toBeGreaterThan(0);
-    for (const p of r.problems) {
-      expect(p.where).toMatch(/^line \d+, column \d+$/);
-      expect(formatProblem(p)).not.toContain('secret-value-here');
+    expect(r.problems).toHaveLength(1);
+    expect(r.problems[0].where).toMatch(/^line \d+, column \d+$/);
+    expect(formatProblem(r.problems[0])).not.toContain('secret-value-here');
+  });
+
+  it('rejects collection keys without printing or warning', () => {
+    const warn = vi
+      .spyOn(process, 'emitWarning')
+      .mockImplementation(() => undefined);
+    const consoleWarn = vi
+      .spyOn(console, 'warn')
+      .mockImplementation(() => undefined);
+    try {
+      for (const text of [
+        '? [SECRETVAL]\n: x\n',
+        '{[SECRETVAL]: b}\n',
+        'a: 1\n? {SECRETVAL: 1}\n: x\n',
+      ]) {
+        const r = readYaml(text);
+        expect(r.raw).toBeUndefined();
+        expect(r.problems.length).toBeGreaterThan(0);
+        expect(r.problems.map((p) => p.message)).toContain(
+          'keys must be plain text',
+        );
+        expect(JSON.stringify(r.problems)).not.toContain('SECRETVAL');
+      }
+      expect(warn).not.toHaveBeenCalled();
+      expect(consoleWarn).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+      consoleWarn.mockRestore();
     }
   });
 

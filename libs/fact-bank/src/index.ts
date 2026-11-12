@@ -14,5 +14,8 @@ export {
   SIZE_WARNING_CHARACTERS,
   type CheckResult,
   type Fact,
+  type Answer,
+  type Variant,
+  type Story,
   type FactBank,
 } from './bank.js';
