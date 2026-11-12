@@ -80,7 +80,7 @@ function keyForLabel(label: string): FieldKey | null {
  * followed by a digit) and, once the code and its brackets and punctuation are
  * removed, exactly the country name. Null when none or more than one matches.
  */
-function countryAndCodeOption(
+export function countryAndCodeOption(
   options: string[],
   bank: FactBank,
 ): string | null {
@@ -118,7 +118,7 @@ export function mapField(q: FormQuestion, bank: FactBank): FieldMapping {
   }
 
   const value = fieldValue(key, bank);
-  if (value === undefined) {
+  if (value === undefined || value.trim() === '') {
     return {
       kind: 'blocked',
       reason: 'bank-silent',

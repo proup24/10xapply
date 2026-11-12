@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  countryAndCodeOption,
   FIELD_PATTERNS,
   fieldValue,
   mapField,
@@ -187,7 +188,61 @@ describe('mapField', () => {
           }),
           empty,
         ),
+      ).toMatchObject({ kind: 'blocked', reason: 'bank-silent' });
+    });
+
+    const withPhone = (country: string, countryCode: string) => ({
+      ...us,
+      fields: {
+        ...us.fields,
+        phone: { ...us.fields.phone, country, countryCode },
+      },
+    });
+
+    it('an empty country never matches, even a bare code option', () => {
+      expect(countryAndCodeOption(['+1'], withPhone('', '+1'))).toBeNull();
+      expect(
+        mapField(
+          q({ label: 'Phone country', type: 'select', options: ['+1'] }),
+          withPhone('', '+1'),
+        ),
+      ).toMatchObject({ kind: 'blocked', reason: 'bank-silent' });
+    });
+    it('an empty code never matches through countryAndCodeOption', () => {
+      const b = withPhone('United States', '');
+      expect(countryAndCodeOption(['United States'], b)).toBeNull();
+      expect(countryAndCodeOption(['United States (+1)'], b)).toBeNull();
+      expect(
+        mapField(
+          q({
+            label: 'Phone country',
+            type: 'select',
+            options: ['United States (+1)'],
+          }),
+          b,
+        ),
       ).toMatchObject({ kind: 'no-option' });
+      // The plain exact match still works for the country name.
+      expect(
+        mapField(
+          q({
+            label: 'Phone country',
+            type: 'select',
+            options: ['United States'],
+          }),
+          b,
+        ),
+      ).toMatchObject({ kind: 'filled', value: 'United States' });
+    });
+    it('never fills a choice field from an empty bank value', () => {
+      for (const options of [[''], [' '], ['', 'Other']]) {
+        expect(
+          mapField(
+            q({ label: 'Phone country code', type: 'select', options }),
+            withPhone('United States', ''),
+          ),
+        ).toMatchObject({ kind: 'blocked', reason: 'bank-silent' });
+      }
     });
   });
 });
