@@ -217,7 +217,7 @@ The author gives the runner one LinkedIn job URL. A real Chrome window on the au
 ### 15 Blocking questions in the web app
 
 - **Scope:** when a run blocks, its question shows in the web app. The author answers, the answer is saved to the facts, and the job goes back to approved so the runner tries again.
-- **Spec answers:** whether the runner keeps the form open waiting (minutes) or abandons and retries later (my lean: abandon and retry, so the browser isn't left sitting on a half-filled form); how the author is told a question is waiting.
+- **Spec answers:** whether the runner keeps the form open waiting (minutes) or abandons and retries later (my lean: abandon and retry, so the browser isn't left sitting on a half-filled form); how the author is told a question is waiting; how the author's answer becomes a bank entry: kept word for word as a known answer, or turned into a fact sentence by a model. Rewording is where an invented detail could slip in, so my lean is that a model may propose the entry, the author confirms its wording before it is saved, and the original answer is kept _(user: answers become facts)_.
 
 ### 16 Launch check
 
