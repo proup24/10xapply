@@ -145,4 +145,17 @@ describe('optionContains', () => {
       expect(optionContains(option, 5), option).toBeNull();
     }
   });
+  it('returns null for an option in months, weeks or days, because the number is in years', () => {
+    for (const [option, n] of [
+      ['Less than 6 months', 3],
+      ['Up to 6 months', 0],
+      ['6 months or more', 1],
+      ['More than 2 weeks', 5],
+      ['3 years - 5 months', 4],
+      ['10 days', 10],
+      ['1-3 mos', 2],
+    ] as Array<[string, number]>) {
+      expect(optionContains(option, n), option).toBeNull();
+    }
+  });
 });

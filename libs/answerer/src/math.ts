@@ -235,8 +235,12 @@ export function yearsSince(
 }
 
 const NUM = String.raw`(\d+(?:\.\d+)?)`;
-/** An optional unit after the number: "years", "yrs", "year of experience" and the like. */
-const UNIT = String.raw`(?:\s*(?:years?|yrs?|months?|weeks?|days?)(?:\s+(?:of\s+)?experience)?)?`;
+/**
+ * An optional unit after the number: "years", "yrs", "year of experience" and the like.
+ * Only year forms: the number checked is always whole years, so an option in months,
+ * weeks or days does not parse and is left to the verifier.
+ */
+const UNIT = String.raw`(?:\s*(?:years?|yrs?)(?:\s+(?:of\s+)?experience)?)?`;
 
 /** Each option form, with the test it puts on the number. */
 const OPTION_FORMS: Array<
