@@ -15,7 +15,7 @@ import {
   FORM_ERRORS,
   FORM_HEADER,
   RESUME_FILE,
-  UPLOAD_BUTTON_TEXT,
+  UPLOAD_RESUME_TEXT,
   attr,
   byComponentKey,
   byId,
@@ -42,6 +42,16 @@ const INPUT_ROLES = new Set([
 ]);
 /** LinkedIn's live character counter: "7/100" and "7 of 100 characters". */
 const COUNTER = /^(\d+\s*\/\s*\d+|\d+ of \d+ characters?)$/i;
+/** The counter's total is the field's limit. */
+const COUNTER_LIMIT = /(\d+)\s+of\s+(\d+)\s+characters?/i;
+/** Attributes a selector may use after the id, in order of preference. */
+const SELECTOR_ATTRS = [
+  'componentkey',
+  'data-testid',
+  'name',
+  'aria-label',
+  'aria-describedby',
+];
 const SUBMIT = /submit/i;
 const STAR = /\s*\*\s*$/;
 
@@ -59,7 +69,7 @@ export function readStep(doc: Document): StepRead {
     progress: readProgress(dialog),
     fields,
     unknown,
-    next: readNext(dialog),
+    next: readNext(doc, dialog),
     errors: readErrors(dialog),
   };
 }
@@ -86,17 +96,24 @@ function readTitle(dialog: El): string | null {
 function readProgress(dialog: El): number | null {
   const bar = one(dialog, '[role="progressbar"], progress');
   const raw = bar?.getAttribute('aria-valuenow') ?? bar?.getAttribute('value');
-  const n = raw == null ? NaN : Number(raw);
+  const n = raw == null || raw === '' ? NaN : Number(raw);
   return Number.isFinite(n) ? n : null;
 }
 
-/** "Next" or "Review" in the footer; a Submit button is never next. */
-function readNext(dialog: El): Extract<StepRead, { kind: 'step' }>['next'] {
+/**
+ * "Next" or "Review" in the footer; a Submit button is never next. A button
+ * no selector picks out alone is no next either.
+ */
+function readNext(
+  doc: Document,
+  dialog: El,
+): Extract<StepRead, { kind: 'step' }>['next'] {
   for (const b of all(dialog, FOOTER_BUTTONS)) {
     if (isSubmit(b)) continue;
     const name = (textOf(b) || label(b)).toLowerCase();
     if (name === 'next' || name === 'review') {
-      return { selector: selectorFor(b), label: name };
+      const selector = selectorFor(doc, b);
+      return selector === null ? null : { selector, label: name };
     }
   }
   return null;
@@ -110,21 +127,26 @@ function readErrors(dialog: El): string[] {
 }
 
 /**
- * A selector for one element: its id, else its componentkey (kept for the
- * life of the page), else name or aria-label inside the form dialog.
+ * A selector that matches `el` and nothing else on the page: its id, else
+ * its componentkey (kept for the life of the page), else a data-testid,
+ * name, aria-label or aria-describedby. Null when none is unique, so the
+ * control is never aimed at through an ambiguous selector.
  */
-function selectorFor(el: El): string {
+function selectorFor(doc: Document, el: El): string | null {
   const tag = el.tagName.toLowerCase();
+  const candidates: string[] = [];
   const id = el.getAttribute('id');
-  if (id) return byId(id);
-  const key = el.getAttribute('componentkey');
-  if (key) return byComponentKey(tag, key);
-  const form = `dialog:has(${FORM_HEADER})`;
-  const name = el.getAttribute('name');
-  if (name) return `${form} ${tag}${attr('name', name)}`;
-  const aria = el.getAttribute('aria-label');
-  if (aria) return `${form} ${tag}${attr('aria-label', aria)}`;
-  return `${form} ${tag}`;
+  if (id) candidates.push(byId(id));
+  for (const name of SELECTOR_ATTRS) {
+    const value = el.getAttribute(name);
+    if (!value) continue;
+    candidates.push(
+      name === 'componentkey'
+        ? byComponentKey(tag, value)
+        : `${tag}${attr(name, value)}`,
+    );
+  }
+  return candidates.find((s) => all(doc, s).length === 1) ?? null;
 }
 
 function byIdIn(root: Root, id: string): El | null {
@@ -152,29 +174,44 @@ function labelOf(doc: Document, el: El): { text: string; star: boolean } {
 const requiredAttr = (el: El) =>
   el.hasAttribute('required') || el.getAttribute('aria-required') === 'true';
 
+/** The elements named by aria-describedby, leaving out error placeholders. */
+function describedBy(doc: Document, el: El): El[] {
+  return (el.getAttribute('aria-describedby') ?? '')
+    .split(/\s+/)
+    .filter((i) => i !== '' && !i.startsWith('error-message'))
+    .map((i) => byIdIn(doc, i))
+    .filter((e): e is El => e !== null);
+}
+
 /** Text of the elements named by aria-describedby, without counters or errors. */
 function helpOf(doc: Document, el: El): string | undefined {
-  const ids = (el.getAttribute('aria-describedby') ?? '')
-    .split(/\s+/)
-    .filter((i) => i !== '' && !i.startsWith('error-message'));
   const skip = (e: El) =>
     COUNTER.test(textOf(e)) ||
     e.getAttribute('role') === 'alert' ||
     (e.getAttribute('id') ?? '').startsWith('error-message');
-  const text = ids
-    .map((i) => byIdIn(doc, i))
-    .map((e) => (e && !skip(e) ? blockText(e, skip) : ''))
+  const text = describedBy(doc, el)
+    .map((e) => (skip(e) ? '' : blockText(e, skip)))
     .filter((t) => t !== '')
     .join('\n');
   return text === '' ? undefined : text;
 }
 
-function maxLengthOf(el: El): number | undefined {
+/** The maxlength attribute, else the total of LinkedIn's live counter. */
+function maxLengthOf(doc: Document, el: El): number | undefined {
   const n = Number(el.getAttribute('maxlength'));
-  return Number.isInteger(n) && n > 0 ? n : undefined;
+  if (Number.isInteger(n) && n > 0) return n;
+  for (const e of describedBy(doc, el)) {
+    const m = COUNTER_LIMIT.exec(textOf(e));
+    if (m) return Number(m[2]);
+  }
+  return undefined;
 }
 
-/** A radio or checkbox's option text: its label, else the `<p>` in its own wrapper. */
+/**
+ * A radio or checkbox's option text: its label, else the first `<p>` in its
+ * own option wrapper (an ancestor holding no other input). Never the
+ * aria-label, which on LinkedIn's radios is the question. '' when not found.
+ */
 function optionText(doc: Document, input: El, group: El | null): string {
   const id = input.getAttribute('id');
   const forLabel = id ? one(doc, `label${attr('for', id)}`) : null;
@@ -185,7 +222,7 @@ function optionText(doc: Document, input: El, group: El | null): string {
     if (p && textOf(p) !== '') return textOf(p);
     box = box.parentElement;
   }
-  return input.getAttribute('value') ?? label(input);
+  return '';
 }
 
 /** Leaves out hidden inputs and the "Follow <company>…" checkbox. */
@@ -200,6 +237,53 @@ function ignored(el: El): boolean {
   return el.closest('[hidden]') !== null;
 }
 
+/** The ancestors of `el`, nearest first, up to and including `top`. */
+function ancestors(el: El, top: El): El[] {
+  const out: El[] = [];
+  for (let a = el.parentElement; a; a = a.parentElement) {
+    out.push(a);
+    if (a === top) break;
+  }
+  return out;
+}
+
+/** True when the inputs of `type` under `box` are exactly `members`. */
+function holdsOnly(box: El, type: string, members: El[]): boolean {
+  const inside = all(box, `input[type="${type}"]`).filter((i) => !ignored(i));
+  return (
+    inside.length === members.length && members.every((m) => inside.includes(m))
+  );
+}
+
+const nameOf = (el: El) => el.getAttribute('name') ?? '';
+
+/**
+ * The resume group's own section: the nearest ancestor of its radio group
+ * that also holds an "Upload resume" button, with that button. Without one,
+ * the section is the group and there is no button.
+ */
+function resumeSection(group: El, dialog: El): { box: El; upload: El | null } {
+  for (const box of [group, ...ancestors(group, dialog)]) {
+    const upload = all(box, 'button').find((b) =>
+      UPLOAD_RESUME_TEXT.test(textOf(b) || label(b)),
+    );
+    if (upload) return { box, upload };
+    if (box === dialog) break;
+  }
+  return { box: group, upload: null };
+}
+
+/**
+ * The file inputs that belong to a resume section: inside it, and with no
+ * label of their own other than one naming a resume or CV.
+ */
+function resumeFiles(doc: Document, box: El): El[] {
+  return all(box, 'input[type="file"]').filter((f) => {
+    const { text } = labelOf(doc, f);
+    return text === '' || /resume|\bcv\b/i.test(text);
+  });
+}
+
 function readFields(
   doc: Document,
   dialog: El,
@@ -208,9 +292,6 @@ function readFields(
   const unknown: UnknownField[] = [];
   const seen = new Set<El>();
   const keys = new Set<string>();
-  const hasResume = all(dialog, 'input[type="radio"]').some((r) =>
-    RESUME_FILE.test(label(r)),
-  );
   // Listboxes a combobox points at are its suggestions, not fields.
   const lists = new Set(
     all(dialog, '[aria-controls], [aria-owns]').flatMap((c) =>
@@ -220,6 +301,19 @@ function readFields(
         .filter((i) => i !== '' && i !== 'null'),
     ),
   );
+  // File inputs of a resume section belong to the resume field, wherever
+  // they come in page order.
+  const ownedFiles = new Set<El>();
+  const resumeGroups = new Set<El>();
+  for (const r of all(dialog, 'input[type="radio"]')) {
+    if (!RESUME_FILE.test(label(r))) continue;
+    const group = radioContainer(r) ?? r;
+    if (resumeGroups.has(group)) continue;
+    resumeGroups.add(group);
+    for (const f of resumeFiles(doc, resumeSection(group, dialog).box)) {
+      ownedFiles.add(f);
+    }
+  }
 
   const keyOf = (el: El, anchor: El) => {
     const wrapper = anchor.closest(FIELD_WRAPPER);
@@ -232,22 +326,40 @@ function readFields(
     keys.add(key);
     return key;
   };
+  /**
+   * Adds a field aimed at `target`, or sends `el` to unknown when the field
+   * can't be answered or acted on safely: no label, an empty option, or a
+   * control (or option) no selector picks out alone.
+   */
   const push = (
     el: El,
-    q: Omit<Question, 'required'> & { required: boolean },
-    extra: Partial<ReadField> & { anchor?: El } = {},
+    target: El | null,
+    q: Question,
+    extra: Omit<Partial<ReadField>, 'optionSelectors'> & {
+      anchor?: El;
+      options?: El[];
+    } = {},
   ) => {
-    const { anchor, ...rest } = extra;
-    if (q.label === '') {
+    const { anchor, options, ...rest } = extra;
+    const selector = target ? selectorFor(doc, target) : null;
+    const optionSelectors = options?.map((o) => selectorFor(doc, o));
+    if (
+      q.label === '' ||
+      selector === null ||
+      (q.options?.includes('') ?? false) ||
+      (optionSelectors?.includes(null) ?? false)
+    ) {
       unknown.push(unknownOf(el));
       return;
     }
-    fields.push({
+    const field: ReadField = {
       key: keyOf(el, anchor ?? el),
-      selector: selectorFor(el),
+      selector,
       question: q,
       ...rest,
-    });
+    };
+    if (optionSelectors) field.optionSelectors = optionSelectors as string[];
+    fields.push(field);
   };
   const simple = (
     el: El,
@@ -263,7 +375,7 @@ function readFields(
     };
     const help = helpOf(doc, el);
     if (help !== undefined) q.helpText = help;
-    const max = maxLengthOf(el);
+    const max = maxLengthOf(doc, el);
     if (max !== undefined) q.maxLength = max;
     return q;
   };
@@ -281,14 +393,14 @@ function readFields(
     if (tag === 'select') {
       readSelect(el);
     } else if (tag === 'textarea') {
-      push(el, simple(el, 'textarea'));
+      push(el, el, simple(el, 'textarea'));
     } else if (tag === 'input') {
       if (NOT_ANSWERS.has(type)) continue;
       if (type === 'radio') readRadios(el);
       else if (type === 'checkbox') readCheckboxes(el);
       else if (type === 'file') {
-        if (!hasResume) push(el, simple(el, 'file'));
-      } else if (type === 'number') push(el, simple(el, 'number'));
+        if (!ownedFiles.has(el)) push(el, el, simple(el, 'file'));
+      } else if (type === 'number') push(el, el, simple(el, 'number'));
       else if (TEXT_INPUTS.has(type)) readText(el);
       else unknown.push(unknownOf(el));
     } else if (
@@ -316,6 +428,7 @@ function readFields(
         .find((i) => i !== '' && i !== 'null');
       push(
         el,
+        el,
         simple(el, 'typeahead'),
         list ? { suggestions: byId(list) } : {},
       );
@@ -323,7 +436,7 @@ function readFields(
     }
     const mode = el.getAttribute('inputmode');
     const numeric = mode === 'numeric' || mode === 'decimal';
-    push(el, simple(el, numeric ? 'number' : 'text'));
+    push(el, el, simple(el, numeric ? 'number' : 'text'));
   }
 
   function readSelect(el: El) {
@@ -337,85 +450,145 @@ function readFields(
       options.push(text);
       pageIndexes.push(i);
     });
-    push(el, simple(el, 'select', { options }), { pageIndexes });
+    push(el, el, simple(el, 'select', { options }), { pageIndexes });
   }
 
+  /**
+   * The smallest box holding exactly `members` that a selector picks out:
+   * the field wrapper, the container, or their nearest common ancestor. Null
+   * when none does.
+   */
+  function groupBox(members: El[], container: El | null, type: string) {
+    const first = members[0];
+    if (!first) return null;
+    const boxes = [
+      first.closest(FIELD_WRAPPER),
+      container,
+      ...ancestors(first, dialog).filter((a) =>
+        members.every((m) => a === m || ancestors(m, dialog).includes(a)),
+      ),
+    ];
+    return (
+      boxes.find(
+        (b): b is El =>
+          b !== null &&
+          holdsOnly(b, type, members) &&
+          selectorFor(doc, b) !== null,
+      ) ?? null
+    );
+  }
+
+  /**
+   * One radio question. Radios group by name inside their fieldset or
+   * radiogroup. A container with several names splits into one group per
+   * name only when each name has its own shared aria-label; otherwise its
+   * groups go to unknown. LinkedIn's radio questions carry no required mark
+   * and are always required.
+   */
   function readRadios(el: El) {
-    const group = el.closest('fieldset') ?? el.closest('[role="radiogroup"]');
-    const name = el.getAttribute('name');
-    const radios = group
-      ? all(group, 'input[type="radio"]')
-      : name
+    const container = radioContainer(el);
+    const name = nameOf(el);
+    const inContainer = container
+      ? all(container, 'input[type="radio"]')
+      : null;
+    const names = new Set(inContainer?.map(nameOf));
+    let radios: El[];
+    let text = '';
+    if (inContainer && names.size <= 1) {
+      radios = inContainer;
+    } else if (inContainer) {
+      radios = inContainer.filter((r) => nameOf(r) === name);
+      const own = sharedLabel(radios);
+      const others = [...names]
+        .filter((n) => n !== name)
+        .map((n) => sharedLabel(inContainer.filter((r) => nameOf(r) === n)));
+      text = name !== '' && own !== '' && !others.includes(own) ? own : '';
+      for (const r of radios) seen.add(r);
+      if (text === '') {
+        unknown.push(unknownOf(el));
+        return;
+      }
+    } else {
+      radios = name
         ? all(dialog, `input[type="radio"]${attr('name', name)}`)
         : [el];
+    }
     for (const r of radios) seen.add(r);
-    const labels = [...new Set(radios.map(label))];
-    const required =
-      radios.some(requiredAttr) || (group !== null && requiredAttr(group));
     if (radios.some((r) => RESUME_FILE.test(label(r)))) {
-      readResume(el, group, radios, required);
+      readResume(el, container ?? el, radios);
       return;
     }
-    let text = labels.length === 1 ? (labels[0] ?? '') : '';
-    if (text === '' && group) text = groupLabel(group);
-    const wrapper = (group ?? el).closest(FIELD_WRAPPER);
-    const optionSelectors = radios.map(selectorFor);
+    if (text === '') text = sharedLabel(radios);
+    if (text === '' && container) text = groupLabel(container);
     push(
-      wrapper ?? el,
+      el,
+      groupBox(radios, container, 'radio'),
       {
         label: text.replace(STAR, ''),
         type: 'radio',
-        required: required || STAR.test(text),
-        options: radios.map((r) => optionText(doc, r, group)),
+        required: true,
+        options: radios.map((r) => optionText(doc, r, container)),
       },
-      { anchor: group ?? el, optionSelectors },
+      { anchor: container ?? el, options: radios },
     );
   }
 
   /**
    * LinkedIn's resume list: radios named by file. The field aims at the
-   * "Upload resume" button, because pace.upload clicks the button that opens
-   * the chooser; a file input is the fallback, then the first resume.
+   * "Upload resume" button of the group's own section, because pace.upload
+   * clicks the button that opens the chooser; a resume file input in that
+   * section is the fallback. Without either it goes to unknown.
    */
-  function readResume(
-    el: El,
-    group: El | null,
-    radios: El[],
-    required: boolean,
-  ) {
-    const files = all(dialog, 'input[type="file"]');
-    for (const f of files) seen.add(f);
+  function readResume(el: El, group: El, radios: El[]) {
+    const { box, upload } = resumeSection(group, dialog);
+    const target = upload ?? resumeFiles(doc, box)[0] ?? null;
     const resumeChoices = radios.map((r) => ({
       fileName: label(r),
-      selector: selectorFor(r),
+      selector: selectorFor(doc, r),
       selected: false,
     }));
-    const upload = all(dialog, 'button').find((b) =>
-      UPLOAD_BUTTON_TEXT.test(textOf(b) || label(b)),
-    );
-    const target = upload ?? files[0] ?? el;
+    const selector = target ? selectorFor(doc, target) : null;
+    if (selector === null || resumeChoices.some((c) => c.selector === null)) {
+      unknown.push(unknownOf(el));
+      return;
+    }
     fields.push({
-      key: keyOf(radios[0] ?? el, group ?? el),
-      selector: selectorFor(target),
-      question: { label: 'Resume', type: 'file', required },
-      resumeChoices,
+      key: keyOf(radios[0] ?? el, group),
+      selector,
+      question: { label: 'Resume', type: 'file', required: true },
+      resumeChoices: resumeChoices.map((c) => ({
+        ...c,
+        selector: c.selector as string,
+      })),
     });
   }
 
+  /**
+   * Checkboxes in a fieldset are one checkbox-group. A fieldset whose boxes
+   * share names across more than one name mixes groups it can't label apart,
+   * so each of its boxes goes to unknown.
+   */
   function readCheckboxes(el: El) {
     const group = el.closest('fieldset');
     const boxes = group
       ? all(group, 'input[type="checkbox"]').filter((b) => !ignored(b))
       : [el];
     if (boxes.length < 2) {
-      push(el, simple(el, 'checkbox'));
+      push(el, el, simple(el, 'checkbox'));
       return;
     }
     for (const b of boxes) seen.add(b);
+    const names = boxes.map(nameOf);
+    const distinct = new Set(names);
+    const shared = names.length !== distinct.size;
+    if (distinct.size > 1 && shared) {
+      unknown.push(unknownOf(el));
+      return;
+    }
     const text = group ? groupLabel(group) : '';
-    const optionSelectors = boxes.map(selectorFor);
     push(
-      group?.closest(FIELD_WRAPPER) ?? el,
+      el,
+      groupBox(boxes, group, 'checkbox'),
       {
         label: text.replace(STAR, ''),
         type: 'checkbox-group',
@@ -423,9 +596,9 @@ function readFields(
           STAR.test(text) ||
           boxes.some(requiredAttr) ||
           (group !== null && requiredAttr(group)),
-        options: boxes.map((b) => optionText(doc, b, group)),
+        options: boxes.map((b) => optionText(doc, b, group) || label(b)),
       },
-      { anchor: group ?? el, optionSelectors },
+      { anchor: group ?? el, options: boxes },
     );
   }
 
@@ -433,6 +606,17 @@ function readFields(
     const legend = one(group, 'legend');
     return (legend ? textOf(legend) : '') || label(group);
   }
+}
+
+/** The fieldset or radiogroup around a radio. */
+function radioContainer(el: El): El | null {
+  return el.closest('fieldset') ?? el.closest('[role="radiogroup"]');
+}
+
+/** The one aria-label all of `els` share, else ''. */
+function sharedLabel(els: El[]): string {
+  const labels = new Set(els.map(label));
+  return labels.size === 1 ? ([...labels][0] ?? '') : '';
 }
 
 function unknownOf(el: El): UnknownField {

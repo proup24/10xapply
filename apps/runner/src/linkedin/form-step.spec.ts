@@ -123,6 +123,9 @@ describe('readStep on the fixtures', () => {
     expect(first?.selector).toBe('#_r_1k_');
     // The live counter ("7 of 100 characters") is not help text.
     expect(first?.question.helpText).toBeUndefined();
+    // ...but its total is the field's limit.
+    expect(first?.question.maxLength).toBe(100);
+    expect(r.fields[1]?.question.maxLength).toBe(50);
     expect(country?.key).toBe('_r_1m_');
     expect(country?.question.options?.[0]).toBe('Andorra (+376)');
     expect(country?.pageIndexes?.[0]).toBe(1);
@@ -160,6 +163,9 @@ describe('readStep on the fixtures', () => {
     );
     expect(spain?.question.options).toEqual(['Yes', 'No']);
     expect(spain?.optionSelectors).toEqual(['#_r_4c_', '#_r_4e_']);
+    // LinkedIn's radio questions carry no marker; they are always required.
+    expect(spain?.question.required).toBe(true);
+    expect(r.fields[2]?.question.required).toBe(true);
     expect(spain?.key).toBe(
       'easyApplyFieldFocus_ea_validation_p2_0_32633232164',
     );
@@ -183,6 +189,7 @@ describe('readStep on the fixtures', () => {
     expect(r.fields).toHaveLength(1);
     const [resume] = r.fields;
     expect(resume?.question.type).toBe('file');
+    expect(resume?.question.required).toBe(true);
     expect(resume?.resumeChoices).toHaveLength(19);
     expect(resume?.resumeChoices?.[3]).toEqual({
       fileName: 'resume.2026.fs.pdf',
@@ -281,22 +288,72 @@ describe('readStep type mapping', () => {
     expect(f.pageIndexes).toEqual([1, 2]);
   });
 
-  it('a fieldset of radios is radio', () => {
+  it('a fieldset of radios is radio, aimed at the fieldset', () => {
     const f = only(
-      '<fieldset role="radiogroup"><div><div><input id="y" type="radio" name="g" aria-label="Relocate?"><label for="y"></label></div><div><p>Yes</p></div></div><div><div><input id="n" type="radio" name="g" aria-label="Relocate?"><label for="n"></label></div><div><p>No</p></div></div></fieldset>',
+      '<fieldset role="radiogroup" aria-describedby="error-message-g"><div><div><input id="y" type="radio" name="g" aria-label="Relocate?"><label for="y"></label></div><div><p>Yes</p></div></div><div><div><input id="n" type="radio" name="g" aria-label="Relocate?"><label for="n"></label></div><div><p>No</p></div></div></fieldset>',
     );
     expect(f.question).toEqual({
       label: 'Relocate?',
       type: 'radio',
-      required: false,
+      required: true,
       options: ['Yes', 'No'],
     });
     expect(f.optionSelectors).toEqual(['#y', '#n']);
+    // No easyApplyFieldFocus_ wrapper: the fieldset holds the radios pace.pick looks for.
+    expect(f.selector).toBe('fieldset[aria-describedby="error-message-g"]');
+  });
+
+  it('splits one fieldset holding two radio names into two fields', () => {
+    const opt = (id: string, name: string, q: string, text: string) =>
+      `<div><div><input id="${id}" type="radio" name="${name}" aria-label="${q}"><label for="${id}"></label></div><div><p>${text}</p></div></div>`;
+    const r = step(
+      readStep(
+        form(
+          `<fieldset id="fs"><div id="g1">${opt('a1', 'g1', 'Relocate?', 'Yes')}${opt('a2', 'g1', 'Relocate?', 'No')}</div><div id="g2">${opt('b1', 'g2', 'Remote?', 'Never')}${opt('b2', 'g2', 'Remote?', 'Sometimes')}${opt('b3', 'g2', 'Remote?', 'Always')}</div></fieldset>`,
+        ),
+      ),
+    );
+    expect(r.unknown).toEqual([]);
+    expect(
+      r.fields.map((f) => [
+        f.question.label,
+        f.question.options,
+        f.optionSelectors,
+        f.selector,
+      ]),
+    ).toEqual([
+      ['Relocate?', ['Yes', 'No'], ['#a1', '#a2'], '#g1'],
+      ['Remote?', ['Never', 'Sometimes', 'Always'], ['#b1', '#b2', '#b3'], '#g2'],
+    ]);
+  });
+
+  it('sends radio names in one fieldset it cannot tell apart to unknown', () => {
+    const r = step(
+      readStep(
+        form(
+          '<fieldset id="fs"><legend>Pick</legend><div id="g1"><input id="a1" type="radio" name="g1"><label for="a1">Yes</label><input id="a2" type="radio" name="g1"><label for="a2">No</label></div><div id="g2"><input id="b1" type="radio" name="g2"><label for="b1">Yes</label><input id="b2" type="radio" name="g2"><label for="b2">No</label></div></fieldset>',
+        ),
+      ),
+    );
+    expect(r.fields).toEqual([]);
+    expect(r.unknown).toHaveLength(2);
+  });
+
+  it('sends a radio group with no option text to unknown', () => {
+    const r = step(
+      readStep(
+        form(
+          '<fieldset id="fs" role="radiogroup"><input id="y" type="radio" name="g" aria-label="Relocate?"><input id="n" type="radio" name="g" aria-label="Relocate?"></fieldset>',
+        ),
+      ),
+    );
+    expect(r.fields).toEqual([]);
+    expect(r.unknown).toEqual([{ tag: 'input', role: null, inputType: 'radio' }]);
   });
 
   it('a fieldset of several checkboxes is checkbox-group', () => {
     const f = only(
-      '<fieldset><legend>Stacks*</legend><input id="a" type="checkbox"><label for="a">Node</label><input id="b" type="checkbox"><label for="b">Go</label></fieldset>',
+      '<fieldset id="fs"><legend>Stacks*</legend><input id="a" type="checkbox"><label for="a">Node</label><input id="b" type="checkbox"><label for="b">Go</label></fieldset>',
     );
     expect(f.question).toEqual({
       label: 'Stacks',
@@ -305,6 +362,7 @@ describe('readStep type mapping', () => {
       options: ['Node', 'Go'],
     });
     expect(f.optionSelectors).toEqual(['#a', '#b']);
+    expect(f.selector).toBe('#fs');
   });
 
   it('one checkbox is checkbox', () => {
@@ -338,6 +396,49 @@ describe('readStep type mapping', () => {
       'cv.PDF',
       'cv.docx',
     ]);
+    expect(r.fields[0]?.question.required).toBe(true);
+  });
+
+  it('keeps a cover letter upload beside the resume as its own field', () => {
+    const r = step(
+      readStep(
+        form(
+          '<section><fieldset role="radiogroup"><input id="r1" type="radio" name="g" aria-label="cv.pdf"></fieldset><button componentkey="up-1">Upload resume</button><input id="rf" type="file"></section><section><button componentkey="up-2">Upload cover letter</button><input id="cl" type="file" aria-label="Cover letter"></section>',
+        ),
+      ),
+    );
+    expect(r.unknown).toEqual([]);
+    expect(
+      r.fields.map((f) => [f.question.type, f.question.label, f.selector]),
+    ).toEqual([
+      ['file', 'Resume', 'button[componentkey="up-1"]'],
+      ['file', 'Cover letter', '#cl'],
+    ]);
+  });
+
+  it('never aims a resume field at the cover letter upload button', () => {
+    const r = step(
+      readStep(
+        form(
+          '<section><fieldset role="radiogroup"><input id="r1" type="radio" name="g" aria-label="cv.pdf"></fieldset></section><section><button componentkey="up-2">Upload cover letter</button><input id="cl" type="file" aria-label="Cover letter"></section>',
+        ),
+      ),
+    );
+    const resume = r.kind === 'step' ? r.fields.find((f) => f.question.label === 'Resume') : undefined;
+    expect(resume?.selector).not.toBe('button[componentkey="up-2"]');
+    expect(r.kind === 'step' && r.fields.some((f) => f.selector === '#cl')).toBe(true);
+  });
+
+  it('sends a control whose only selector is ambiguous to unknown', () => {
+    const r = step(
+      readStep(
+        form(
+          '<input type="text" aria-label="Twin"><input type="text" aria-label="Twin"><input type="radio" name="g" aria-label="Q"><input type="radio" name="g" aria-label="Q">',
+        ),
+      ),
+    );
+    expect(r.fields).toEqual([]);
+    expect(r.unknown.map((u) => u.inputType)).toEqual(['text', 'text', 'radio']);
   });
 
   it('an input[type=range] is unknown', () => {
@@ -386,6 +487,15 @@ describe('readStep labels', () => {
       '<input id="a" aria-label="Site" aria-describedby="a-info"><div id="a-info"><p>Your portfolio link</p><p aria-live="polite"><span aria-hidden="true">0/100</span><span>0 of 100 characters</span></p></div>',
     );
     expect(f.question.helpText).toBe('Your portfolio link');
+    // No maxlength attribute: the counter's total is the limit.
+    expect(f.question.maxLength).toBe(100);
+  });
+
+  it('prefers the maxlength attribute over the counter', () => {
+    const f = only(
+      '<input id="a" aria-label="Site" maxlength="40" aria-describedby="a-info"><div id="a-info"><span>0 of 100 characters</span></div>',
+    );
+    expect(f.question.maxLength).toBe(40);
   });
 });
 

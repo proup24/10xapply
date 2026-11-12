@@ -41,8 +41,11 @@ export const FIELD_WRAPPER = '[componentkey^="easyApplyFieldFocus_"]';
 export const FOLLOW_CHECKBOX_LABEL = /^Follow .+ to stay up to date/i;
 /** Resume radios are labelled with their file name (step-resume.html). */
 export const RESUME_FILE = /\.(pdf|docx?)$/i;
-/** The button that opens the file chooser (step-resume.html). */
-export const UPLOAD_BUTTON_TEXT = /^upload\b/i;
+/**
+ * The resume section's button that opens the file chooser (step-resume.html,
+ * review-one-page.html). Other upload buttons (a cover letter) don't match.
+ */
+export const UPLOAD_RESUME_TEXT = /^upload resume/i;
 /** Error messages inside the form (synthetic; none in the captures). */
 export const FORM_ERRORS = '[role="alert"], [id^="error-message"]';
 
