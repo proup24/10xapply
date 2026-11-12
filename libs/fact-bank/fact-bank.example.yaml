@@ -1,0 +1,108 @@
+# Example fact bank, with made-up data. Copy it to your own bank file in the
+# repo-root private folder and replace every value. Nothing here is real.
+#
+# Every value is read as text, so you never need quotes (quote only when YAML
+# itself needs it, for example a value that starts with a plus sign or braces).
+# All four sections must be present; facts, answers and stories may be empty lists.
+version: 1
+
+# Fields: the exact values a form needs, character for character. They are
+# filled in as written, never reworded by an LLM. The keys are a fixed set.
+# Full name, location and phone with country code are derived, not stored.
+fields:
+  firstName: Sam
+  lastName: Example
+  email: sam@example.com
+  phone:
+    countryCode: '+44'
+    number: '7700900123' # without the country code
+    country: United Kingdom # for a "phone country" dropdown
+  city: Leeds
+  country: United Kingdom
+  links:
+    linkedin: https://www.linkedin.com/in/sam-example
+    github: https://github.com/sam-example # optional
+    portfolio: https://sam.example # optional
+  # Path to the resume PDF, relative to THIS file's folder. It must stay inside
+  # that folder and the file must start with %PDF.
+  resume: test-fixtures/resume.pdf
+
+# Facts: plain first-person sentences. A sentence may carry its own conditions;
+# there is no notes field. Each sentence must be unique. An entry is a string,
+# or an object with text plus optional tags and confirmed (YYYY-MM-DD).
+facts:
+  - I am a British citizen.
+  - I am authorized to work in the United Kingdom only.
+  - I am willing to relocate.
+  - My notice period is one month.
+  - text: I am currently a Backend Engineer at Example Ltd, employed full-time.
+    tags: [current-job]
+    confirmed: 2026-10-01
+
+# Known answers: questions you have answered before, with the answer you chose.
+# - id is kebab-case and unique across answers and stories.
+# - Give exactly one of answer or variants. tags and confirmed are optional.
+# - Answers are used as written. The form filler may fit one to a field (pick
+#   the matching option, strip the unit for a number-only field) but never
+#   rephrases it.
+# - No number-only duplicates: write "5000 USD per month" once, not also 5000.
+#   Keep separate answers only for amounts you really chose (a yearly figure,
+#   another currency).
+# - Placeholders fill in from the job at run time. The only ones allowed are
+#   {source}, {company} and {jobTitle}; any other brace text is an error.
+answers:
+  - id: sponsorship-future
+    question: Will you now or in the future require visa sponsorship to work in a country other than the United Kingdom?
+    answer: 'Yes'
+  - id: salary-expectation-monthly-usd
+    question: Expected monthly salary, in USD
+    answer: 5000 USD per month
+  - id: ai-perspective
+    question: What is your perspective on using AI in your work, and how have you used it?
+    answer: |
+      I see AI as a force multiplier for engineers who still review what it
+      writes. I use it for first drafts of tests, for reading unfamiliar code,
+      and for rubber-duck debugging, and I check every change myself.
+  - id: heard-from
+    question: How did you hear about this role?
+    answer: '{source}'
+  - id: why-this-role
+    question: Why do you want to work at this company?
+    answer: I want to work on the {jobTitle} role at {company}, found through {source}.
+  - id: contractor-rate
+    question: What is your expected rate (USD gross) for a B2B or contractor contract?
+    # Variants: one answer per situation. when says which one applies.
+    variants:
+      - when: the form asks for a rate per hour
+        answer: 30 USD per hour
+      - when: the form asks for a rate per month
+        answer: 5000 USD per month
+      - when: the form names no period
+        answer: 30 USD per hour, 5000 USD per month
+        confirmed: 2026-10-20
+    tags: [rates]
+
+# Stories: your own accounts, for scenario questions. id, title, story and at
+# least one tag are required. The answerer may shorten, reorder or reword a
+# story, or combine two, but must never add events, people, numbers, results or
+# details that are not in the story text. Stories are never added to. Tags are
+# free-form; a starter set: conflict, missed-deadline, ownership, mentoring,
+# disagreement-with-manager, failure, hard-bug, prioritization.
+stories:
+  - id: missed-launch-date
+    title: The payments launch that slipped two weeks
+    story: |
+      We promised a payments launch for the end of the quarter. A week before,
+      testing showed refunds failing for one card type. I told my manager the
+      same day that we would miss the date, proposed a two-week delay with a
+      daily status note, and fixed the refund bug with a teammate. We launched
+      two weeks late and had no refund incidents afterwards.
+    tags: [missed-deadline, ownership, communication]
+  - id: intermittent-queue-bug
+    title: The queue bug that only appeared under load
+    story: |
+      Jobs were sometimes processed twice, but only in production. I added
+      logging around the queue consumer, found that two workers could claim the
+      same job after a timeout, and added a lock keyed on the job id. I also
+      wrote a test that reproduced it, and the duplicates stopped.
+    tags: [hard-bug, failure, ownership]
