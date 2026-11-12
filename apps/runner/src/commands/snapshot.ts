@@ -19,7 +19,11 @@ import {
   RAW_SNAPSHOTS_DIR,
   SCRUBBED_SNAPSHOTS_DIR,
 } from '../snapshot/paths.js';
-import { bankSecrets, scrubSnapshot } from '../snapshot/scrub.js';
+import {
+  bankNameSecrets,
+  bankSecrets,
+  scrubSnapshot,
+} from '../snapshot/scrub.js';
 import {
   isAuthorMode,
   nodeTerminal,
@@ -199,8 +203,11 @@ export async function snapshotScrubCommand(
 ): Promise<number> {
   const { io } = deps;
   let secrets: string[];
+  let nameSecrets: string[];
   try {
-    secrets = bankSecrets(deps.loadBank());
+    const bank = deps.loadBank();
+    secrets = bankSecrets(bank);
+    nameSecrets = bankNameSecrets(bank);
   } catch (e) {
     io.print('snapshot scrub: the fact bank did not load; fix it first');
     if (e instanceof FactBankError) {
@@ -215,6 +222,7 @@ export async function snapshotScrubCommand(
     const { html, counts } = scrubSnapshot(
       readFileSync(join(deps.rawDir, rel), 'utf8'),
       secrets,
+      nameSecrets,
     );
     const target = join(deps.scrubbedDir, rel);
     mkdirSync(dirname(target), { recursive: true });

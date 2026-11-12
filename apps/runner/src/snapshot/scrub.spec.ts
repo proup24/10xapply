@@ -1,7 +1,7 @@
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { loadFactBank } from '@xapply/fact-bank';
-import { bankSecrets, scrubSnapshot } from './scrub.js';
+import { bankNameSecrets, bankSecrets, scrubSnapshot } from './scrub.js';
 
 const EXAMPLE = join(
   import.meta.dirname,
@@ -158,14 +158,39 @@ describe('scrubSnapshot, fix round 1', () => {
     expect(html).toContain('Fixed');
   });
 
-  it('does not inherit kept text into block descendants', () => {
+  it('kept text flows into every descendant, such as a resume card', () => {
     const { html } = scrub(
       '<label>Resume <div><h3>CV.pdf</h3><p>Last used on 10/1/2026</p></div></label>',
     );
     expect(html).toContain('Resume');
     expect(html).toContain('<h3>CV.pdf</h3>');
-    expect(html).not.toContain('Last used');
-    expect(html).toContain('<p>xxxx xxxx xx xxxxxxxxx</p>');
+    expect(html).toContain('<p>Last used on 10/1/2026</p>');
+  });
+
+  it("keeps LinkedIn's label > div wrapper text", () => {
+    const { html } = scrub(
+      '<label for="_r_1d_"><div>First name</div></label><input id="_r_1d_">',
+    );
+    expect(html).toContain('<div>First name</div>');
+  });
+
+  it("keeps LinkedIn's helper text named by aria-describedby", () => {
+    const { html } = scrub(
+      '<input aria-describedby="_r_1d_-info">' +
+        '<div data-testid="text-input-helper-text" id="_r_1d_-info"><div>' +
+        '<p aria-live="polite"><span aria-hidden="true">First</span>' +
+        '<span>0 of 100 characters</span></p></div></div>',
+    );
+    expect(html).toContain('<span aria-hidden="true">First</span>');
+    expect(html).toContain('<span>0 of 100 characters</span>');
+  });
+
+  it('still blanks a textarea nested in a kept wrapper', () => {
+    const { html } = scrub(
+      '<label for="t"><div>Cover letter<textarea id="t">I am Sam</textarea></div></label>',
+    );
+    expect(html).toContain('Cover letter');
+    expect(html).not.toContain('I am Sam');
   });
 
   it('inline descendants of kept text still inherit', () => {
@@ -272,6 +297,52 @@ describe('scrubSnapshot, fix round 1', () => {
     expect(counts.secretsReplaced).toBe(4);
     const near = scrub('<label>9447700900123</label>', ['+447700900123']);
     expect(near.html).toContain('9447700900123');
+  });
+});
+
+describe('name secrets', () => {
+  const names = ['Sam Example', 'Sam', 'Example', 'sam-example'];
+  const labels = [
+    'Sam_Example_Resume (3).pdf',
+    'SamExampleCV.pdf',
+    'sam-example-cv.pdf',
+    'CV Sam Example.pdf',
+  ];
+
+  it('matches names inside words, underscores and run-together forms', () => {
+    for (const label of labels) {
+      const { html } = scrubSnapshot(
+        `<input type="radio" aria-label="${label}">`,
+        ['sam-example', 'Sam Example', 'Sam', 'Example'],
+        names,
+      );
+      expect(html, label).toContain('[secret]');
+      expect(html.toLowerCase(), label).not.toContain('sam');
+      expect(html.toLowerCase(), label).not.toContain('example');
+    }
+  });
+
+  it('leaves an unrelated resume file name alone', () => {
+    const { html } = scrubSnapshot(
+      '<input type="radio" aria-label="resume-2026.fs.1.pdf">',
+      ['Sam Example', 'resume.pdf'],
+      names,
+    );
+    expect(html).toContain('aria-label="resume-2026.fs.1.pdf"');
+  });
+
+  it('treats underscore and dot as boundaries for other secrets', () => {
+    const { html } = scrubSnapshot('<label>a_Yes_b Yesterday x.Yes.y</label>', [
+      'Yes',
+    ]);
+    expect(html).toBe('<label>a_[secret]_b Yesterday x.[secret].y</label>');
+  });
+
+  it('bankSecrets names include first, last, full name and the slug', () => {
+    const bank = loadFactBank(EXAMPLE);
+    expect(bankNameSecrets(bank)).toEqual(
+      expect.arrayContaining(['Sam', 'Example', 'Sam Example', 'sam-example']),
+    );
   });
 });
 

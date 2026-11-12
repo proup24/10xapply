@@ -62,18 +62,6 @@ const BLANK_ATTRIBUTES = new Set([
 ]);
 const BLANK_VALUE_TAGS = new Set(['option', 'button', 'select', 'li', 'data']);
 const URL_VALUE = /^\s*(https?:|\/\/|data:|javascript:)/i;
-// Kept text does not flow into these descendants; they must qualify alone.
-const BLOCK_TAGS = new Set([
-  'div',
-  'p',
-  'li',
-  'ul',
-  'ol',
-  'section',
-  'article',
-  'table',
-  'dl',
-]);
 const KEEP_TEXT_ROLES = new Set(['option', 'radio', 'checkbox']);
 const KEEP_ARIA_LABEL_TAGS = new Set(['input', 'select', 'textarea', 'button']);
 const KEEP_ARIA_LABEL_ROLES = new Set([
@@ -159,6 +147,7 @@ function keepsAriaLabel(el: DomElement, tag: string): boolean {
 export function scrubSnapshot(
   html: string,
   secrets: string[],
+  nameSecrets: string[] = [],
 ): { html: string; counts: ScrubCounts } {
   const document = parsePage(html);
   const counts: ScrubCounts = {
@@ -168,7 +157,7 @@ export function scrubSnapshot(
     droppedAttributes: 0,
   };
 
-  const pattern = secretPattern(secrets);
+  const pattern = secretPattern(secrets, nameSecrets);
   const replaceSecrets = (value: string): string => {
     if (!pattern) return value;
     return value.replace(pattern, () => {
@@ -215,7 +204,7 @@ export function scrubSnapshot(
       }
       const childKeep = isFreeText(el, tag)
         ? false
-        : keepsText(el, tag, described) || (keep && !BLOCK_TAGS.has(tag));
+        : keep || keepsText(el, tag, described);
       const ownText = (el.textContent ?? '').trim().toLowerCase();
       for (const { name, value } of Array.from(el.attributes)) {
         const lower = name.toLowerCase();
@@ -293,17 +282,37 @@ export function bankSecrets(bank: FactBank): string[] {
     addAnswer(answer.answer);
     for (const variant of answer.variants ?? []) addAnswer(variant.answer);
   }
-  const slug = /\/in\/([^/?#\s]+)/.exec(bank.fields.links.linkedin)?.[1];
-  if (slug) {
-    try {
-      add(decodeURIComponent(slug));
-    } catch {
-      add(slug);
-    }
-  }
   for (const story of bank.stories) {
     add(story.title);
     add(story.story);
   }
+  add(linkedinSlug(bank));
   return [...out].sort((a, b) => b.length - a.length || a.localeCompare(b));
+}
+
+/**
+ * The bank secrets that are names: first, last and full name, and the LinkedIn
+ * profile slug. The scrubber matches these inside words.
+ */
+export function bankNameSecrets(bank: FactBank): string[] {
+  const out = new Set<string>();
+  const add = (v: string | undefined): void => {
+    const t = v?.trim() ?? '';
+    if (t.length >= 3) out.add(t);
+  };
+  add(bank.fields.firstName);
+  add(bank.fields.lastName);
+  add(bank.fields.fullName);
+  add(linkedinSlug(bank));
+  return [...out];
+}
+
+function linkedinSlug(bank: FactBank): string | undefined {
+  const slug = /\/in\/([^/?#\s]+)/.exec(bank.fields.links.linkedin)?.[1];
+  if (!slug) return undefined;
+  try {
+    return decodeURIComponent(slug);
+  } catch {
+    return slug;
+  }
 }
