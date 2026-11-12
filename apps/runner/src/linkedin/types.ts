@@ -44,5 +44,9 @@ export type StepRead =
       next: { selector: string; label: 'next' | 'review' } | null;
       errors: string[];
     }
-  | { kind: 'review' }
+  /**
+   * A Submit button is showing. A one-page form still has its question
+   * fields here, to fill before stopping; a normal review page has none.
+   */
+  | { kind: 'review'; fields: ReadField[]; unknown: UnknownField[] }
   | { kind: 'none' }; // no Easy Apply dialog on the page
