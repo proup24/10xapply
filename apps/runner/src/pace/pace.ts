@@ -560,8 +560,8 @@ export function createPace(
       );
       down.delete('a');
       await wait(keyHold() * SHIFT_TRAIL_SHARE);
-      down.delete('Control');
       await page.keyboard.up('Control');
+      down.delete('Control');
       await wait(draw(profile, 'keyGapInWord', rng, { min: 1 }));
       await press('Backspace');
     } finally {

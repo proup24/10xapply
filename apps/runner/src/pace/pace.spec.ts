@@ -764,6 +764,23 @@ describe('createPace', () => {
     expect(of(log, 'kup')).toHaveLength(0);
   });
 
+  it('clear still tries to release Control when its keyup fails', async () => {
+    const { pace, page, locator } = setup();
+    const ups: string[] = [];
+    const real = page.keyboard.up.bind(page.keyboard);
+    let failed = false;
+    page.keyboard.up = async (key: string) => {
+      ups.push(key);
+      if (key === 'Control' && !failed) {
+        failed = true;
+        throw new Error('relay gone');
+      }
+      await real(key);
+    };
+    await expect(pace.clear(locator([BOX]))).rejects.toThrow('relay gone');
+    expect(ups.filter((k) => k === 'Control')).toHaveLength(2);
+  });
+
   it('type sends Enter for a newline in a textarea', async () => {
     const { pace, log, locator } = setup();
     const asked: string[] = [];
