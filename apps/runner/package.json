@@ -99,6 +99,7 @@
     }
   },
   "dependencies": {
+    "@xapply/answerer": "workspace:*",
     "@xapply/fact-bank": "workspace:*",
     "patchright-core": "1.64.3",
     "ws": "^8.22.2"

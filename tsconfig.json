@@ -8,6 +8,9 @@
     },
     {
       "path": "./libs/fact-bank"
+    },
+    {
+      "path": "./libs/answerer"
     }
   ],
   "compilerOptions": {}
