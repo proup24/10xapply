@@ -159,7 +159,11 @@ export function toCandidate(o: GeneratorOutput): Candidate {
     derivation,
     inferences,
   };
-  // Math outside a math derivation is never checked, so it is dropped.
+  // Math is required for a math derivation. On a bucket it is kept when given:
+  // on a choice, code checks it against the picked option's range. On any
+  // other derivation it is never checked, so it is dropped.
   if (derivation === 'math') candidate.math = toMath(o.math);
+  else if (derivation === 'bucket' && o.math !== null)
+    candidate.math = toMath(o.math);
   return candidate;
 }

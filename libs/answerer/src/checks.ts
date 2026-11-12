@@ -4,6 +4,7 @@ import {
   MathError,
   MONTHS,
   numbersIn,
+  optionContains,
   yearsSince,
 } from './math.js';
 import { matchOption, sourceText } from './sources.js';
@@ -75,12 +76,12 @@ function sameSource(a: Source, b: Source): boolean {
   }
 }
 
+/** Validates the candidate's math and computes its result. The caller compares the value. */
 function checkMath(
   c: AnswerCandidate,
   authorTexts: string[],
   allowed: Set<number>,
   runDate: string,
-  value: string,
 ): CheckResult | { result: number } {
   const spec = c.math;
   if (!spec) return fail('math missing');
@@ -112,9 +113,6 @@ function checkMath(
       }
       result = Math.floor(evaluate(spec.expression));
     }
-    if (!WHOLE_NUMBER.test(value) || Number(value) !== result) {
-      return fail('math does not match');
-    }
     return { result };
   } catch (e) {
     if (e instanceof MathError) return fail('math does not match');
@@ -126,7 +124,10 @@ function checkChoice(
   q: FormQuestion,
   c: AnswerCandidate,
   answerTexts: string[],
+  math: () => CheckResult | { result: number },
 ): CheckResult {
+  const computed = c.math ? math() : null;
+  if (computed !== null && 'ok' in computed) return computed;
   const value = c.value;
   const options = q.options ?? [];
   if (q.type === 'checkbox-group') {
@@ -161,6 +162,14 @@ function checkChoice(
       const cited = matchOption(text, options);
       if (cited !== null && cited !== option) return fail('not as written');
     }
+  }
+  // A bucket from math: the option's range must hold the computed number. An
+  // option that is not a plain range is left to the verifier.
+  if (
+    computed !== null &&
+    optionContains(option, computed.result) === false
+  ) {
+    return fail('math does not match');
   }
   return { ok: true, value: option };
 }
@@ -223,7 +232,17 @@ export function checkCandidate(
   const answerTexts = c.sources.flatMap((s, i) =>
     s.kind === 'answer' ? [texts[i]] : [],
   );
-  if (isChoice) return checkChoice(q, c, answerTexts);
+  const authorTexts = c.sources.flatMap((s, i) =>
+    s.kind === 'fact' || s.kind === 'answer' || s.kind === 'story'
+      ? [texts[i]]
+      : [],
+  );
+  // Numbers from the author's own entries, the only ones math may use.
+  const authorNumbers = new Set(
+    c.sources.flatMap((s, i) => (isAuthorSource(s) ? numbersIn(texts[i]) : [])),
+  );
+  const math = () => checkMath(c, authorTexts, authorNumbers, ctx.runDate);
+  if (isChoice) return checkChoice(q, c, answerTexts, math);
 
   // Text and number values.
   const raw = c.value as string;
@@ -266,15 +285,12 @@ export function checkCandidate(
   if (c.derivation === 'math') {
     // Arithmetic uses author numbers only. Never the job post's, and never the
     // run date's: a span of time up to now is years-since, which counts months.
-    const inExpression = new Set(allowed);
-    const authorTexts = c.sources.flatMap((s, i) =>
-      s.kind === 'fact' || s.kind === 'answer' || s.kind === 'story'
-        ? [texts[i]]
-        : [],
-    );
-    const math = checkMath(c, authorTexts, inExpression, ctx.runDate, value);
-    if ('ok' in math) return math;
-    allowed.add(math.result);
+    const computed = math();
+    if ('ok' in computed) return computed;
+    if (!WHOLE_NUMBER.test(value) || Number(value) !== computed.result) {
+      return fail('math does not match');
+    }
+    allowed.add(computed.result);
   }
   if (!numbersIn(value).every((n) => allowed.has(n)))
     return fail('number not in sources');

@@ -167,6 +167,7 @@ describe('system prompts', () => {
       "The job post's numbers never back a number in a value",
       'at least 3 words',
       'fitted is only a bare number',
+      'For a choice bucket from date math or arithmetic',
     ]) {
       expect(GENERATOR_SYSTEM).toContain(s);
     }
@@ -354,6 +355,37 @@ describe('schemas', () => {
     ).toMatchObject({
       math: { kind: 'arithmetic', expression: '5000 / 30' },
     });
+  });
+
+  it('keep math on a bucket when it is given, and drop it elsewhere', () => {
+    const fact = {
+      ...nullSource,
+      kind: 'fact' as const,
+      text: 'I am a British citizen.',
+    };
+    const math = {
+      kind: 'years-since' as const,
+      year: 2021,
+      month: 3,
+      expression: null,
+    };
+    expect(
+      toCandidate(
+        out({ value: '3-5', derivation: 'bucket', sources: [fact], math }),
+      ),
+    ).toMatchObject({ math: { kind: 'years-since', year: 2021, month: 3 } });
+    expect(
+      'math' in
+        toCandidate(
+          out({ value: 'x', derivation: 'composed', sources: [fact], math }),
+        ),
+    ).toBe(false);
+    expect(
+      'math' in
+        toCandidate(
+          out({ value: '3-5', derivation: 'bucket', sources: [fact] }),
+        ),
+    ).toBe(false);
   });
 
   const bad: Array<[string, GeneratorOutput]> = [

@@ -196,3 +196,31 @@ export function yearsSince(
   if (runMonth < month) years--;
   return years;
 }
+
+const NUM = String.raw`(\d+(?:\.\d+)?)`;
+/** An optional unit after the number: "years", "yrs", "year of experience" and the like. */
+const UNIT = String.raw`(?:\s*(?:years?|yrs?|months?|weeks?|days?)(?:\s+(?:of\s+)?experience)?)?`;
+
+/** Each option form, with the test it puts on the number. */
+const OPTION_FORMS: Array<[RegExp, (n: number, a: number, b: number) => boolean]> = [
+  [new RegExp(String.raw`^${NUM}${UNIT}\s*(?:-|–|—|to)\s*${NUM}${UNIT}$`, 'i'), (n, a, b) => n >= a && n <= b],
+  [new RegExp(String.raw`^${NUM}\s*\+${UNIT}$`, 'i'), (n, a) => n >= a],
+  [new RegExp(String.raw`^${NUM}${UNIT}\s+or\s+more${UNIT}$`, 'i'), (n, a) => n >= a],
+  [new RegExp(String.raw`^(?:more\s+than|over)\s+${NUM}${UNIT}$`, 'i'), (n, a) => n > a],
+  [new RegExp(String.raw`^(?:less\s+than|under)\s+${NUM}${UNIT}$`, 'i'), (n, a) => n < a],
+  [new RegExp(String.raw`^up\s+to\s+${NUM}${UNIT}$`, 'i'), (n, a) => n <= a],
+  [new RegExp(String.raw`^${NUM}${UNIT}$`, 'i'), (n, a) => n === a],
+];
+
+/**
+ * Whether a choice option's numeric range ("3-5 years", "6+", "Less than 2",
+ * "Up to 1 year", "5") holds `n`. Null when the option is not one of those forms.
+ */
+export function optionContains(option: string, n: number): boolean | null {
+  const text = option.trim();
+  for (const [form, holds] of OPTION_FORMS) {
+    const m = form.exec(text);
+    if (m) return holds(n, Number(m[1]), Number(m[2]));
+  }
+  return null;
+}

@@ -5,6 +5,7 @@ import {
   MathError,
   MONTHS,
   numbersIn,
+  optionContains,
   yearsSince,
 } from './math.js';
 
@@ -85,5 +86,45 @@ describe('MONTHS', () => {
     expect(MONTHS['january']).toBe(1);
     expect(MONTHS['jan']).toBe(1);
     expect(MONTHS['december']).toBe(12);
+  });
+});
+
+describe('optionContains', () => {
+  it('reads ranges, open ends and bare numbers, case-insensitively', () => {
+    const cases: Array<[string, number, boolean]> = [
+      ['0-2', 2, true],
+      ['0-2', 3, false],
+      ['3 – 5 years', 5, true],
+      ['3 — 5 years', 6, false],
+      ['3 to 5 Years', 3, true],
+      ['6+', 6, true],
+      ['6+ years', 5, false],
+      ['10 or more years', 10, true],
+      ['More than 5 years', 5, false],
+      ['more than 5 years', 6, true],
+      ['Over 5 yrs', 6, true],
+      ['Less than 1 year', 0, true],
+      ['less than 1 year', 1, false],
+      ['Under 2 years', 2, false],
+      ['Up to 2 years', 2, true],
+      ['up to 2 years', 3, false],
+      ['5', 5, true],
+      ['5 years', 4, false],
+      ['1 year of experience', 1, true],
+    ];
+    for (const [option, n, want] of cases) {
+      expect(optionContains(option, n), `${option} / ${n}`).toBe(want);
+    }
+  });
+  it('returns null for an option it cannot read', () => {
+    for (const option of [
+      'Immediate',
+      'Senior',
+      '3-5 years in management',
+      'Between jobs',
+      '',
+    ]) {
+      expect(optionContains(option, 5), option).toBeNull();
+    }
   });
 });

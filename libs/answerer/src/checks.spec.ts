@@ -629,6 +629,60 @@ describe('checkCandidate: file', () => {
   });
 });
 
+describe('checkCandidate: math on a choice', () => {
+  const kube: Source = {
+    kind: 'fact',
+    text: 'I have used Kubernetes in production since March 2021.',
+  };
+  const withKube = {
+    ...ctx,
+    bank: { ...bank, facts: [...bank.facts, { text: kube.text, tags: [] }] },
+  };
+  const pickWithMath = (
+    options: string[],
+    value: string,
+    math: Answer['math'] = { kind: 'years-since', year: 2021, month: 3 },
+  ) =>
+    checkCandidate(
+      q({ type: 'select', options }),
+      ans({ value, derivation: 'bucket', sources: [kube, runDate], math }),
+      withKube,
+    );
+  const buckets = ['0-2 years', '3-5 years', '6+ years'];
+
+  it('passes the option whose range holds the computed number', () => {
+    expect(pickWithMath(buckets, '3-5 years')).toEqual({
+      ok: true,
+      value: '3-5 years',
+    });
+  });
+  it('fails an option whose range does not hold it', () => {
+    fails(pickWithMath(buckets, '6+ years'), 'math does not match');
+    fails(pickWithMath(buckets, '0-2 years'), 'math does not match');
+  });
+  it('runs the math checks themselves on a choice', () => {
+    fails(
+      pickWithMath(buckets, '3-5 years', {
+        kind: 'years-since',
+        year: 2019,
+        month: 3,
+      }),
+      'number not in sources',
+    );
+    fails(
+      pickWithMath(buckets, '3-5 years', { kind: 'years-since', year: 2021 }),
+      'math does not match',
+    );
+  });
+  it('leaves an option it cannot read to the verifier', () => {
+    const options = ['Junior', 'Mid-level', 'Senior'];
+    expect(pickWithMath(options, 'Senior')).toEqual({
+      ok: true,
+      value: 'Senior',
+    });
+  });
+});
+
 describe('checkCandidate: math', () => {
   const number = q({ type: 'number' });
   const since = (year: number, month?: number): Answer['math'] => ({
