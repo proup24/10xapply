@@ -14,7 +14,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { addKnownAnswer, answerIdFrom } from './add-answer.js';
+import { addKnownAnswer, answerIdFrom, personalWords } from './add-answer.js';
 import { loadFactBank } from './bank.js';
 
 const libDir = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -49,6 +49,47 @@ describe('answerIdFrom', () => {
   });
   it('falls back to answer', () => {
     expect(answerIdFrom('123', new Set())).toBe('answer');
+  });
+  it("drops the bank owner's email and name words", () => {
+    const own = personalWords({
+      firstName: 'Jane',
+      lastName: 'Doe',
+      email: 'jane.doe@example.com',
+    });
+    expect(
+      answerIdFrom('Is jane.doe@example.com your email?', new Set(), own),
+    ).toBe('is-your-email');
+    expect(answerIdFrom('Is JANE Doe your legal name?', new Set(), own)).toBe(
+      'is-your-legal-name',
+    );
+  });
+  it('splits email words on dots, underscores, dashes and plus signs', () => {
+    expect(
+      [
+        ...personalWords({
+          firstName: 'Ann-Marie',
+          lastName: "O'Neil",
+          email: 'a_b-c+d.e@mail.my-host.co.uk',
+        }),
+      ].sort(),
+    ).toEqual(
+      [
+        'a',
+        'ann',
+        'b',
+        'c',
+        'co',
+        'd',
+        'e',
+        'host',
+        'mail',
+        'marie',
+        'my',
+        'neil',
+        'o',
+        'uk',
+      ].sort(),
+    );
   });
 });
 
@@ -158,6 +199,21 @@ describe('addKnownAnswer', () => {
     const a = loadFactBank(path).answers.at(-1);
     expect(a?.question).toBe('Is it at Ab as QA?');
     expect(a?.answer).toBe('Ab as QA.');
+  });
+
+  it("leaves the bank owner's email and name out of the id", () => {
+    const email = addKnownAnswer(
+      path,
+      { question: 'Is sam@example.com your email?', answer: 'Yes, it is' },
+      opts,
+    );
+    expect(email).toEqual({ ok: true, id: 'is-your-email' });
+    const name = addKnownAnswer(
+      path,
+      { question: 'Is Sam Example your full name?', answer: 'Yes, it is' },
+      { ...opts, stamp: `${opts.stamp}-2` },
+    );
+    expect(name).toEqual({ ok: true, id: 'is-your-full-name' });
   });
 
   it('builds the id from the substituted question', () => {

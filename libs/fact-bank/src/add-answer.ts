@@ -15,19 +15,42 @@ import { formatProblem } from './problems.js';
 const MAX_WORDS = 6;
 const MIN_REPLACE_LENGTH = 3;
 
-// Kebab-case of the label, digits removed, first 6 words, -2, -3, ... when
-// taken, and "answer" when nothing is left.
-export function answerIdFrom(
-  label: string,
-  taken: ReadonlySet<string>,
-): string {
-  const words = label
+const words = (text: string) =>
+  text
     .toLowerCase()
     .replace(/[0-9]/g, '')
     .split(/[^a-z]+/)
-    .filter((w) => w !== '')
+    .filter((w) => w !== '');
+
+/**
+ * The words of the bank owner's first and last name and email (its local
+ * part and domain labels, split on `.`, `_`, `-` and `+`), lower case. An
+ * answer id never holds them.
+ */
+export function personalWords(fields: {
+  firstName?: unknown;
+  lastName?: unknown;
+  email?: unknown;
+}): Set<string> {
+  const out = new Set<string>();
+  for (const v of [fields.firstName, fields.lastName, fields.email]) {
+    if (typeof v === 'string') for (const w of words(v)) out.add(w);
+  }
+  return out;
+}
+
+// Kebab-case of the label, digits removed, the owner's name and email words
+// dropped, first 6 words, -2, -3, ... when taken, and "answer" when nothing
+// is left.
+export function answerIdFrom(
+  label: string,
+  taken: ReadonlySet<string>,
+  personal: ReadonlySet<string> = new Set(),
+): string {
+  const kept = words(label)
+    .filter((w) => !personal.has(w))
     .slice(0, MAX_WORDS);
-  const base = words.length > 0 ? words.join('-') : 'answer';
+  const base = kept.length > 0 ? kept.join('-') : 'answer';
   if (!taken.has(base)) return base;
   for (let n = 2; ; n++) {
     const candidate = `${base}-${n}`;
@@ -99,7 +122,15 @@ export function addKnownAnswer(
     }
     const sub = substituter(opts.company, opts.jobTitle);
     const question = sub(entry.question);
-    const id = answerIdFrom(question, taken);
+    const fields = doc.get('fields');
+    const own = isMap(fields)
+      ? personalWords({
+          firstName: fields.get('firstName'),
+          lastName: fields.get('lastName'),
+          email: fields.get('email'),
+        })
+      : new Set<string>();
+    const id = answerIdFrom(question, taken, own);
     const node = doc.createNode({
       id,
       question,

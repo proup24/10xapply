@@ -4,6 +4,8 @@ const PHONE_LIKE = /^[\d\s().+-]+$/;
 // or a separator in a slug or email-like form.
 const NAME_GAP = '[\\s _.-]*';
 const DIGIT_GAP = '[\\s().+-]*';
+/** A phone number with its country code set apart: "+44 7700 900123". */
+const INTERNATIONAL = /^\s*\+\d{1,4}[\s().-]+(\d[\d\s().-]*)$/;
 
 function escapeRegex(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&');
@@ -22,8 +24,12 @@ function namePattern(secret: string): string {
 function patternFor(secret: string, names: Set<string>): string {
   if (names.has(secret)) return namePattern(secret);
   if (PHONE_LIKE.test(secret) && /\d/.test(secret)) {
-    const digits = secret.replace(/\D/g, '').split('');
-    return `(?<!\\d)${digits.join(DIGIT_GAP)}(?!\\d)`;
+    const forms = [secret.replace(/\D/g, '')];
+    // "+44 7700 900123" is also written "07700 900123" at home.
+    const national = INTERNATIONAL.exec(secret)?.[1];
+    if (national) forms.push(`0${national.replace(/\D/g, '')}`);
+    const any = forms.map((d) => d.split('').join(DIGIT_GAP)).join('|');
+    return `(?<!\\d)(?:${any})(?!\\d)`;
   }
   const body = secret
     .split(/\s+/)
@@ -40,8 +46,9 @@ function patternFor(secret: string, names: Set<string>): string {
  * One case-insensitive pattern for all secrets, longest first. A secret that
  * starts or ends with a word character matches only on word boundaries, spaces
  * inside it match any run of whitespace and separators, and a phone number
- * matches its digits in any layout. Secrets listed in nameSecrets match
- * inside words, with no boundary.
+ * matches its digits in any layout (one written with its country code also
+ * in its national form, a 0 in place of the code). Secrets listed in
+ * nameSecrets match inside words, with no boundary.
  */
 export function secretPattern(
   secrets: string[],

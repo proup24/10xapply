@@ -358,6 +358,39 @@ describe('readStep type mapping', () => {
     ]);
   });
 
+  it('sends a checkbox group whose option has only an aria-label to unknown', () => {
+    const r = step(
+      readStep(
+        form(
+          '<fieldset id="fs"><legend>Stacks</legend><input id="a" type="checkbox"><label for="a">Node</label><input id="b" type="checkbox" aria-label="Go"></fieldset>',
+        ),
+      ),
+    );
+    expect(r.fields).toEqual([]);
+    expect(r.unknown).toEqual([
+      { tag: 'input', role: null, inputType: 'checkbox' },
+    ]);
+  });
+
+  it.each([
+    [
+      'radio',
+      '<fieldset id="fs" role="radiogroup"><input id="y" type="radio" name="g" aria-label="Relocate?"><label for="y">Yes</label><input id="n" type="radio" name="g" aria-label="Relocate?"><label for="n"> yes </label></fieldset>',
+    ],
+    [
+      'checkbox',
+      '<fieldset id="fs"><legend>Stacks</legend><input id="a" type="checkbox"><label for="a">Node</label><input id="b" type="checkbox"><label for="b">NODE</label></fieldset>',
+    ],
+    [
+      'select',
+      '<label for="s">Pick</label><select id="s"><option value="">Select an option</option><option value="a">Yes</option><option value="b">yes</option></select>',
+    ],
+  ])('sends a %s field with repeated option texts to unknown', (_, html) => {
+    const r = step(readStep(form(html)));
+    expect(r.fields).toEqual([]);
+    expect(r.unknown).toHaveLength(1);
+  });
+
   it('a fieldset of several checkboxes is checkbox-group', () => {
     const f = only(
       '<fieldset id="fs"><legend>Stacks*</legend><input id="a" type="checkbox"><label for="a">Node</label><input id="b" type="checkbox"><label for="b">Go</label></fieldset>',

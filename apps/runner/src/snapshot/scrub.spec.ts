@@ -19,6 +19,7 @@ describe('scrubSnapshot', () => {
     const { html } = scrubSnapshot(
       '<div><h3>Notice period</h3><span>Two weeks</span></div>',
       [],
+      [],
     );
     expect(html).toContain('<h3>Notice period</h3>');
     expect(html).toContain('<span>xxx xxxxx</span>');
@@ -30,6 +31,7 @@ describe('scrubSnapshot', () => {
         '<select id="a"><option>Leeds area</option></select>' +
         '<button>Next step</button><div role="radio">Yes</div></form>',
       [],
+      [],
     );
     for (const t of ['Your city', 'Visa', 'Leeds area', 'Next step', '>Yes<'])
       expect(html).toContain(t);
@@ -39,6 +41,7 @@ describe('scrubSnapshot', () => {
     const { html } = scrubSnapshot(
       '<input aria-describedby="h1 h2"><div id="h1">Use digits only</div>' +
         '<div id="h2"><span>Max ten</span></div><div id="h3">Other text</div>',
+      [],
       [],
     );
     expect(html).toContain('Use digits only');
@@ -51,6 +54,7 @@ describe('scrubSnapshot', () => {
     const { html, counts } = scrubSnapshot(
       '<select><option>me@example.com</option></select>',
       ['me@example.com'],
+      [],
     );
     expect(html).toContain('<option>[secret]</option>');
     expect(counts.secretsReplaced).toBe(1);
@@ -61,6 +65,7 @@ describe('scrubSnapshot', () => {
       '<button aria-label="Send to Me@Example.com (a+b)">Go</button>' +
         '<div aria-label="Sam Example">x</div>',
       ['me@example.com', '(a+b)'],
+      [],
     );
     expect(html).toContain('aria-label="Send to [secret] [secret]"');
     // not on the allowlist: dropped
@@ -77,6 +82,7 @@ describe('scrubSnapshot', () => {
         '<textarea value="v">typed</textarea>' +
         '<code>{"data":{"name":"Sam"}}</code><code>plain</code>' +
         '<script type="application/ld+json">{"a":1}</script></body>',
+      [],
       [],
     );
     for (const t of [
@@ -110,6 +116,7 @@ describe('scrubSnapshot', () => {
     const { html } = scrubSnapshot(
       '<div><!-- Sam Example --><template><p>Secret words</p></template></div>',
       [],
+      [],
     );
     expect(html).not.toContain('Sam Example');
     expect(html).not.toContain('Secret words');
@@ -118,6 +125,7 @@ describe('scrubSnapshot', () => {
   it('reaches into shadow roots', () => {
     const { html } = scrubSnapshot(
       '<div><template shadowrootmode="open"><span>Private</span><label>Ask</label></template></div>',
+      [],
       [],
     );
     expect(html).toContain('xxxxxxx');
@@ -130,7 +138,7 @@ describe('scrubSnapshot', () => {
       '<div><h3>Contact</h3><span>Sam Example, Leeds</span>' +
       '<option>SAM@example.com</option><input value="Leeds" title="Leeds">' +
       '<script>1</script><a href="x">y</a></div>';
-    const { html, counts } = scrubSnapshot(input, secrets);
+    const { html, counts } = scrubSnapshot(input, secrets, []);
     for (const s of secrets)
       expect(html.toLowerCase()).not.toContain(s.toLowerCase());
     expect(JSON.stringify(counts).toLowerCase()).not.toContain('sam');
@@ -141,8 +149,38 @@ describe('scrubSnapshot', () => {
   });
 });
 
+describe('scrubSnapshot, final review', () => {
+  it('catches a phone number in its national form with a leading 0', () => {
+    const { html, counts } = scrubSnapshot(
+      '<label>Call 07700 900123 or 07700-900-123 or +44 7700 900123</label>',
+      ['+44 7700 900123'],
+      [],
+    );
+    expect(html).not.toMatch(/7700|900/);
+    expect(counts.secretsReplaced).toBe(3);
+  });
+
+  it('replaces any email address in kept text and attributes', () => {
+    const { html, counts } = scrubSnapshot(
+      '<label>Write to other.person@corp.io today</label>' +
+        '<input aria-label="Email a.b+c@mail.d-e.co.uk"><button title="x">Go</button>',
+      [],
+      [],
+    );
+    expect(html).not.toContain('@');
+    expect(html).toContain('Write to [secret] today');
+    expect(html).toContain('aria-label="Email [secret]"');
+    expect(counts.secretsReplaced).toBe(2);
+  });
+
+  it('needs the name secrets', () => {
+    // @ts-expect-error the name secrets are required
+    expect(() => scrubSnapshot('<p></p>', [])).not.toThrow();
+  });
+});
+
 describe('scrubSnapshot, fix round 1', () => {
-  const scrub = (h: string, s: string[] = []) => scrubSnapshot(h, s);
+  const scrub = (h: string, s: string[] = []) => scrubSnapshot(h, s, []);
 
   it('blanks textarea, contenteditable and textbox text inside kept text', () => {
     const { html } = scrub(
@@ -305,7 +343,7 @@ describe('fieldset text', () => {
     '<fieldset aria-describedby="error-message-_r_45_" role="radiogroup"><div><div><div><div><input id="_r_47_" aria-label="Do you have a residence permit in Portugal?" type="radio" name="radio-group-_r_45_"><label for="_r_47_"></label></div><div><p>Yes</p></div></div></div><div><div><div><input id="_r_49_" aria-label="Do you have a residence permit in Portugal?" type="radio" name="radio-group-_r_45_"><label for="_r_49_"></label></div><div><p>No</p></div></div></div></div></fieldset>';
 
   it('keeps option text beside an empty label', () => {
-    const { html } = scrubSnapshot(radios, []);
+    const { html } = scrubSnapshot(radios, [], []);
     expect(html).toContain('<p>Yes</p>');
     expect(html).toContain('<p>No</p>');
   });
@@ -322,6 +360,7 @@ describe('fieldset text', () => {
   it('still blanks a textarea inside a fieldset', () => {
     const { html } = scrubSnapshot(
       '<fieldset><p>Why</p><textarea>my reasons</textarea></fieldset>',
+      [],
       [],
     );
     expect(html).toContain('<p>Why</p>');
@@ -361,9 +400,11 @@ describe('name secrets', () => {
   });
 
   it('treats underscore and dot as boundaries for other secrets', () => {
-    const { html } = scrubSnapshot('<label>a_Yes_b Yesterday x.Yes.y</label>', [
-      'Yes',
-    ]);
+    const { html } = scrubSnapshot(
+      '<label>a_Yes_b Yesterday x.Yes.y</label>',
+      ['Yes'],
+      [],
+    );
     expect(html).toBe('<label>a_[secret]_b Yesterday x.[secret].y</label>');
   });
 

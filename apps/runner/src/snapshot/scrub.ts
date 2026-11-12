@@ -62,6 +62,8 @@ const BLANK_ATTRIBUTES = new Set([
   'aria-description',
 ]);
 const BLANK_VALUE_TAGS = new Set(['option', 'button', 'select', 'li', 'data']);
+/** Any email address, in the bank or not. */
+const EMAIL = /[\p{L}\p{N}._%+-]+@[\p{L}\p{N}-]+(?:\.[\p{L}\p{N}-]+)+/gu;
 const URL_VALUE = /^\s*(https?:|\/\/|data:|javascript:)/i;
 const KEEP_TEXT_ROLES = new Set(['option', 'radio', 'checkbox']);
 const KEEP_ARIA_LABEL_TAGS = new Set(['input', 'select', 'textarea', 'button']);
@@ -143,12 +145,13 @@ function keepsAriaLabel(el: DomElement, tag: string): boolean {
  * Scrubs a raw snapshot so Claude may read it and it may be committed as a
  * fixture. See the spec's "Snapshots and locators". Structure decides what
  * survives: form wording is kept, every other text becomes `x`s, and any
- * remaining text or attribute value that holds a secret has it replaced.
+ * remaining text or attribute value that holds a secret, or any email
+ * address, has it replaced.
  */
 export function scrubSnapshot(
   html: string,
   secrets: string[],
-  nameSecrets: string[] = [],
+  nameSecrets: string[],
 ): { html: string; counts: ScrubCounts } {
   const document = parsePage(html);
   const counts: ScrubCounts = {
@@ -160,11 +163,13 @@ export function scrubSnapshot(
 
   const pattern = secretPattern(secrets, nameSecrets);
   const replaceSecrets = (value: string): string => {
-    if (!pattern) return value;
-    return value.replace(pattern, () => {
+    const hit = () => {
       counts.secretsReplaced++;
       return '[secret]';
-    });
+    };
+    // Emails first, so a name inside one can't leave the rest behind.
+    const emails = value.replace(EMAIL, hit);
+    return pattern ? emails.replace(pattern, hit) : emails;
   };
 
   const root = document as unknown as DomNode & {

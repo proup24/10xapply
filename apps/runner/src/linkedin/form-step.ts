@@ -328,8 +328,9 @@ function readFields(
   };
   /**
    * Adds a field aimed at `target`, or sends `el` to unknown when the field
-   * can't be answered or acted on safely: no label, an empty option, or a
-   * control (or option) no selector picks out alone.
+   * can't be answered or acted on safely: no label, an empty option, two
+   * options that read the same, or a control (or option) no selector picks
+   * out alone.
    */
   const push = (
     el: El,
@@ -347,6 +348,7 @@ function readFields(
       q.label === '' ||
       selector === null ||
       (q.options?.includes('') ?? false) ||
+      repeats(q.options ?? []) ||
       (optionSelectors?.includes(null) ?? false)
     ) {
       unknown.push(unknownOf(el));
@@ -596,7 +598,8 @@ function readFields(
           STAR.test(text) ||
           boxes.some(requiredAttr) ||
           (group !== null && requiredAttr(group)),
-        options: boxes.map((b) => optionText(doc, b, group) || label(b)),
+        // Never the aria-label: an empty option text sends it to unknown.
+        options: boxes.map((b) => optionText(doc, b, group)),
       },
       { anchor: group ?? el, options: boxes },
     );
@@ -606,6 +609,12 @@ function readFields(
     const legend = one(group, 'legend');
     return (legend ? textOf(legend) : '') || label(group);
   }
+}
+
+/** True when two options read the same, trimmed and in any case. */
+function repeats(options: string[]): boolean {
+  const seen = new Set(options.map((o) => o.trim().toLowerCase()));
+  return seen.size !== options.length;
 }
 
 /** The fieldset or radiogroup around a radio. */

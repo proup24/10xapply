@@ -22,5 +22,6 @@ export {
 export {
   addKnownAnswer,
   answerIdFrom,
+  personalWords,
   type AddAnswerResult,
 } from './add-answer.js';
