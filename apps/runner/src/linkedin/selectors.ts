@@ -30,6 +30,8 @@ export const FOLLOW_PREFIXES = ['Following, click to unfollow ', 'Follow '];
  * It has no role="dialog".
  */
 export const FORM_HEADER = '#dialog-header';
+/** The form header's `h2` reads "Apply to <company>" (step-contact.html). */
+export const FORM_COMPANY_PREFIX = 'Apply to ';
 /** The step buttons: Back, Next, Review, Submit application (step-resume.html). */
 export const FOOTER_BUTTONS = 'footer button';
 /**

@@ -26,11 +26,13 @@ function fakePace(calls: string[], s: PageState = {}): Pace {
     type: async (f, text) => {
       const sel = selOf(f);
       calls.push(`type ${sel} ${text}`);
+      if (s.deaf?.includes(sel)) return;
       s.values = { ...s.values, [sel]: (s.values?.[sel] ?? '') + text };
     },
     clear: async (f) => {
       const sel = selOf(f);
       calls.push(`clear ${sel}`);
+      if (s.sticky?.includes(sel)) return;
       s.values = { ...s.values, [sel]: '' };
     },
     glance: async (f) => void calls.push(`glance ${selOf(f)}`),
@@ -51,6 +53,10 @@ interface PageState {
   suggestions?: Record<string, Record<string, string>>;
   /** Selectors a click doesn't change. */
   inert?: string[];
+  /** Selectors typing doesn't change. */
+  deaf?: string[];
+  /** Selectors clearing doesn't empty. */
+  sticky?: string[];
 }
 
 function fakePage(s: PageState): FillPage {
@@ -127,6 +133,58 @@ describe('fillField', () => {
     const { calls, result } = await run(field('text'), 'caf\u00e9');
     expect(calls).toEqual([]);
     expect(result).toEqual({ ok: false, reason: 'not-typeable' });
+  });
+
+  it('a newline in a text field is not-typeable, before any pace call', async () => {
+    for (const type of ['text', 'number', 'typeahead'] as const) {
+      const { calls, result } = await run(
+        field(type, { suggestions: '#list' }),
+        'one\ntwo',
+      );
+      expect(calls).toEqual([]);
+      expect(result).toEqual({ ok: false, reason: 'not-typeable' });
+    }
+  });
+
+  it('typed text the field did not take is not-taken, and is cleared', async () => {
+    const { calls, result } = await run(field('text'), 'Ada', {
+      deaf: ['#f'],
+    });
+    expect(calls).toEqual(['type #f Ada', 'clear #f']);
+    expect(result).toEqual({ ok: false, reason: 'not-taken' });
+  });
+
+  it('a clear that left text behind is not-taken, and nothing is typed', async () => {
+    const { calls, result } = await run(field('text'), 'Ada', {
+      values: { '#f': 'old' },
+      sticky: ['#f'],
+    });
+    expect(calls).toEqual(['clear #f']);
+    expect(result).toEqual({ ok: false, reason: 'not-taken' });
+  });
+
+  it('a typeahead whose typed text did not take is not-taken', async () => {
+    const { calls, result } = await run(
+      field('typeahead', { suggestions: '#list' }),
+      'Lisbon',
+      { deaf: ['#f'], suggestions: { '#list': { Lisbon: '#opt' } } },
+    );
+    expect(calls).toEqual(['type #f Lisbon', 'clear #f']);
+    expect(result).toEqual({ ok: false, reason: 'not-taken' });
+  });
+
+  it('a typeahead whose clear left text behind is not-taken', async () => {
+    const { calls, result } = await run(
+      field('typeahead', { suggestions: '#list' }),
+      'Lisbon',
+      {
+        values: { '#f': 'Porto' },
+        sticky: ['#f'],
+        suggestions: { '#list': { Lisbon: '#opt' } },
+      },
+    );
+    expect(calls).toEqual(['clear #f']);
+    expect(result).toEqual({ ok: false, reason: 'not-taken' });
   });
 
   it('prefilled match glances', async () => {

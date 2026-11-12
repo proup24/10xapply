@@ -2,7 +2,7 @@ import type { AnswerValue, FormQuestion, Job } from '@xapply/answerer';
 import type { FactBank } from '@xapply/fact-bank';
 import { all } from '../linkedin/el.js';
 import { parsePage, type Document } from '../linkedin/dom.js';
-import { readStep } from '../linkedin/form-step.js';
+import { readStep, stepKey } from '../linkedin/form-step.js';
 import type { ReadField, StepRead } from '../linkedin/types.js';
 import type { Pace } from '../pace/pace.js';
 import {
@@ -60,15 +60,43 @@ export async function look(w: Pick<Walk, 'page'>): Promise<Document> {
   return doc;
 }
 
-/** Reads the form every 500 ms until `done`, for up to `ms`. */
-export async function pollStep(
+/** How long a settled step with no fields gets for its fields to show. */
+export const EMPTY_SETTLE_MS = 2_000;
+
+const isEmpty = (r: StepRead) =>
+  r.kind !== 'none' && r.fields.length === 0 && r.unknown.length === 0;
+
+/**
+ * Reads the form every 500 ms, for up to `ms`, until a read that `accept`s
+ * has settled: the same `stepKey` on two reads in a row. A settled step
+ * with no fields and no unknowns is read for up to 2 s more, in case its
+ * fields are still coming, before it is taken as empty. When time runs out
+ * the last read is returned if it wasn't accepted (the caller deals with
+ * it); an accepted read that never settled is a safety stop.
+ */
+export async function settleStep(
   w: Walk,
   ms: number,
-  done: (r: StepRead) => boolean,
+  accept: (r: StepRead) => boolean,
 ): Promise<StepRead> {
+  let prev: string | null = null;
+  let emptyFrom: number | null = null;
   for (let i = 0; ; i++) {
     const r = readStep(await look(w));
-    if (done(r) || i >= ms / POLL_MS) return r;
+    const key = accept(r) ? stepKey(r) : null;
+    const settled = key !== null && key === prev;
+    if (settled && !isEmpty(r)) return r;
+    if (settled) {
+      emptyFrom ??= i;
+      if (i - emptyFrom >= EMPTY_SETTLE_MS / POLL_MS) return r;
+    } else {
+      emptyFrom = null;
+    }
+    if (i >= ms / POLL_MS) {
+      if (key === null || settled) return r;
+      throw safety('unexpected-page', 'the form did not settle');
+    }
+    prev = key;
     checkStop(w.deps);
     await w.deps.wait(POLL_MS);
   }

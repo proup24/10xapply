@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parsePage } from './dom.js';
-import { readJobPage } from './job-page.js';
+import { readFormCompany, readJobPage } from './job-page.js';
 import { EASY_APPLY } from './selectors.js';
 
 const dir = join(dirname(fileURLToPath(import.meta.url)), '../apply/fixtures');
@@ -72,6 +72,33 @@ describe('readJobPage', () => {
     expect(r.company).toBe('Acme');
   });
 
+  it('has no company when Follow buttons name different companies', () => {
+    const r = readJobPage(
+      parsePage(
+        '<body><button aria-label="Follow Acme">Follow</button><button aria-label="Follow Globex">Follow</button></body>',
+      ),
+    );
+    expect(r.company).toBeNull();
+  });
+
+  it('keeps the company when every Follow button names it', () => {
+    const r = readJobPage(
+      parsePage(
+        '<body><button aria-label="Follow Acme">Follow</button><button aria-label="Following, click to unfollow Acme">Following</button></body>',
+      ),
+    );
+    expect(r.company).toBe('Acme');
+  });
+
+  it('prefers the open form\'s "Apply to <company>" heading', () => {
+    const r = readJobPage(
+      parsePage(
+        '<body><button aria-label="Follow Globex">Follow</button><dialog aria-labelledby="dialog-header" open><header id="dialog-header"><h2>Apply to Acme Corp</h2></header></dialog></body>',
+      ),
+    );
+    expect(r.company).toBe('Acme Corp');
+  });
+
   it('is not applied while the Easy Apply button is there', () => {
     const r = readJobPage(
       parsePage(
@@ -97,4 +124,37 @@ describe('readJobPage', () => {
     );
     expect(r.description).toBe('We build things.\nYou test them.');
   });
+});
+
+describe('readFormCompany', () => {
+  it('reads the company from the form heading', () => {
+    expect(
+      readFormCompany(
+        parsePage(
+          '<dialog><header id="dialog-header"><h2>Apply to Acme Corp</h2></header></dialog>',
+        ),
+      ),
+    ).toBe('Acme Corp');
+  });
+
+  it('is null without the form or with another heading', () => {
+    expect(
+      readFormCompany(parsePage('<body><h2>Apply to X</h2></body>')),
+    ).toBeNull();
+    expect(
+      readFormCompany(
+        parsePage(
+          '<dialog><header id="dialog-header"><h2>Save this application?</h2></header></dialog>',
+        ),
+      ),
+    ).toBeNull();
+  });
+
+  it.each(rows.filter((r) => r.kind.startsWith('step')))(
+    '$file names a company in its form heading',
+    ({ file }) => {
+      const doc = parsePage(readFileSync(join(dir, file), 'utf8'));
+      expect(readFormCompany(doc)).not.toBeNull();
+    },
+  );
 });

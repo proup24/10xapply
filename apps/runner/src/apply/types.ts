@@ -8,7 +8,7 @@ import type { FactBank } from '@xapply/fact-bank';
 import type { UnknownField } from '../linkedin/types.js';
 import type { Pace } from '../pace/pace.js';
 import type { TerminalIO } from '../terminal/author-mode.js';
-import type { FillPage, FillResult, Resume } from './fill.js';
+import type { FillPage, FillProblem, Resume } from './fill.js';
 
 export type SafetyStop =
   | 'security-check'
@@ -40,7 +40,7 @@ export interface QuestionRecord {
   changedFromLinkedIn: boolean;
   /** The known-answer id the author's answer was saved as. */
   savedAs?: string;
-  fillProblem?: Extract<FillResult, { ok: false }>['reason'];
+  fillProblem?: FillProblem;
 }
 
 export interface ApplyRun {

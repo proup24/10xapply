@@ -12,6 +12,7 @@ import {
 import type { FactBank } from '@xapply/fact-bank';
 import { REPORTS_DIR } from '../reports/write-report.js';
 import type { UnknownField } from '../linkedin/types.js';
+import type { FillProblem } from './fill.js';
 import type {
   ApplyOutcome,
   ApplyRun,
@@ -37,7 +38,8 @@ export interface RedactedQuestion {
   by: QuestionRecord['by'];
   changedFromLinkedIn: boolean;
   savedAs: string | null;
-  fillProblem: string | null;
+  /** One of a fixed set of our own words (see `FillProblem`). */
+  fillProblem: FillProblem | null;
   result: RedactedResult | null;
 }
 

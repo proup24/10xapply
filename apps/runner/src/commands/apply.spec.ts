@@ -220,6 +220,61 @@ describe('applyCommand', () => {
     expect(h.connect).not.toHaveBeenCalled();
   });
 
+  it('a resume install failure prints a fixed line outside author mode', async () => {
+    const h = harness({
+      installResume: () => {
+        throw new Error('MARKER-RESUME C:\\Users\\someone\\cv.pdf');
+      },
+    });
+    expect(await applyCommand([URL_OK, '--dry-run'], h.deps)).toBe(2);
+    expect(h.lines).toEqual(['apply: could not install the resume']);
+    expect(h.connect).not.toHaveBeenCalled();
+  });
+
+  it('a resume install failure may show its message in author mode', async () => {
+    const h = harness({
+      authorMode: true,
+      installResume: () => {
+        throw new Error('MARKER-RESUME detail');
+      },
+    });
+    expect(await applyCommand([URL_OK, '--dry-run'], h.deps)).toBe(2);
+    const out = h.lines.join('\n');
+    expect(out).toContain('apply: could not install the resume');
+    expect(out).toContain('MARKER-RESUME detail');
+  });
+
+  it('a report write failure prints a fixed line outside author mode', async () => {
+    const h = harness({
+      writeReports: () => {
+        throw new Error('MARKER-WRITE /home/someone/reports');
+      },
+    });
+    expect(await applyCommand([URL_OK, '--dry-run'], h.deps)).toBe(2);
+    const out = h.lines.join('\n');
+    expect(out).toContain('apply: could not write the reports');
+    expect(out).not.toContain('MARKER');
+    expect(h.bridge.closed).toBe(1);
+  });
+
+  it('a report write failure may show its message in author mode', async () => {
+    const h = harness({
+      authorMode: true,
+      runApply: async () => ({
+        ...markedRun(),
+        outcome: 'reached-review',
+        stop: undefined,
+      }),
+      writeReports: () => {
+        throw new Error('MARKER-WRITE detail');
+      },
+    });
+    expect(await applyCommand([URL_OK, '--dry-run'], h.deps)).toBe(2);
+    const out = h.lines.join('\n');
+    expect(out).toContain('apply: could not write the reports');
+    expect(out).toContain('MARKER-WRITE detail');
+  });
+
   it('bridge unavailable still writes a report and exits 2', async () => {
     const run = vi.fn();
     const h = harness({

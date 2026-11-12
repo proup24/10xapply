@@ -20,12 +20,15 @@ export interface Resume {
   fileName: string;
   windowsPath: string;
 }
+/**
+ * Why a fill failed. `not-taken`: after a clear the field was not empty, or
+ * after typing it did not hold the typed text.
+ */
+export type FillProblem =
+  'not-typeable' | 'not-taken' | 'no-option' | 'no-suggestion' | 'no-resume';
 export type FillResult =
   | { ok: true; changedFromLinkedIn: boolean }
-  | {
-      ok: false;
-      reason: 'not-typeable' | 'no-option' | 'no-suggestion' | 'no-resume';
-    };
+  | { ok: false; reason: FillProblem };
 
 interface Ctx {
   pace: Pace;
@@ -37,9 +40,32 @@ const done = (changedFromLinkedIn: boolean): FillResult => ({
   ok: true,
   changedFromLinkedIn,
 });
-const fail = (
-  reason: Extract<FillResult, { ok: false }>['reason'],
-): FillResult => ({ ok: false, reason });
+const fail = (reason: FillProblem): FillResult => ({ ok: false, reason });
+
+/** Clears the field, then reads it back: true when it is empty. */
+async function clearAndCheck(
+  { pace, page }: Ctx,
+  selector: string,
+): Promise<boolean> {
+  await pace.clear(page.locator(selector));
+  return (await page.value(selector)) === '';
+}
+
+/**
+ * Types the text, then reads it back: true when the field holds it. When it
+ * doesn't, the field is cleared, so no part-typed text is left behind.
+ */
+async function typeAndCheck(
+  { pace, page }: Ctx,
+  selector: string,
+  text: string,
+): Promise<boolean> {
+  const field = page.locator(selector);
+  await pace.type(field, text);
+  if ((await page.value(selector)) === text) return true;
+  await pace.clear(field);
+  return false;
+}
 
 /** Several picks for a text field read as the bank saves them. */
 const asText = (v: AnswerValue) => (Array.isArray(v) ? v.join('; ') : v);
@@ -52,8 +78,9 @@ const asMany = (v: AnswerValue) => (Array.isArray(v) ? v : [v]);
  * Fills one field with its answer through pace, at human speed. A field
  * already holding the answer gets a glance (never a typeahead). Every
  * refusal comes before any pace call, except a typeahead with no suggestion
- * (found after typing, and the field cleared again) and a radio the click
- * did not check.
+ * (found after typing, and the field cleared again), a radio the click did
+ * not check, and text the field did not take (`not-taken`, read back after
+ * each clear and each typing).
  */
 export async function fillField(
   f: ReadField,
@@ -86,17 +113,20 @@ async function fillText(
 ): Promise<FillResult> {
   const { pace, page } = ctx;
   const text = toTypeable(asText(value));
-  if (text === null) return fail('not-typeable');
+  // Only a textarea takes a line break; elsewhere Enter could send the form.
+  if (text === null || (f.question.type !== 'textarea' && text.includes('\n')))
+    return fail('not-typeable');
   if (f.question.type === 'typeahead') return fillTypeahead(f, text, ctx);
-  const field = page.locator(f.selector);
   const current = await page.value(f.selector);
   if (current === text) {
-    await pace.glance(field);
+    await pace.glance(page.locator(f.selector));
     return done(false);
   }
   const changed = current !== '';
-  if (changed) await pace.clear(field);
-  if (text !== '') await pace.type(field, text);
+  if (changed && !(await clearAndCheck(ctx, f.selector)))
+    return fail('not-taken');
+  if (text !== '' && !(await typeAndCheck(ctx, f.selector, text)))
+    return fail('not-taken');
   return done(changed);
 }
 
@@ -109,14 +139,16 @@ async function fillText(
 async function fillTypeahead(
   f: ReadField,
   text: string,
-  { pace, page }: Ctx,
+  ctx: Ctx,
 ): Promise<FillResult> {
+  const { pace, page } = ctx;
   // Nothing to click once typed: refuse before touching the field.
   if (!f.suggestions || text === '') return fail('no-suggestion');
   const field = page.locator(f.selector);
   const current = await page.value(f.selector);
-  if (current !== '') await pace.clear(field);
-  await pace.type(field, text);
+  if (current !== '' && !(await clearAndCheck(ctx, f.selector)))
+    return fail('not-taken');
+  if (!(await typeAndCheck(ctx, f.selector, text))) return fail('not-taken');
   const option = await page.suggestion(f.suggestions, text);
   if (option === null) {
     await pace.clear(field);

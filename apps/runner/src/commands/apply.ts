@@ -43,6 +43,8 @@ const BAD_URL =
 const NO_BANK = 'apply: the fact bank did not load; fix it first';
 const NO_RESUME =
   "apply: the fact bank's resume file is missing; run pnpm nx run runner:facts-check";
+export const RESUME_FAILED = 'apply: could not install the resume';
+export const REPORTS_FAILED = 'apply: could not write the reports';
 
 /** How long a typeahead gets to show the answer, and how often it's read. */
 const SUGGESTION_WAIT_MS = 5_000;
@@ -184,6 +186,15 @@ export function adaptApplyPage(
   };
 }
 
+/**
+ * A fixed line for a failure. The error's own message can quote a path or
+ * bank text, so only the author sees it.
+ */
+function failed(d: ApplyCommandDeps, line: string, e: unknown): void {
+  d.out(line);
+  if (d.authorMode && e instanceof Error) d.out(`  ${e.message}`);
+}
+
 function unavailableRun(jobId: string, startedAt: Date, why: string): ApplyRun {
   return {
     jobId,
@@ -242,7 +253,13 @@ export async function applyCommand(
     maxRegenerations: answerCfg.maxRegenerations,
   };
   const profile = d.loadProfile();
-  const resume = d.installResume(bank.fields.resume);
+  let resume: Resume;
+  try {
+    resume = d.installResume(bank.fields.resume);
+  } catch (e) {
+    failed(d, RESUME_FAILED, e);
+    return 2;
+  }
 
   const bridge = await d.connect(cfg);
   let run: ApplyRun;
@@ -300,7 +317,13 @@ export async function applyCommand(
     }
   }
 
-  const paths = d.writeReports(run, bank);
+  let paths: { full: string; redacted: string };
+  try {
+    paths = d.writeReports(run, bank);
+  } catch (e) {
+    failed(d, REPORTS_FAILED, e);
+    return 2;
+  }
   if (d.authorMode) {
     d.out(formatRunMarkdown(run, bank).trimEnd());
     d.out(`report: ${paths.redacted}`);

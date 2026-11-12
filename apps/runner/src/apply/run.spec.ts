@@ -55,6 +55,8 @@ interface Screen {
   path?: string;
   /** A pace action on this selector moves to the named screen. */
   on?: Record<string, string>;
+  /** After this many reads of its HTML, the page becomes the named screen. */
+  then?: { after: number; to: string };
 }
 
 interface Call {
@@ -105,6 +107,8 @@ interface Setup {
   openFails?: boolean;
   /** `ask` rejects on this prompt (Ctrl+C or end of input). */
   rejectAsk?: string;
+  /** Selectors typing doesn't change. */
+  deaf?: string[];
 }
 
 type Reply = AnswerValue | { blocked: true };
@@ -157,6 +161,7 @@ function harness(s: Setup): Harness {
   const saved: { question: string; answer: string }[] = [];
   const answered: FormQuestion[] = [];
   const replies = [...(s.author ?? [])];
+  const reads: Record<string, number> = {};
 
   const screen = () => {
     const sc = s.screens[current];
@@ -182,7 +187,14 @@ function harness(s: Setup): Harness {
       current = s.start ?? 'job';
     },
     path: () => screen().path ?? JOB_PATH,
-    html: async () => screen().html,
+    html: async () => {
+      const sc = screen();
+      if (sc.then) {
+        reads[current] = (reads[current] ?? 0) + 1;
+        if (reads[current] >= sc.then.after) current = sc.then.to;
+      }
+      return sc.html;
+    },
     close: async () => {
       closed = true;
       calls.push({ op: 'close', sel: '' });
@@ -198,6 +210,7 @@ function harness(s: Setup): Harness {
     },
     type: async (f, text) => {
       act('type', f, text);
+      if (s.deaf?.includes(selOf(f))) return;
       values[selOf(f)] = (values[selOf(f)] ?? '') + text;
     },
     clear: async (f) => {
@@ -945,6 +958,94 @@ describe('runApply', () => {
     expect(run.outcome).toBe('stopped');
     // No tab was opened, so there is nothing to close.
     expect(h.calls).toEqual([]);
+  });
+
+  it('waits for a form that opens empty, and never clicks Next on it', async () => {
+    const h = harness({
+      screens: {
+        job: { html: JOB, on: { [EASY_APPLY]: 'empty' } },
+        empty: { html: synth({}), then: { after: 3, to: 'step' } },
+        step: { html: synth({ fields: [A] }), on: { '#next': 'review' } },
+        ...reviewScreens(),
+      },
+    });
+    const run = await runApply('123', h.deps);
+    expect(run.outcome).toBe('reached-review');
+    expect(run.questions.map((q) => q.question.label)).toEqual(['Question A']);
+    const acts = h.acts();
+    expect(acts.indexOf('type #qa ok')).toBeGreaterThan(-1);
+    expect(acts.indexOf('click #next')).toBeGreaterThan(
+      acts.indexOf('type #qa ok'),
+    );
+  });
+
+  it('takes a step only once two reads in a row agree', async () => {
+    const h = harness({
+      screens: {
+        job: { html: JOB, on: { [EASY_APPLY]: 'first' } },
+        first: { html: synth({ fields: [B] }), then: { after: 1, to: 'full' } },
+        full: { html: synth({ fields: [A, B] }), on: { '#next': 'review' } },
+        ...reviewScreens(),
+      },
+    });
+    const run = await runApply('123', h.deps);
+    expect(run.outcome).toBe('reached-review');
+    // Both fields were read together on the settled step, in page order.
+    expect(run.questions.map((q) => q.question.label)).toEqual([
+      'Question A',
+      'Question B',
+    ]);
+  });
+
+  it('an empty step that stays empty is taken after the settle wait', async () => {
+    const h = harness({
+      screens: {
+        job: { html: JOB, on: { [EASY_APPLY]: 'empty' } },
+        empty: { html: synth({}), on: { '#next': 'review' } },
+        ...reviewScreens(),
+      },
+    });
+    const run = await runApply('123', h.deps);
+    expect(run.outcome).toBe('reached-review');
+    // Two reads to agree, then 2 s more (four 500 ms waits) before Next.
+    const beforeNext = h.calls.slice(
+      0,
+      h.calls.findIndex((c) => c.op === 'click' && c.sel === '#next'),
+    );
+    expect(
+      beforeNext.filter((c) => c.op === 'wait' && c.arg === 500).length,
+    ).toBeGreaterThanOrEqual(5);
+  });
+
+  it('typed text the page did not take goes down the blocked path', async () => {
+    const h = harness({
+      screens: oneStep(synth({ fields: [A] })),
+      deaf: ['#qa'],
+    });
+    const run = await runApply('123', h.deps);
+    expect(run.outcome).toBe('needs-author');
+    expect(run.questions[0]).toMatchObject({
+      by: 'needs-author',
+      fillProblem: 'not-taken',
+      filled: null,
+    });
+  });
+
+  it('fills a company the job page lacked from the form heading', async () => {
+    const job = JOB.replaceAll(
+      'aria-label="Follow Zero to One Search | Recruitment Agency"',
+      '',
+    );
+    const h = harness({
+      screens: {
+        job: { html: job, on: { [EASY_APPLY]: 'step' } },
+        step: { html: synth({ fields: [A] }), on: { '#next': 'review' } },
+        ...reviewScreens(),
+      },
+    });
+    const run = await runApply('123', h.deps);
+    expect(run.outcome).toBe('reached-review');
+    expect(run.job?.company).toBe('Acme');
   });
 
   it('the submit check itself catches a Submit button', () => {

@@ -2,16 +2,19 @@ import { readDiscard, readDismiss } from '../linkedin/close.js';
 import type { Document } from '../linkedin/dom.js';
 import { all, textOf } from '../linkedin/el.js';
 import { stepKey } from '../linkedin/form-step.js';
-import { readJobPage } from '../linkedin/job-page.js';
+import { readFormCompany, readJobPage } from '../linkedin/job-page.js';
 import { jobViewUrl } from '../linkedin/job-url.js';
 import { MORE_BUTTON } from '../linkedin/selectors.js';
 import type { StepRead } from '../linkedin/types.js';
 import { pathPrefix } from '../reports/write-report.js';
 import { RunEnd, asRunEnd, checkStop, guardPace, safety } from './stop.js';
-import { POLL_MS, look, pollStep, walkStep, type Walk } from './step.js';
+import { POLL_MS, look, settleStep, walkStep, type Walk } from './step.js';
 import type { ApplyDeps, ApplyPage, ApplyRun } from './types.js';
 
-/** How long the form gets to open, and a step to change after Next. */
+/**
+ * How long the form gets to open, and a step to change after Next, before
+ * it settles (two reads in a row agree).
+ */
 const STEP_WAIT_MS = 10_000;
 /** How long the "Save this application?" prompt gets after Dismiss. */
 const PROMPT_WAIT_MS = 5_000;
@@ -122,9 +125,13 @@ async function openJob(w: Walk): Promise<void> {
 
 /** Each step in turn until the review page; its fields too, if it has any. */
 async function walkForm(w: Walk): Promise<void> {
-  let read = await pollStep(w, STEP_WAIT_MS, (r) => r.kind !== 'none');
+  let read = await settleStep(w, STEP_WAIT_MS, (r) => r.kind !== 'none');
   if (read.kind === 'none') {
     throw safety('unexpected-page', 'no Easy Apply form after the click');
+  }
+  // A company the job page didn't name comes from the form's heading.
+  if (w.run.job && w.run.job.company === '') {
+    w.run.job.company = readFormCompany(await look(w)) ?? '';
   }
   for (let n = 1; ; n++) {
     if (
@@ -159,7 +166,7 @@ async function advance(
   const before = stepKey(read);
   guardNext(await look(w), read.next);
   await pace.click(page.locator(read.next.selector));
-  const after = await pollStep(
+  const after = await settleStep(
     w,
     STEP_WAIT_MS,
     (r) => r.kind !== 'none' && stepKey(r) !== before,
