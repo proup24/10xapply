@@ -18,6 +18,9 @@ export type SafetyStop =
   | 'step-did-not-change'
   | 'too-many-rounds';
 
+export type StopKind =
+  SafetyStop | 'bridge' | 'error' | 'author' | 'needs-author';
+
 export type ApplyOutcome =
   | 'reached-review'
   | 'not-easy-apply'
@@ -45,10 +48,23 @@ export interface ApplyRun {
   startedAt: string;
   outcome: ApplyOutcome;
   stop?: {
-    kind: SafetyStop | 'bridge';
+    /**
+     * `bridge`: `stopReason()` was set (Ctrl+C is `interrupted`). `error`:
+     * anything else thrown. `author`: the author typed s at a prompt.
+     * `needs-author`: a blocked required question with no author present.
+     */
+    kind: StopKind;
     step: number | null;
-    /** Our own words, or the bridge's; for the full report only. */
+    /**
+     * Our own words, the stop reason, or an error's name; never a label or
+     * a value. For the full report only.
+     */
     detail: string;
+    /**
+     * `error` only: the first line of the error's message, at most 200
+     * characters. It can quote the page, so it is for the full report only.
+     */
+    error?: string;
     /** LinkedIn's error text on a step that didn't change; full report only. */
     pageErrors?: string[];
     /** `pathPrefix` of the page's path at the stop, or null if unreadable. */

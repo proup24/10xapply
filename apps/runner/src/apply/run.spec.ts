@@ -1,16 +1,17 @@
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import type { Locator } from 'patchright-core';
 import type { AnswerResult, AnswerValue, FormQuestion } from '@xapply/answerer';
 import type { FactBank } from '@xapply/fact-bank';
 import { parsePage, type Document } from '../linkedin/dom.js';
 import { readStep } from '../linkedin/form-step.js';
 import { DISMISS, EASY_APPLY } from '../linkedin/selectors.js';
+import { ConfigError } from '../config.js';
 import type { Pace } from '../pace/pace.js';
 import type { TerminalIO } from '../terminal/author-mode.js';
-import { runApply } from './run.js';
+import { guardNext, runApply } from './run.js';
 import type { ApplyDeps, ApplyPage, ApplyRun } from './types.js';
 
 const FIXTURES = join(dirname(fileURLToPath(import.meta.url)), 'fixtures');
@@ -62,13 +63,11 @@ interface Call {
   arg?: string | number;
 }
 
-/** Every acted-on selector whose element reads as Submit, across all tests. */
+/** Every acted-on selector whose element reads as Submit, in this test. */
 const submitHits: string[] = [];
-let actionsChecked = 0;
 
 const SUBMIT = /submit/i;
 function checkNotSubmit(html: string, sel: string) {
-  actionsChecked++;
   for (const el of docOf(html).querySelectorAll(sel)) {
     const text = el.textContent ?? '';
     const label = el.getAttribute('aria-label') ?? '';
@@ -343,6 +342,12 @@ const D = textField('qd', 'Question D');
 const stopKind = (r: ApplyRun) => r.stop?.kind;
 
 describe('runApply', () => {
+  // The never-submit rule, checked after every test's run.
+  afterEach(() => {
+    const hits = submitHits.splice(0);
+    expect(hits).toEqual([]);
+  });
+
   it('reaches review and never clicks a submit selector', async () => {
     const h = harness({ screens: fullFlow() });
     const run = await runApply('123', h.deps);
@@ -574,6 +579,13 @@ describe('runApply', () => {
     });
     const run = await runApply('123', h.deps);
     expect(run.outcome).toBe('needs-author');
+    expect(run.stop).toEqual({
+      kind: 'needs-author',
+      step: 1,
+      detail: 'question s1-q2 needs the author',
+      pathPrefix: '/jobs/',
+    });
+    expect(run.timings.perStepMs).toHaveLength(1); // the stopped step is timed
     const last = run.questions.at(-1);
     expect(last).toMatchObject({ by: 'needs-author', filled: null });
     expect(last?.question.label).toBe(node);
@@ -590,6 +602,10 @@ describe('runApply', () => {
     });
     const run = await runApply('123', h.deps);
     expect(run.outcome).toBe('needs-author');
+    expect(run.stop).toMatchObject({
+      kind: 'needs-author',
+      detail: 'question s1-q3 needs the author',
+    });
     expect(run.questions.at(-1)?.question.type).toBe('radio');
   });
 
@@ -702,14 +718,27 @@ describe('runApply', () => {
   });
 
   it('author stop → stopped', async () => {
+    const screens = oneStep(LOCATION);
+    screens['step'] = { html: LOCATION, on: { [DISMISS]: 'prompt' } };
     const h = harness({
-      screens: oneStep(LOCATION),
+      screens,
       answers: { 'What is your current location?': BLOCKED },
       author: ['s'],
     });
     const run = await runApply('123', h.deps);
     expect(run.outcome).toBe('stopped');
-    expect(run.stop).toBeUndefined();
+    expect(run.stop).toEqual({
+      kind: 'author',
+      step: 1,
+      detail: 'the author stopped the run',
+      pathPrefix: '/jobs/',
+    });
+    // No Enter wait after the author's own stop, but Dismiss and Discard.
+    expect(h.asked).toHaveLength(1);
+    expect(h.acts().slice(-2)).toEqual([
+      `click ${DISMISS}`,
+      `click ${DISCARD}`,
+    ]);
     expect(run.questions[0]).toMatchObject({
       by: 'needs-author',
       filled: null,
@@ -753,8 +782,13 @@ describe('runApply', () => {
   });
 
   it('stop mid-step still reports', async () => {
+    const screens = fullFlow();
+    screens['contact'] = {
+      ...(screens['contact'] as Screen),
+      on: { [DISMISS]: 'prompt' },
+    };
     const h = harness({
-      screens: fullFlow(),
+      screens,
       start: 'job',
       // Ctrl+C lands right after the first field is typed.
       stopWhen: (calls) =>
@@ -770,11 +804,29 @@ describe('runApply', () => {
     });
     const acts = h.acts();
     expect(acts.filter((a) => a.startsWith('type'))).toHaveLength(1);
-    expect(acts.at(-1)?.startsWith('type')).toBe(true); // no Dismiss on a bridge stop
+    // Ctrl+C still dismisses and discards, so no draft is kept.
+    expect(acts.slice(-2)).toEqual([`click ${DISMISS}`, `click ${DISCARD}`]);
+    expect(h.closed()).toBe(true);
+    expect(run.timings.perStepMs).toHaveLength(1);
+  });
+
+  it('any other bridge stop goes straight to close', async () => {
+    const h = harness({
+      screens: fullFlow(),
+      stopWhen: (calls) =>
+        calls.some((c) => c.op === 'type') ? 'bridge went away' : null,
+    });
+    const run = await runApply('123', h.deps);
+    expect(run.stop).toMatchObject({
+      kind: 'bridge',
+      detail: 'bridge went away',
+    });
+    expect(h.acts().at(-1)?.startsWith('type')).toBe(true);
     expect(h.closed()).toBe(true);
   });
 
-  it('a page error mid-step is a bridge stop that still closes the page', async () => {
+  /** The harness with a click on `sel` throwing `err`. */
+  function failingClick(sel: string, err: Error) {
     const h = harness({ screens: fullFlow() });
     const inner = h.deps.pace;
     h.deps.pace = (p) => {
@@ -782,19 +834,66 @@ describe('runApply', () => {
       return {
         ...pace,
         click: async (t) => {
-          if ((t as unknown as { sel: string }).sel === '#_r_3d_') {
-            throw new Error('debugger detached: target_closed\ncall log: x');
-          }
+          if ((t as unknown as { sel: string }).sel === sel) throw err;
           return pace.click(t);
         },
       };
     };
+    return h;
+  }
+
+  it('an unexpected error is kind error, named but not quoted', async () => {
+    const h = failingClick(
+      '#_r_3d_',
+      new Error('debugger detached: target_closed\ncall log: x'),
+    );
     const run = await runApply('123', h.deps);
     expect(run.outcome).toBe('stopped');
     expect(run.stop).toMatchObject({
-      kind: 'bridge',
-      detail: 'debugger detached: target_closed',
+      kind: 'error',
+      detail: 'Error',
+      error: 'debugger detached: target_closed',
       step: 2,
+    });
+    expect(h.closed()).toBe(true);
+    expect(run.timings.perStepMs).toHaveLength(2);
+  });
+
+  it('an error once the bridge has gone is a bridge stop', async () => {
+    let gone = false;
+    const h = failingClick('#_r_3d_', new Error('target closed'));
+    const click = h.deps.pace;
+    h.deps.pace = (p) => {
+      const pace = click(p);
+      return {
+        ...pace,
+        click: async (t) => {
+          if ((t as unknown as { sel: string }).sel === '#_r_3d_') gone = true;
+          return pace.click(t);
+        },
+      };
+    };
+    h.deps.stopReason = () => (gone ? 'bridge went away' : null);
+    const run = await runApply('123', h.deps);
+    expect(run.stop).toMatchObject({
+      kind: 'bridge',
+      detail: 'bridge went away',
+    });
+    expect(run.stop?.error).toBeUndefined();
+  });
+
+  it('a pace refusal is an unexpected-page safety stop', async () => {
+    const h = failingClick(
+      '#_r_3d_',
+      new Error('pace: target has no box (hidden or detached)'),
+    );
+    const run = await runApply('123', h.deps);
+    expect(run.outcome).toBe('safety-stop');
+    expect(run.stop).toEqual({
+      kind: 'unexpected-page',
+      step: 2,
+      detail: 'the page did not take an input',
+      pathPrefix: '/jobs/',
     });
     expect(h.closed()).toBe(true);
   });
@@ -809,13 +908,14 @@ describe('runApply', () => {
   it('a pace that fails to start still closes the tab', async () => {
     const h = harness({ screens: fullFlow() });
     h.deps.pace = () => {
-      throw new Error('no pace profile');
+      throw new ConfigError('no pace profile');
     };
     const run = await runApply('123', h.deps);
     expect(run.outcome).toBe('stopped');
     expect(run.stop).toMatchObject({
-      kind: 'bridge',
-      detail: 'no pace profile',
+      kind: 'error',
+      detail: 'ConfigError',
+      error: 'no pace profile',
     });
     expect(h.closed()).toBe(true);
   });
@@ -829,15 +929,24 @@ describe('runApply', () => {
   });
 
   it('the submit check itself catches a Submit button', () => {
-    const before = submitHits.length;
     checkNotSubmit(synth({ submit: true }), '#send');
     checkNotSubmit(ONE_PAGE, 'footer button');
-    expect(submitHits.length).toBe(before + 2);
-    submitHits.splice(before);
+    expect(submitHits.splice(0)).toHaveLength(2);
   });
 
-  it('no pace call ever targets a submit control, across every test', () => {
-    expect(actionsChecked).toBeGreaterThan(50);
-    expect(submitHits).toEqual([]);
+  it('never clicks a Next that reads Submit', async () => {
+    const step = synth({ fields: [A], next: null, submit: true });
+    const doc = parsePage(step);
+    expect(() => guardNext(doc, { selector: '#send', label: 'next' })).toThrow(
+      expect.objectContaining({ outcome: 'safety-stop' }),
+    );
+    const ok = parsePage(synth({ fields: [A] }));
+    // A label that reads Submit is refused whatever the button says.
+    expect(() =>
+      guardNext(ok, { selector: '#next', label: 'Submit' as 'next' }),
+    ).toThrow();
+    expect(() =>
+      guardNext(ok, { selector: '#next', label: 'next' }),
+    ).not.toThrow();
   });
 });

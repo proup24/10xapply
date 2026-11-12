@@ -12,7 +12,7 @@ import {
 } from '../session/classify.js';
 import { askBlocked, askSave } from '../terminal/ask.js';
 import { fillField } from './fill.js';
-import { RunEnd, checkStop, safety } from './stop.js';
+import { authorStop, checkStop, needsAuthor, safety } from './stop.js';
 import type {
   ApplyDeps,
   ApplyPage,
@@ -30,6 +30,8 @@ export interface Walk {
   page: ApplyPage;
   /** Guarded: `stopReason()` is checked before each action. */
   pace: Pace;
+  /** The same pace unguarded, for the close-out after Ctrl+C only. */
+  unguarded: Pace;
   run: ApplyRun;
   bank: FactBank;
   /** The form step being walked (1-based), null before the form opens. */
@@ -178,7 +180,7 @@ async function blocked(
   if (io === null) {
     if (q.required) {
       rec.by = 'needs-author';
-      throw new RunEnd('needs-author');
+      throw needsAuthor(q.id);
     }
     rec.by = 'blank';
     return;
@@ -187,7 +189,7 @@ async function blocked(
     const reply = await askBlocked(io, q, title, why);
     if (reply.kind === 'stop') {
       rec.by = 'needs-author';
-      throw new RunEnd('stopped');
+      throw authorStop();
     }
     if (reply.kind === 'blank') {
       rec.by = 'blank';

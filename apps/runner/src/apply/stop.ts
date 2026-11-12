@@ -33,7 +33,15 @@ export function checkStop(deps: Pick<ApplyDeps, 'stopReason'>): void {
   }
 }
 
-/** Any other error mid-run: a bridge stop, with only its first line kept. */
+/** Pace's own refusals ("pace: target has no box …") start with this. */
+const PACE_REFUSAL = 'pace: ';
+
+/**
+ * Any other error mid-run. Once `stopReason()` is set it is that stop.
+ * A pace refusal means the page didn't take an input: `unexpected-page`.
+ * Anything else is `error`, named in `detail` and quoted (first line only)
+ * in `error`, which only the full report shows.
+ */
 export function asRunEnd(e: unknown, deps: ApplyDeps): RunEnd {
   if (e instanceof RunEnd) return e;
   const reason = deps.stopReason();
@@ -41,9 +49,29 @@ export function asRunEnd(e: unknown, deps: ApplyDeps): RunEnd {
     return new RunEnd('stopped', { kind: 'bridge', detail: reason });
   }
   const message = e instanceof Error ? e.message : String(e);
-  const first = (message.split('\n')[0] ?? '').slice(0, 200);
-  return new RunEnd('stopped', { kind: 'bridge', detail: first });
+  if (message.startsWith(PACE_REFUSAL)) {
+    return safety('unexpected-page', 'the page did not take an input');
+  }
+  return new RunEnd('stopped', {
+    kind: 'error',
+    detail: e instanceof Error ? e.name : typeof e,
+    error: (message.split('\n')[0] ?? '').slice(0, 200),
+  });
 }
+
+/** The author typed s at a prompt. */
+export const authorStop = (): RunEnd =>
+  new RunEnd('stopped', {
+    kind: 'author',
+    detail: 'the author stopped the run',
+  });
+
+/** A blocked required question and no author: named by its id only. */
+export const needsAuthor = (id: string): RunEnd =>
+  new RunEnd('needs-author', {
+    kind: 'needs-author',
+    detail: `question ${id} needs the author`,
+  });
 
 /** `pace` with `stopReason()` checked before every action it takes. */
 export function guardPace(pace: Pace, deps: ApplyDeps): Pace {

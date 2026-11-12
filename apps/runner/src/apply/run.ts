@@ -1,8 +1,9 @@
-import { jobViewUrl } from '../commands/snapshot.js';
 import { readDiscard, readDismiss } from '../linkedin/close.js';
-import { all } from '../linkedin/el.js';
+import type { Document } from '../linkedin/dom.js';
+import { all, textOf } from '../linkedin/el.js';
 import { stepKey } from '../linkedin/form-step.js';
 import { readJobPage } from '../linkedin/job-page.js';
+import { jobViewUrl } from '../linkedin/job-url.js';
 import { MORE_BUTTON } from '../linkedin/selectors.js';
 import type { StepRead } from '../linkedin/types.js';
 import { pathPrefix } from '../reports/write-report.js';
@@ -52,10 +53,12 @@ export async function runApply(
         detail: 'could not open a run tab',
       });
     }
+    const unguarded = deps.pace(page);
     w = {
       deps,
       page,
-      pace: guardPace(deps.pace(page), deps),
+      pace: guardPace(unguarded, deps),
+      unguarded,
       run,
       bank,
       step: null,
@@ -133,13 +136,14 @@ async function walkForm(w: Walk): Promise<void> {
     }
     w.step = n;
     const t = w.deps.now();
-    const done = await walkStep(w, read);
-    if (done.kind === 'review') {
+    try {
+      const done = await walkStep(w, read);
+      if (done.kind === 'review') return;
+      read = await advance(w, done);
+    } finally {
+      // A step that stopped is timed too.
       w.run.timings.perStepMs.push(w.deps.now() - t);
-      return;
     }
-    read = await advance(w, done);
-    w.run.timings.perStepMs.push(w.deps.now() - t);
   }
 }
 
@@ -153,6 +157,7 @@ async function advance(
   }
   const { pace, page } = w;
   const before = stepKey(read);
+  guardNext(await look(w), read.next);
   await pace.click(page.locator(read.next.selector));
   const after = await pollStep(
     w,
@@ -172,31 +177,56 @@ async function advance(
   return after;
 }
 
+const SUBMIT = /submit/i;
+
+type Next = NonNullable<Extract<StepRead, { kind: 'step' }>['next']>;
+
 /**
- * Closes the run window. Once the form has opened (and unless the bridge
- * stopped the run), the author first gets an Enter to look at the page, then
- * the form is dismissed and LinkedIn's "Save this application?" answered
- * with Discard, so no draft is kept. Whatever fails here, the page closes.
+ * Belt and braces beside the reader: refuses a Next whose label, or whose
+ * button's text or aria-label, reads "submit".
+ */
+export function guardNext(doc: Document, next: Next): void {
+  const buttons = all(doc, next.selector);
+  if (
+    SUBMIT.test(next.label) ||
+    buttons.some(
+      (b) =>
+        SUBMIT.test(textOf(b)) ||
+        SUBMIT.test(b.getAttribute('aria-label') ?? ''),
+    )
+  ) {
+    throw safety('unexpected-page', 'the next button reads Submit');
+  }
+}
+
+/** The stop reason Ctrl+C sets (Task 13). */
+export const INTERRUPTED = 'interrupted';
+
+/**
+ * Closes the run window. Once the form has opened, the author first gets
+ * an Enter to look at the page (on review or a safety stop), then the form
+ * is dismissed and LinkedIn's "Save this application?" answered with
+ * Discard, so no draft is kept. Ctrl+C still gets the Dismiss and Discard,
+ * without the Enter; any other bridge stop goes straight to closing.
+ * Whatever fails here, the page closes.
  */
 async function closeOut(w: Walk, formOpen: boolean): Promise<void> {
-  const { deps, page, pace, run } = w;
+  const { deps, page, run } = w;
+  /** A stop other than Ctrl+C: the bridge is going away, so don't act. */
+  const bridgeGone = () => {
+    const reason = deps.stopReason();
+    return reason !== null && reason !== INTERRUPTED;
+  };
+  const bridgeStop =
+    run.stop?.kind === 'bridge' && run.stop.detail !== INTERRUPTED;
   try {
-    if (
-      formOpen &&
-      run.stop?.kind !== 'bridge' &&
-      run.outcome !== 'bridge-unavailable'
-    ) {
+    if (formOpen && !bridgeStop) {
       if (deps.io && run.outcome === 'reached-review') {
         await deps.io.ask(REVIEW_PROMPT);
       } else if (deps.io && run.outcome === 'safety-stop') {
         await deps.io.ask(STOP_PROMPT);
       }
-      checkStop(deps);
-      const dismiss = readDismiss(await look(w));
-      if (dismiss !== null) {
-        await pace.click(page.locator(dismiss));
-        await discard(w);
-      }
+      await dismissAndDiscard(w, bridgeGone);
     }
   } catch {
     // Closing the page below is what matters.
@@ -208,16 +238,28 @@ async function closeOut(w: Walk, formOpen: boolean): Promise<void> {
   }
 }
 
-async function discard(w: Walk): Promise<void> {
-  const { pace, page } = w;
+/**
+ * Dismiss, then Discard once the save prompt shows (up to 5 s). Uses the
+ * unguarded pace, so Ctrl+C doesn't block it; `bridgeGone` is checked
+ * before each step instead.
+ */
+async function dismissAndDiscard(
+  w: Walk,
+  bridgeGone: () => boolean,
+): Promise<void> {
+  const { page, unguarded: pace } = w;
+  if (bridgeGone()) return;
+  const dismiss = readDismiss(await look(w));
+  if (dismiss === null || bridgeGone()) return;
+  await pace.click(page.locator(dismiss));
   for (let i = 0; ; i++) {
+    if (bridgeGone()) return;
     const selector = readDiscard(await look(w));
     if (selector !== null) {
       await pace.click(page.locator(selector));
       return;
     }
     if (i >= PROMPT_WAIT_MS / POLL_MS) return;
-    checkStop(w.deps);
     await w.deps.wait(POLL_MS);
   }
 }
