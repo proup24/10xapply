@@ -34,7 +34,7 @@ Decision marks: _(user)_ means the user decided it; _(my call)_ means Claude pro
 - **Stream for the author before friends** _(user)_. Phase 2 (webhook intake, approval, unattended runs for one user) comes before Phase 3 (hosted browsers for several users).
 - **Build infrastructure only when a slice needs it** _(my call)_. Supabase, the web app and the hosted API enter in Phase 2, when the stream needs them, not in Phase 0.
 - **Redis waits until Phase 3** _(my call)_. In Phase 2 a single local runner reads approved jobs from Postgres. Redis queues arrive with hosted workers, when several accounts run on our servers.
-- **Mirror 10xjobs wherever it already decided** _(user, from the original brief)_. That covers the Claude harness, CI, the Prisma contract as the only schema source (RLS included), the Supabase CLI locally and Supabase Cloud hosted, Next.js on Vercel, NestJS on a Hetzner server with Docker Compose and Caddy, deploys on merge, and LLMs through OpenRouter with the model per role set in configuration. Paths to copy from are named in each slice.
+- **Mirror 10xjobs wherever it already decided** _(user, from the original brief)_. That covers the Claude harness, CI, the Prisma contract as the only schema source (RLS included), the Supabase CLI locally and Supabase Cloud hosted, Next.js on Vercel, NestJS on a Hetzner server with Docker Compose and Caddy, deploys on merge, and LLM calls through `claude -p` on the author's subscription _(user)_, with the model per role set in configuration. Paths to copy from are named in each slice.
 - **Who may run things against the real LinkedIn account, widening over time** _(user wants Claude to run everything eventually; the stages are my call)_. The risk to the account comes from how often and how fast the account is used. Who starts a run matters less. So Claude's access widens as the runner's own limits are built:
   - **Phases 0–1:** Claude may run `--dry-run` only, against at most a small number of jobs a day, and only when the author asked for it in that session. Real submits are run by the author. Run reports go under `private/` but also have a redacted copy (no personal facts, no cookies) in a git-ignored, Claude-readable folder so Claude can debug from them. Saved page snapshots are committed as test fixtures only after being scrubbed of personal data.
   - **From slice 14:** once the runner itself enforces pacing, the daily cap and the safety stops, Claude may start the runner, real submits included, because every run goes through those limits whoever started it.
@@ -122,18 +122,19 @@ The author gives the runner one LinkedIn job URL. A real Chrome window on the au
 
 ### 05 Answering form questions
 
-- **Scope:** given one form question (label, field type, options, required or not, any help text) and the facts, return an answer with a confidence level and the fact or facts it rests on, or say it can't answer. Calls go through OpenRouter. A golden set of real Easy Apply questions with expected answers, and an eval command, like 10xjobs's `processor:eval`. No browser. It reads the bank through `libs/fact-bank`, and also uses the bank's stories and known answers (see Locked).
+- **Scope:** given one form question (label, field type, options, required or not, any help text) and the facts, return an answer with a confidence level and the fact or facts it rests on, or say it can't answer. Calls go through `claude -p`. A golden set of real Easy Apply questions with expected answers, and an eval command, like 10xjobs's `processor:eval`. No browser. It reads the bank through `libs/fact-bank`, and also uses the bank's stories and known answers (see Locked).
 - **Locked:** never invent. An answer not supported by the facts counts as "can't answer", which becomes a blocking question. Simple fields (name, email, phone, resume upload) are filled straight from the facts without an LLM where possible _(my call)_.
   - **Stories:** the answerer may shorten, reorder and reword a story, and may combine two. It never adds events, people, numbers, results or details that are not in the story text _(user)_. A question no story fits is a blocking question.
   - **Known answers are used as written:** the answerer may fit one to the field (pick the matching option, strip the unit for a number-only field) but never rephrases a text answer _(my call)_.
   - **The whole bank goes into every call, no RAG:** a search that misses the right fact could turn into a wrong "can't answer" or a guess _(my call, user agreed)_. The bank's check warns when it grows past 60,000 characters, as the signal to revisit this.
 - **Spec answers:** the confidence rule that decides "auto-submit" versus "blocking" (this is what protects the "wrong or invented answer" anti-goal); which model; how numeric and select fields are matched to options; how the golden set is gathered without committing personal data (it may live in `private/`).
-- **Copy from:** 10xjobs's OpenRouter client and eval setup in `apps/xjobs`.
+- **Copy from:** 10xjobs's generate-then-verify pattern (`2026-11-07-generate-then-verify-design.md`); no OpenRouter client.
+- **Spec:** [slice 05 spec](../superpowers/specs/2026-11-12-answering-form-questions-design.md).
 
 ### 05b Disqualification
 
 - **Scope:** some jobs require something the author does not have, usually a work authorization or a location. The run should not apply to them. It marks the job **disqualified** instead.
-  - A model extracts structured claims from the job page and from each form question's label, text and options (for example `{ requires: work-authorization, country: US }`).
+  - A `claude -p` role extracts structured claims from the job page and from each form question's label, text and options (for example `{ requires: work-authorization, country: US }`).
   - Plain code checks those claims against a separate rules file, so the decision is deterministic and tested exactly.
   - The check runs on the job page before the form is opened, and again on each form question.
   - A disqualified job is recorded and skipped. It is not a blocking question, because nothing the author answers would fix it.
@@ -234,7 +235,7 @@ Applications run on our servers instead of the author's machine, so friends can 
 
 - Browser server and residential IPs: our own server for browsers, a proxy provider, one dedicated static residential (ISP) IP per user near their location, a persistent profile per user (from `CLAUDE.md`).
 - Hosted sign-in: a live view the user drives to sign in to LinkedIn; we never see the password. Session storage, encrypted, never logged; expiry detection and a request to sign in again.
-- Hosted workers and Redis queues: one run at a time per account, per-account caps and pacing, many accounts on one server.
+- Hosted workers and Redis queues: one run at a time per account, per-account caps and pacing, many accounts on one server. Hosted runs need a second `ModelCaller`, since `claude -p` uses the author's own subscription.
 - Moving the author's account from the home machine to the server. This is a new device and IP to LinkedIn, so it gets its own care (for example, signing in fresh through the live view and starting with low caps).
 - Onboarding friends: invites, fact bank setup, linking their 10xjobs email.
 - Account health: watching for LinkedIn warnings across accounts, and a kill switch per account and for everyone.

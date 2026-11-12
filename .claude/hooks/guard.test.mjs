@@ -441,6 +441,8 @@ test('runner (real name): safe commands pass', () => {
     'pnpm nx run runner:bridge-check-crash',
     'pnpm nx run runner:pace-record',
     'pnpm nx run runner:facts-check',
+    'pnpm nx run runner:answers-eval',
+    'tsx apps/runner/src/main.ts answers eval --set example --repeat 3',
     'tsx apps/runner/src/main.ts facts check',
     'tsx --conditions=@xapply/source apps/runner/src/main.ts facts check',
     'cd apps/runner && tsx --conditions=@xapply/source src/main.ts bridge check',

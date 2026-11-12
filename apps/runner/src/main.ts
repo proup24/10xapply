@@ -8,6 +8,7 @@ import {
   recordCommand,
   summaryCommand,
 } from './commands/pace.js';
+import { answersEvalCommand } from './commands/answers.js';
 import { factsCheckCommand } from './commands/facts.js';
 import { sessionCommand } from './commands/session.js';
 import { ConfigError } from './config.js';
@@ -24,7 +25,8 @@ const USAGE = `usage: runner <command>
   pace summary     count the recorded samples per measure against the minimums
   pace compare     compare the runner's recordings with yours (shape, timing, variety)
   bridge check     check the bridge extension (--crash: also check the crash stop)
-  facts check      check the fact bank file (optional path; prints no values)`;
+  facts check      check the fact bank file (optional path; prints no values)
+  answers eval     run the answerer's golden eval (--set example|private, --answer-model, --verify-model, --judge-model, --repeat N, --case ID)`;
 
 /** The value after `--flag`, as a positive integer, or undefined. */
 function intFlag(argv: string[], flag: string): number | undefined {
@@ -35,6 +37,25 @@ function intFlag(argv: string[], flag: string): number | undefined {
     throw new ConfigError(`${flag} needs a whole number of 1 or more`);
   }
   return n;
+}
+
+/** The value after `--flag`, or undefined. */
+function stringFlag(argv: string[], flag: string): string | undefined {
+  const i = argv.indexOf(flag);
+  if (i < 0) return undefined;
+  const v = argv[i + 1];
+  if (v === undefined || v.startsWith('--')) {
+    throw new ConfigError(`${flag} needs a value`);
+  }
+  return v;
+}
+
+function setFlag(argv: string[]): 'example' | 'private' | undefined {
+  const v = stringFlag(argv, '--set');
+  if (v !== undefined && v !== 'example' && v !== 'private') {
+    throw new ConfigError('--set must be example or private');
+  }
+  return v;
 }
 
 export async function main(argv: string[]): Promise<number> {
@@ -61,6 +82,15 @@ export async function main(argv: string[]): Promise<number> {
     if (a === 'pace' && b === 'compare') return compareCommand();
     if (a === 'facts' && b === 'check')
       return factsCheckCommand({ path: argv[2] });
+    if (a === 'answers' && b === 'eval')
+      return await answersEvalCommand({
+        set: setFlag(argv),
+        answerModel: stringFlag(argv, '--answer-model'),
+        verifyModel: stringFlag(argv, '--verify-model'),
+        judgeModel: stringFlag(argv, '--judge-model'),
+        repeat: intFlag(argv, '--repeat'),
+        caseId: stringFlag(argv, '--case'),
+      });
   } catch (e) {
     if (e instanceof ConfigError || e instanceof RelayPortInUseError) {
       console.error(redact(e.message));

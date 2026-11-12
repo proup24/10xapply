@@ -1,7 +1,12 @@
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { ConfigError, loadConfig, resolveRelayPort } from './config.js';
+import {
+  ConfigError,
+  loadAnswerConfig,
+  loadConfig,
+  resolveRelayPort,
+} from './config.js';
 
 function envFile(text: string): string {
   const file = join(mkdtempSync(join(tmpdir(), 'cfg-')), 'runner-env-test');
@@ -61,5 +66,45 @@ describe('resolveRelayPort', () => {
     expect(() =>
       resolveRelayPort({}, envFile('RUNNER_RELAY_PORT=nope\n')),
     ).toThrow(ConfigError);
+  });
+});
+
+describe('loadAnswerConfig', () => {
+  const none = join(tmpdir(), 'no-such-file');
+
+  it('defaults to opus, opus, opus and one regeneration', () => {
+    expect(loadAnswerConfig({}, none)).toEqual({
+      answerModel: 'opus',
+      verifyModel: 'opus',
+      judgeModel: 'opus',
+      maxRegenerations: 1,
+    });
+  });
+
+  it('reads overrides from the file, and the environment wins', () => {
+    const f = envFile(
+      'ANSWER_MODEL=sonnet\nANSWER_VERIFY_MODEL=haiku\nANSWER_MAX_REGENERATIONS=3\n',
+    );
+    expect(loadAnswerConfig({ ANSWER_JUDGE_MODEL: 'fable' }, f)).toEqual({
+      answerModel: 'sonnet',
+      verifyModel: 'haiku',
+      judgeModel: 'fable',
+      maxRegenerations: 3,
+    });
+  });
+
+  it('accepts 0 regenerations', () => {
+    expect(
+      loadAnswerConfig({ ANSWER_MAX_REGENERATIONS: '0' }, none)
+        .maxRegenerations,
+    ).toBe(0);
+  });
+
+  it('throws ConfigError for a bad ANSWER_MAX_REGENERATIONS', () => {
+    for (const bad of ['4', '-1', '1.5', 'x']) {
+      expect(() =>
+        loadAnswerConfig({ ANSWER_MAX_REGENERATIONS: bad }, none),
+      ).toThrow(ConfigError);
+    }
   });
 });

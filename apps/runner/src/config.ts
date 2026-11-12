@@ -62,3 +62,38 @@ export function loadConfig(
   }
   return { relayPort: portFrom(merged), token };
 }
+
+export interface AnswerConfig {
+  answerModel: string;
+  verifyModel: string;
+  judgeModel: string;
+  maxRegenerations: number;
+}
+
+export const DEFAULT_ANSWER_MODEL = 'opus';
+export const MAX_REGENERATIONS_LIMIT = 3;
+
+/** The answerer's models and regeneration limit, from the env and the env file. */
+export function loadAnswerConfig(
+  env: NodeJS.ProcessEnv = process.env,
+  envFile: string = ENV_FILE,
+): AnswerConfig {
+  const merged = mergedEnv(env, envFile);
+  const raw = merged.ANSWER_MAX_REGENERATIONS;
+  const maxRegenerations = raw ? Number(raw) : 1;
+  if (
+    !Number.isInteger(maxRegenerations) ||
+    maxRegenerations < 0 ||
+    maxRegenerations > MAX_REGENERATIONS_LIMIT
+  ) {
+    throw new ConfigError(
+      `invalid ANSWER_MAX_REGENERATIONS: needs a whole number from 0 to ${MAX_REGENERATIONS_LIMIT}`,
+    );
+  }
+  return {
+    answerModel: merged.ANSWER_MODEL || DEFAULT_ANSWER_MODEL,
+    verifyModel: merged.ANSWER_VERIFY_MODEL || DEFAULT_ANSWER_MODEL,
+    judgeModel: merged.ANSWER_JUDGE_MODEL || DEFAULT_ANSWER_MODEL,
+    maxRegenerations,
+  };
+}

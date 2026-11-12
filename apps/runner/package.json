@@ -82,6 +82,13 @@
           "command": "tsx --conditions=@xapply/source src/main.ts pace summary"
         }
       },
+      "answers-eval": {
+        "executor": "nx:run-commands",
+        "options": {
+          "cwd": "apps/runner",
+          "command": "tsx --conditions=@xapply/source src/main.ts answers eval"
+        }
+      },
       "facts-check": {
         "executor": "nx:run-commands",
         "options": {

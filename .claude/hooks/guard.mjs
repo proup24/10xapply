@@ -357,6 +357,8 @@ export const RUNNER_SAFE_SUBCOMMANDS = [
   'session',
   'facts',
   'facts-check',
+  'answers',
+  'answers-eval',
 ];
 export const DEV_TARGETS = ['build', 'test', 'lint', 'typecheck'];
 
