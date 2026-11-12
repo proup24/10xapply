@@ -8,13 +8,31 @@ import { fillField, type FillPage, type Resume } from './fill.js';
 const loc = (sel: string) => ({ sel }) as unknown as Locator;
 const selOf = (l: Locator) => (l as unknown as { sel: string }).sel;
 
-function fakePace(calls: string[]): Pace {
+/**
+ * Records each call and plays it onto the fake page's state: a click
+ * toggles the box (unless the selector is inert), typing appends, clearing
+ * empties.
+ */
+function fakePace(calls: string[], s: PageState = {}): Pace {
   return {
     mood: 1,
     defaulted: [],
-    click: async (t) => void calls.push(`click ${selOf(t)}`),
-    type: async (f, text) => void calls.push(`type ${selOf(f)} ${text}`),
-    clear: async (f) => void calls.push(`clear ${selOf(f)}`),
+    click: async (t) => {
+      const sel = selOf(t);
+      calls.push(`click ${sel}`);
+      if (s.inert?.includes(sel)) return;
+      s.checked = { ...s.checked, [sel]: !(s.checked?.[sel] ?? false) };
+    },
+    type: async (f, text) => {
+      const sel = selOf(f);
+      calls.push(`type ${sel} ${text}`);
+      s.values = { ...s.values, [sel]: (s.values?.[sel] ?? '') + text };
+    },
+    clear: async (f) => {
+      const sel = selOf(f);
+      calls.push(`clear ${sel}`);
+      s.values = { ...s.values, [sel]: '' };
+    },
     glance: async (f) => void calls.push(`glance ${selOf(f)}`),
     pick: async (c, i) => void calls.push(`pick ${selOf(c)} ${i}`),
     upload: async (b, p) => void calls.push(`upload ${selOf(b)} ${p}`),
@@ -31,6 +49,8 @@ interface PageState {
   selected?: Record<string, string | null>;
   /** listSelector -> option text -> the option's selector */
   suggestions?: Record<string, Record<string, string>>;
+  /** Selectors a click doesn't change. */
+  inert?: string[];
 }
 
 function fakePage(s: PageState): FillPage {
@@ -73,7 +93,7 @@ async function run(
 ) {
   const calls: string[] = [];
   const result = await fillField(f, value, {
-    pace: fakePace(calls),
+    pace: fakePace(calls, state),
     page: fakePage(state),
     resume,
   });
@@ -167,14 +187,31 @@ describe('fillField', () => {
     expect(result).toEqual({ ok: false, reason: 'no-option' });
   });
 
-  it('picks a radio by its index', async () => {
+  it('picks a select option by the page’s own index', async () => {
+    const f = field('select', { options: ['a', 'b'], pageIndexes: [1, 2] });
+    const { calls, result } = await run(f, 'b');
+    expect(calls).toEqual(['pick #f 2']);
+    expect(result).toEqual({ ok: true, changedFromLinkedIn: false });
+  });
+
+  it('clicks the answer’s own radio, not by page order', async () => {
     const f = field('radio', {
       options: ['Yes', 'No'],
       optionSelectors: ['#r1', '#r2'],
     });
     const { calls, result } = await run(f, 'No');
-    expect(calls).toEqual(['pick #f 1']);
+    expect(calls).toEqual(['click #r2']);
     expect(result).toEqual({ ok: true, changedFromLinkedIn: false });
+  });
+
+  it('fails a radio the click did not check', async () => {
+    const f = field('radio', {
+      options: ['Yes', 'No'],
+      optionSelectors: ['#r1', '#r2'],
+    });
+    const { calls, result } = await run(f, 'No', { inert: ['#r2'] });
+    expect(calls).toEqual(['click #r2']);
+    expect(result).toEqual({ ok: false, reason: 'no-option' });
   });
 
   it('glances at a radio already on the answer', async () => {
@@ -197,7 +234,7 @@ describe('fillField', () => {
     const { calls, result } = await run(f, 'No', {
       checked: { '#r1': true },
     });
-    expect(calls).toEqual(['pick #f 1']);
+    expect(calls).toEqual(['click #r2']);
     expect(result).toEqual({ ok: true, changedFromLinkedIn: true });
   });
 
@@ -295,19 +332,39 @@ describe('fillField', () => {
     expect(result).toEqual({ ok: true, changedFromLinkedIn: false });
   });
 
-  it('typeahead without suggestion → no-suggestion', async () => {
+  it('typeahead without suggestion → no-suggestion, field cleared', async () => {
     const f = field('typeahead', { suggestions: '#list' });
-    const { calls, result } = await run(f, 'London');
-    expect(calls).toEqual(['type #f London']);
-    expect(result).toEqual({ ok: false, reason: 'no-suggestion' });
+    const state: PageState = {};
+    const first = await run(f, 'London', state);
+    expect(first.calls).toEqual(['type #f London', 'clear #f']);
+    expect(first.result).toEqual({ ok: false, reason: 'no-suggestion' });
+    expect(state.values?.['#f']).toBe('');
+
+    // The list shows up on a later try: the same answer types again.
+    state.suggestions = { '#list': { London: '#opt-london' } };
+    const second = await run(f, 'London', state);
+    expect(second.calls).toEqual(['type #f London', 'click #opt-london']);
+    expect(second.result).toEqual({ ok: true, changedFromLinkedIn: false });
   });
 
-  it('glances at a typeahead already on the answer', async () => {
+  it('never glances at a typeahead holding the answer’s text', async () => {
     const f = field('typeahead', { suggestions: '#list' });
-    const { calls } = await run(f, 'London', {
+    const { calls, result } = await run(f, 'London', {
       values: { '#f': 'London' },
+      suggestions: { '#list': { London: '#opt-london' } },
     });
-    expect(calls).toEqual(['glance #f']);
+    expect(calls).toEqual(['clear #f', 'type #f London', 'click #opt-london']);
+    expect(result).toEqual({ ok: true, changedFromLinkedIn: false });
+  });
+
+  it('clears a typeahead holding other text and marks it changed', async () => {
+    const f = field('typeahead', { suggestions: '#list' });
+    const { calls, result } = await run(f, 'London', {
+      values: { '#f': 'Paris' },
+      suggestions: { '#list': { London: '#opt-london' } },
+    });
+    expect(calls).toEqual(['clear #f', 'type #f London', 'click #opt-london']);
+    expect(result).toEqual({ ok: true, changedFromLinkedIn: true });
   });
 
   it('picks a listed resume with the same name', async () => {

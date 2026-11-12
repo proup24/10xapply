@@ -50,9 +50,10 @@ const asMany = (v: AnswerValue) => (Array.isArray(v) ? v : [v]);
 
 /**
  * Fills one field with its answer through pace, at human speed. A field
- * already holding the answer gets a glance. Every refusal comes before any
- * pace call, except a typeahead with no suggestion, which is found after
- * typing.
+ * already holding the answer gets a glance (never a typeahead). Every
+ * refusal comes before any pace call, except a typeahead with no suggestion
+ * (found after typing, and the field cleared again) and a radio the click
+ * did not check.
  */
 export async function fillField(
   f: ReadField,
@@ -81,29 +82,48 @@ export async function fillField(
 async function fillText(
   f: ReadField,
   value: AnswerValue,
-  { pace, page }: Ctx,
+  ctx: Ctx,
 ): Promise<FillResult> {
+  const { pace, page } = ctx;
   const text = toTypeable(asText(value));
   if (text === null) return fail('not-typeable');
-  const isTypeahead = f.question.type === 'typeahead';
+  if (f.question.type === 'typeahead') return fillTypeahead(f, text, ctx);
   const field = page.locator(f.selector);
   const current = await page.value(f.selector);
   if (current === text) {
     await pace.glance(field);
     return done(false);
   }
-  // Nothing to click once typed: refuse before touching the field.
-  if (isTypeahead && !f.suggestions) return fail('no-suggestion');
   const changed = current !== '';
   if (changed) await pace.clear(field);
-  if (text === '') return done(changed);
-  await pace.type(field, text);
-  if (isTypeahead && f.suggestions) {
-    const option = await page.suggestion(f.suggestions, text);
-    if (option === null) return fail('no-suggestion');
-    await pace.click(page.locator(option));
-  }
+  if (text !== '') await pace.type(field, text);
   return done(changed);
+}
+
+/**
+ * A typeahead's committed value can't be confirmed from the input's text,
+ * so it is never glanced at: any text in it is cleared, the answer typed and
+ * the suggestion clicked. With no suggestion the field is cleared again, so
+ * no uncommitted text is left behind.
+ */
+async function fillTypeahead(
+  f: ReadField,
+  text: string,
+  { pace, page }: Ctx,
+): Promise<FillResult> {
+  // Nothing to click once typed: refuse before touching the field.
+  if (!f.suggestions || text === '') return fail('no-suggestion');
+  const field = page.locator(f.selector);
+  const current = await page.value(f.selector);
+  if (current !== '') await pace.clear(field);
+  await pace.type(field, text);
+  const option = await page.suggestion(f.suggestions, text);
+  if (option === null) {
+    await pace.clear(field);
+    return fail('no-suggestion');
+  }
+  await pace.click(page.locator(option));
+  return done(current !== '' && current !== text);
 }
 
 async function fillSelect(
@@ -121,7 +141,7 @@ async function fillSelect(
     await pace.glance(field);
     return done(false);
   }
-  await pace.pick(field, index);
+  await pace.pick(field, f.pageIndexes?.[index] ?? index);
   // A placeholder ("Select an option") is not one of the options, so it is
   // not LinkedIn's choice.
   return done(current !== null && options.includes(current));
@@ -151,12 +171,16 @@ async function fillRadio(
   if (index < 0) return fail('no-option');
   const states = await optionStates(f, page);
   if (states === null) return fail('no-option');
-  const field = page.locator(f.selector);
   if (states[index]) {
-    await pace.glance(field);
+    await pace.glance(page.locator(f.selector));
     return done(false);
   }
-  await pace.pick(field, index);
+  // Click the answer's own radio, not the nth one in page order, and check
+  // that it took.
+  const sel = f.optionSelectors?.[index];
+  if (sel === undefined) return fail('no-option');
+  await pace.click(page.locator(sel));
+  if (!(await page.checked(sel))) return fail('no-option');
   return done(states.some(Boolean));
 }
 

@@ -19,6 +19,11 @@ export interface ReadField {
   question: Omit<FormQuestion, 'id'> & { type: FieldType };
   /** radio, checkbox-group: one selector per option, in `question.options` order. */
   optionSelectors?: string[];
+  /**
+   * select: the page's own option index of each `question.options` entry,
+   * so a placeholder left out of `options` doesn't shift picks.
+   */
+  pageIndexes?: number[];
   /** file: resumes LinkedIn already lists. */
   resumeChoices?: { fileName: string; selector: string; selected: boolean }[];
   /** typeahead: where suggestions appear once typed. */
