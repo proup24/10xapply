@@ -1,5 +1,8 @@
 import {
   copyFileSync,
+  chmodSync,
+  readdirSync,
+  statSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -115,5 +118,94 @@ describe('addKnownAnswer', () => {
       expect(r.problems.join('\n')).not.toContain('Hello');
     }
     expect(readFileSync(path).equals(before)).toBe(true);
+  });
+
+  it('matches whole occurrences only', () => {
+    const r = addKnownAnswer(
+      path,
+      {
+        question: 'Do you like search at Arc and software engineering?',
+        answer: 'Arc is fine; Software Engineer too, not software engineering.',
+      },
+      { ...opts, company: 'Arc', jobTitle: 'Software Engineer' },
+    );
+    expect(r.ok).toBe(true);
+    const a = loadFactBank(path).answers.at(-1);
+    expect(a?.question).toBe(
+      'Do you like search at {company} and software engineering?',
+    );
+    expect(a?.answer).toBe(
+      '{company} is fine; {jobTitle} too, not software engineering.',
+    );
+  });
+
+  it('does not let a title hit an inserted company token', () => {
+    addKnownAnswer(
+      path,
+      { question: 'Tell me about Zed', answer: 'Zed is a company.' },
+      { ...opts, company: 'Zed', jobTitle: 'Company' },
+    );
+    const a = loadFactBank(path).answers.at(-1);
+    expect(a?.answer).toBe('{company} is a {jobTitle}.');
+  });
+
+  it('skips null and short values', () => {
+    addKnownAnswer(
+      path,
+      { question: 'Is it at Ab as QA?', answer: 'Ab as QA.' },
+      { ...opts, company: 'Ab', jobTitle: null },
+    );
+    const a = loadFactBank(path).answers.at(-1);
+    expect(a?.question).toBe('Is it at Ab as QA?');
+    expect(a?.answer).toBe('Ab as QA.');
+  });
+
+  it('builds the id from the substituted question', () => {
+    const r = addKnownAnswer(
+      path,
+      { question: 'Why Initech?', answer: 'Because.' },
+      { ...opts, company: 'Initech', jobTitle: null },
+    );
+    expect(r).toEqual({ ok: true, id: 'why-company' });
+  });
+
+  it('keeps the author layout apart from the new block', () => {
+    const before = readFileSync(path, 'utf8');
+    addKnownAnswer(
+      path,
+      {
+        question: 'Do you like tea?',
+        answer: 'A long answer '.repeat(20).trim(),
+      },
+      opts,
+    );
+    const lines = readFileSync(path, 'utf8').split('\n');
+    const i = lines.indexOf('  - id: do-you-like-tea');
+    expect(i).toBeGreaterThan(0);
+    expect(lines.slice(i, i + 4).join('\n')).toContain('confirmed');
+    lines.splice(i, 4);
+    expect(lines.join('\n')).toBe(before);
+  });
+
+  it('leaves no temp file and keeps the file mode', () => {
+    chmodSync(path, 0o600);
+    addKnownAnswer(path, { question: 'Tea?', answer: 'Yes' }, opts);
+    expect(readdirSync(dir).filter((f) => f.endsWith('.tmp'))).toEqual([]);
+    expect(statSync(path).mode & 0o777).toBe(0o600);
+    addKnownAnswer(
+      path,
+      { question: 'Bad', answer: '{nope}' },
+      { ...opts, stamp: 'x2' },
+    );
+    expect(readdirSync(dir).filter((f) => f.endsWith('.tmp'))).toEqual([]);
+  });
+
+  it('refuses to overwrite an existing backup', () => {
+    writeFileSync(`${path}.${opts.stamp}.bak`, 'old');
+    const before = readFileSync(path);
+    const r = addKnownAnswer(path, { question: 'Tea?', answer: 'Yes' }, opts);
+    expect(r.ok).toBe(false);
+    expect(readFileSync(path).equals(before)).toBe(true);
+    expect(readFileSync(`${path}.${opts.stamp}.bak`, 'utf8')).toBe('old');
   });
 });

@@ -1,4 +1,13 @@
-import { copyFileSync, readFileSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  constants,
+  copyFileSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
 import { isMap, isSeq, parseDocument, YAMLSeq } from 'yaml';
 import { checkFactBank } from './bank.js';
 import { formatProblem } from './problems.js';
@@ -30,21 +39,27 @@ function escapeRegExp(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-function withPlaceholder(
-  text: string,
-  value: string | null,
-  token: string,
-): string {
-  if (value === null || value.trim().length < MIN_REPLACE_LENGTH) return text;
-  return text.replace(new RegExp(escapeRegExp(value.trim()), 'gi'), token);
-}
-
-function fill(text: string, company: string | null, jobTitle: string | null) {
-  return withPlaceholder(
-    withPlaceholder(text, company, '{company}'),
-    jobTitle,
-    '{jobTitle}',
+// One combined pass, whole occurrences only, longer value first, so a value
+// can never match inside a token inserted by the other.
+function substituter(company: string | null, jobTitle: string | null) {
+  const usable = (v: string | null) =>
+    v !== null && v.trim().length >= MIN_REPLACE_LENGTH ? v.trim() : null;
+  const c = usable(company);
+  const j = usable(jobTitle);
+  const values = [c, j]
+    .filter((v): v is string => v !== null)
+    .sort((x, y) => y.length - x.length);
+  if (values.length === 0) return (text: string) => text;
+  const re = new RegExp(
+    `(?<![\\p{L}\\p{N}])(?:${values.map(escapeRegExp).join('|')})(?![\\p{L}\\p{N}])`,
+    'giu',
   );
+  return (text: string) =>
+    text.replace(re, (m) =>
+      c !== null && m.toLowerCase() === c.toLowerCase()
+        ? '{company}'
+        : '{jobTitle}',
+    );
 }
 
 export type AddAnswerResult =
@@ -61,25 +76,17 @@ export function addKnownAnswer(
   },
 ): AddAnswerResult {
   const backup = `${path}.${opts.stamp}.bak`;
+  const temp = `${path}.${opts.stamp}.tmp`;
   try {
-    copyFileSync(path, backup);
+    copyFileSync(path, backup, constants.COPYFILE_EXCL);
   } catch {
     return { ok: false, problems: ['file: could not be backed up'] };
   }
 
-  const restore = (problems: string[]): AddAnswerResult => {
-    try {
-      copyFileSync(backup, path);
-    } catch {
-      problems.push('file: could not be restored from the backup');
-    }
-    return { ok: false, problems };
-  };
-
   try {
     const doc = parseDocument(readFileSync(path, 'utf8'));
     if (doc.errors.length > 0 || !isMap(doc.contents)) {
-      return restore(['file: is not valid YAML']);
+      return { ok: false, problems: ['file: is not valid YAML'] };
     }
     const taken = new Set<string>();
     for (const key of ['answers', 'stories']) {
@@ -90,11 +97,13 @@ export function addKnownAnswer(
         if (typeof id === 'string') taken.add(id);
       }
     }
-    const id = answerIdFrom(entry.question, taken);
+    const sub = substituter(opts.company, opts.jobTitle);
+    const question = sub(entry.question);
+    const id = answerIdFrom(question, taken);
     const node = doc.createNode({
       id,
-      question: fill(entry.question, opts.company, opts.jobTitle),
-      answer: fill(entry.answer, opts.company, opts.jobTitle),
+      question,
+      answer: sub(entry.answer),
       confirmed: opts.today,
     });
     let answers = doc.get('answers');
@@ -103,12 +112,33 @@ export function addKnownAnswer(
       doc.set('answers', answers);
     }
     (answers as YAMLSeq).add(node);
-    writeFileSync(path, doc.toString());
 
-    const check = checkFactBank(path);
-    if (!check.ok) return restore(check.errors.map(formatProblem));
+    const mode = statSync(path).mode & 0o777;
+    writeFileSync(
+      temp,
+      doc.toString({ lineWidth: 0, flowCollectionPadding: false }),
+      { mode },
+    );
+    chmodSync(temp, mode);
+
+    const check = checkFactBank(temp);
+    if (!check.ok) {
+      rmSync(temp, { force: true });
+      return { ok: false, problems: check.errors.map(formatProblem) };
+    }
+    renameSync(temp, path);
     return { ok: true, id };
-  } catch {
-    return restore(['file: could not be updated']);
+  } catch (e) {
+    try {
+      rmSync(temp, { force: true });
+    } catch {
+      // nothing more to do; the bank itself was never touched
+    }
+    const code = (e as NodeJS.ErrnoException)?.code;
+    const name = e instanceof Error ? e.name : 'error';
+    return {
+      ok: false,
+      problems: [`file: could not be updated (${code ?? name})`],
+    };
   }
 }
