@@ -48,10 +48,24 @@ export function claudeArgs(req: {
   ];
 }
 
+/**
+ * Variables that would move `claude` off the signed-in subscription: API
+ * credentials, another endpoint, or another provider. Other `CLAUDE_*`
+ * variables stay, because the subscription sign-in may depend on them.
+ */
+const SCRUBBED_ENV = [
+  'ANTHROPIC_API_KEY',
+  'ANTHROPIC_AUTH_TOKEN',
+  'ANTHROPIC_BASE_URL',
+  'CLAUDE_CODE_USE_BEDROCK',
+  'CLAUDE_CODE_USE_VERTEX',
+  'CLAUDE_CODE_USE_FOUNDRY',
+  'AWS_BEARER_TOKEN_BEDROCK',
+] as const;
+
 export function childEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   const rest = { ...env };
-  delete rest.ANTHROPIC_API_KEY;
-  delete rest.ANTHROPIC_AUTH_TOKEN;
+  for (const name of SCRUBBED_ENV) delete rest[name];
   return rest;
 }
 

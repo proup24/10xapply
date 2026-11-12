@@ -62,14 +62,25 @@ describe('claudeArgs / childEnv', () => {
       'opus',
     ]);
   });
-  it('removes only the two API credentials', () => {
+  it('removes the API credentials and provider overrides, nothing else', () => {
     expect(
       childEnv({
         ANTHROPIC_API_KEY: 'k',
         ANTHROPIC_AUTH_TOKEN: 't',
+        ANTHROPIC_BASE_URL: 'https://proxy.invalid',
+        CLAUDE_CODE_USE_BEDROCK: '1',
+        CLAUDE_CODE_USE_VERTEX: '1',
+        CLAUDE_CODE_USE_FOUNDRY: '1',
+        AWS_BEARER_TOKEN_BEDROCK: 'b',
+        CLAUDE_CONFIG_DIR: '/home/x/.claude',
+        CLAUDE_CODE_ENTRYPOINT: 'cli',
         PATH: '/bin',
       }),
-    ).toEqual({ PATH: '/bin' });
+    ).toEqual({
+      CLAUDE_CONFIG_DIR: '/home/x/.claude',
+      CLAUDE_CODE_ENTRYPOINT: 'cli',
+      PATH: '/bin',
+    });
   });
 });
 
