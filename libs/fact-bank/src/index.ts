@@ -19,3 +19,8 @@ export {
   type Story,
   type FactBank,
 } from './bank.js';
+export {
+  addKnownAnswer,
+  answerIdFrom,
+  type AddAnswerResult,
+} from './add-answer.js';
