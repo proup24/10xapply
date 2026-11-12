@@ -423,6 +423,16 @@ cases:
       required: true
     expect: { status: blocked }
 
+  # Silence on a text question: adjacent skill is not the skill asked. The
+  # bank names Kubernetes, never Terraform, so "partial is not silent" does
+  # not apply and the generator must not answer from the Kubernetes fact.
+  - id: text-adjacent-skill-silent
+    question:
+      label: Describe your experience with Terraform.
+      type: textarea
+      required: true
+    expect: { status: blocked, reason: bank-silent }
+
   # ------------------------------------------------------ Math and choices
 
   # Math from a "since" fact with a month: March 2021 to 2026-11-12 is 5 whole years.

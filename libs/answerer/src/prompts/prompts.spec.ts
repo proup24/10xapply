@@ -168,6 +168,8 @@ describe('system prompts', () => {
       'at least 3 words',
       'fitted is only a bare number',
       'For a choice bucket from date math or arithmetic',
+      '**Partial is not silent.** For text answers only:',
+      'It never applies to short values, fields, yes/no, choices, multi-select options or consent; those follow the silence rules above.',
     ]) {
       expect(GENERATOR_SYSTEM).toContain(s);
     }
