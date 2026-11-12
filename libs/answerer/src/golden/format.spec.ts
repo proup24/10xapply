@@ -121,6 +121,46 @@ describe('loadGolden', () => {
     expect(e.message).toContain('because');
   });
 
+  it('throws naming the case id when a backed text case pins no value and is not composed', () => {
+    for (const [type, extra] of [
+      ['text', ''],
+      ['textarea', ', derivation: as-written'],
+      ['typeahead', ', derivation: fitted'],
+    ] as const) {
+      const e = thrown(() =>
+        loadGolden(
+          write(
+            header +
+              `
+  - id: open-${type}
+    question: { label: Why us?, type: ${type}, required: true }
+    expect: { status: backed, sources: [{ answer: why }]${extra} }
+`,
+          ),
+        ),
+      );
+      expect(e, type).toBeInstanceOf(GoldenError);
+      expect(e.message).toContain(`open-${type}`);
+    }
+    const ok = loadGolden(
+      write(
+        header +
+          `
+  - id: composed
+    question: { label: Why us?, type: textarea, required: true }
+    expect: { status: backed, sources: [{ answer: why }], derivation: composed }
+  - id: pinned
+    question: { label: Why us?, type: textarea, required: true }
+    expect: { status: backed, valueFrom: { answer: why }, sources: [{ answer: why }] }
+  - id: number
+    question: { label: Years?, type: number, required: true }
+    expect: { status: backed, sources: [{ fact: 5 }] }
+`,
+      ),
+    );
+    expect(ok.cases.map((c) => c.id)).toEqual(['composed', 'pinned', 'number']);
+  });
+
   it('throws naming the case id when its job is not defined', () => {
     const e = thrown(() =>
       loadGolden(

@@ -3,12 +3,13 @@ import { dirname, resolve } from 'node:path';
 import { parse, YAMLError } from 'yaml';
 import { z } from 'zod';
 import { FIELD_PATTERNS } from '../fields.js';
-import type {
-  BlockReason,
-  Derivation,
-  FieldKey,
-  FormQuestion,
-  Job,
+import {
+  TEXT_TYPES,
+  type BlockReason,
+  type Derivation,
+  type FieldKey,
+  type FormQuestion,
+  type Job,
 } from '../types.js';
 
 /** A golden file that cannot be used. The message names paths and case ids, never a value. */
@@ -186,8 +187,9 @@ const hasTodo = (e: Expect): boolean =>
 
 /**
  * Loads a golden file. Throws a GoldenError on a syntax or shape error, an
- * unknown key, a duplicated case id, a case whose job is not defined, or any
- * `TODO-author` value left in it. `bank`, when given, is resolved from the
+ * unknown key, a duplicated case id, a case whose job is not defined, a
+ * backed text case that pins no value and is not `derivation: composed`, or
+ * any `TODO-author` value left in it. `bank`, when given, is resolved from the
  * golden file's folder.
  */
 export function loadGolden(path: string): GoldenFile {
@@ -233,6 +235,23 @@ export function loadGolden(path: string): GoldenFile {
   if (noJob.length > 0) {
     problems.push(
       `cases whose job is not defined: ${noJob.map((c) => c.id).join(', ')}`,
+    );
+  }
+
+  // The judge scores only composed text, so a backed text case must pin its
+  // value or be composed. Otherwise an as-written or fitted answer would be
+  // checked by nothing.
+  const unpinned = data.cases.filter(
+    (c) =>
+      c.expect.status === 'backed' &&
+      (TEXT_TYPES as readonly string[]).includes(c.question.type) &&
+      c.expect.value === undefined &&
+      c.expect.valueFrom === undefined &&
+      c.expect.derivation !== 'composed',
+  );
+  if (unpinned.length > 0) {
+    problems.push(
+      `backed text cases with no value or valueFrom that are not derivation composed: ${unpinned.map((c) => c.id).join(', ')}`,
     );
   }
 

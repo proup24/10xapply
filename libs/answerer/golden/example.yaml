@@ -265,9 +265,12 @@ cases:
       derivation: as-written
 
   # Placeholders {company} and {jobTitle}: the known answer for this exact
-  # question carries both (and {source}). The answerer may use it as written
-  # or reword it with the post, so no value is pinned; code blocks any {…}
-  # left unfilled, and the judge checks the claims.
+  # question carries both (and {source}). Text may be reworded only to fit how
+  # the question is asked, and this one is asked word for word as the known
+  # answer's question, so there is nothing to fit: the rules give the author's
+  # own answer as written, with every placeholder filled. valueFrom pins that
+  # filled text, so code checks it character for character (the judge reads
+  # only composed text, so an unpinned as-written answer would go unchecked).
   - id: placeholder-company-and-title
     question:
       {
@@ -277,11 +280,9 @@ cases:
       }
     expect:
       status: backed
+      valueFrom: { answer: why-this-role }
       sources: [{ answer: why-this-role }]
-      mustNotClaim:
-        - a claim about Acme Payments that the job post does not make
-        - a product, customer or technology of Acme Payments not in the post
-        - a personal connection to Acme Payments or its staff
+      derivation: as-written
 
   # ------------------------------------------------------------------ Text
 
