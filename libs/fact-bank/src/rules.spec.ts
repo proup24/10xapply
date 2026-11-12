@@ -61,6 +61,9 @@ describe('crossEntryProblems', () => {
       '{{source}}',
       '{x {source}',
       'oops }',
+      '{comp{source}any}',
+      '{job{company}Title}',
+      '{source}}',
     ]) {
       expect(bad(a)).toEqual([
         {
@@ -89,5 +92,9 @@ describe('crossEntryProblems', () => {
       x['stories'][0].story = 'I used {x} here.';
     });
     expect(crossEntryProblems(f)).toEqual([]);
+    const g = file((x) => {
+      x['stories'][0].story = 'I used {{x} here.';
+    });
+    expect(crossEntryProblems(g)).toEqual([]);
   });
 });

@@ -3,7 +3,10 @@ import { isAbsolute, relative, resolve } from 'node:path';
 import { whereOf, type Problem } from './problems.js';
 import { PLACEHOLDERS, type FactBankFile } from './schema.js';
 
-const ALLOWED = new Set<string>(PLACEHOLDERS.map((p) => `{${p}}`));
+const ALLOWED_TOKENS = new RegExp(
+  PLACEHOLDERS.map((p) => `\\{${p}\\}`).join('|'),
+  'g',
+);
 const PLACEHOLDER_MESSAGE = `unknown placeholder (allowed: ${PLACEHOLDERS.map((p) => `{${p}}`).join(', ')})`;
 
 function normalize(s: string): string {
@@ -12,9 +15,7 @@ function normalize(s: string): string {
 
 function hasUnknownPlaceholder(text: string): boolean {
   // Remove the allowed tokens; any brace left over is not a valid placeholder.
-  let rest = text;
-  for (const token of ALLOWED) rest = rest.split(token).join('');
-  return /[{}]/.test(rest);
+  return /[{}]/.test(text.replace(ALLOWED_TOKENS, ''));
 }
 
 // Messages never quote file values: only positions and fixed text.
