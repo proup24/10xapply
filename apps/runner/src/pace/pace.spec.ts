@@ -509,6 +509,148 @@ describe('createPace', () => {
     });
   });
 
+  describe('a target inside a scrolling box (within)', () => {
+    /** A dialog whose visible bottom edge is 200 px above the window's. */
+    const DIALOG: Box = { x: 340, y: 100, width: 600, height: 500 };
+    const bottom = (b: Box) => b.y + b.height;
+    const right = (b: Box) => b.x + b.width;
+    const inBox = (inner: Box, outer: Box) =>
+      inner.x >= outer.x &&
+      inner.y >= outer.y &&
+      right(inner) <= right(outer) &&
+      bottom(inner) <= bottom(outer);
+
+    it('wheels over the box until the target is inside it, then presses', async () => {
+      const f = setup();
+      // In the window (800 px tall), below the dialog's visible bottom.
+      const below: Box = { x: 700, y: 650, width: 120, height: 36 };
+      await f.pace.click(f.scrolling(below), {
+        within: f.locator([DIALOG]),
+      });
+      const wheels = of(f.log, 'wheel');
+      expect(wheels.length).toBeGreaterThan(0);
+      expect(wheels.every((w) => w.dy > 0)).toBe(true);
+      // The pointer rests inside the dialog while wheeling.
+      const moves = of(f.log, 'move');
+      for (const w of wheels) {
+        const at = moves.filter((m) => m.t <= w.t).at(-1);
+        expect(at && inside(at, DIALOG)).toBe(true);
+      }
+      // One press, after the last wheel, with the whole target in the dialog.
+      const downs = of(f.log, 'down');
+      expect(downs).toHaveLength(1);
+      const down = downs[0];
+      expect(f.log.indexOf(down)).toBeGreaterThan(
+        f.log.indexOf(wheels.at(-1) as Ev),
+      );
+      const scrolled = wheels.reduce((n, w) => n + w.dy, 0);
+      const final = { ...below, y: below.y - scrolled };
+      expect(inBox(final, DIALOG)).toBe(true);
+      const press = moves.filter((m) => m.t <= down.t).at(-1);
+      expect(press && inside(press, final)).toBe(true);
+      expect(press && inside(press, DIALOG)).toBe(true);
+    });
+
+    it('re-reads the box on every reveal iteration', async () => {
+      const f = setup();
+      const within = f.locator([DIALOG]);
+      const reads = vi.spyOn(within, 'boundingBox');
+      const below: Box = { x: 700, y: 900, width: 120, height: 36 };
+      await f.pace.click(f.scrolling(below), { within });
+      const bursts = of(f.log, 'wheel').length;
+      expect(bursts).toBeGreaterThan(1);
+      // At least once per reveal iteration (a burst and the final check).
+      expect(reads.mock.calls.length).toBeGreaterThan(2);
+    });
+
+    for (const [name, stuck] of [
+      ['below the box', { x: 700, y: 650, width: 120, height: 36 }],
+      ['across its bottom edge', { x: 700, y: 590, width: 120, height: 36 }],
+    ] as const) {
+      it(`throws a pace: error and never presses a target stuck ${name}`, async () => {
+        const f = setup();
+        await expect(
+          f.pace.click(f.locator([stuck]), { within: f.locator([DIALOG]) }),
+        ).rejects.toThrow(/^pace: /);
+        expect(of(f.log, 'wheel').length).toBeGreaterThan(0);
+        expect(of(f.log, 'wheel').length).toBeLessThanOrEqual(6);
+        expect(of(f.log, 'down')).toHaveLength(0);
+      });
+    }
+
+    it('stops after 40 notches when the target is still outside the box', async () => {
+      const f = setup();
+      const far: Box = { x: 700, y: 5000, width: 80, height: 30 };
+      await expect(
+        f.pace.click(f.scrolling(far, 0.1), { within: f.locator([DIALOG]) }),
+      ).rejects.toThrow(/^pace: /);
+      expect(of(f.log, 'wheel')).toHaveLength(40);
+      expect(of(f.log, 'down')).toHaveLength(0);
+    });
+
+    it('does not press when the press-time read finds the target outside the box', async () => {
+      const f = setup();
+      const target: Box = { x: 700, y: 500, width: 120, height: 36 };
+      // The dialog shrinks after the approach: the target is now below it.
+      const shrunk: Box = { ...DIALOG, height: 300 };
+      await expect(
+        f.pace.click(f.locator([target]), {
+          within: f.locator([DIALOG, DIALOG, shrunk]),
+        }),
+      ).rejects.toThrow(/^pace: /);
+      expect(of(f.log, 'down')).toHaveLength(0);
+    });
+
+    it('a within with no bounding box is refused and nothing is pressed or wheeled', async () => {
+      const f = setup();
+      const gone = {
+        boundingBox: async () => null,
+      } as unknown as Locator;
+      await expect(
+        f.pace.click(f.locator([BOX]), { within: gone }),
+      ).rejects.toThrow(/^pace: /);
+      expect(of(f.log, 'down')).toHaveLength(0);
+      expect(of(f.log, 'wheel')).toHaveLength(0);
+    });
+
+    it('every targeted action keeps to the box', async () => {
+      const stuck: Box = { x: 700, y: 650, width: 120, height: 36 };
+      const acts: ((
+        p: ReturnType<typeof setup>,
+        within: Locator,
+      ) => Promise<void>)[] = [
+        (f, within) => f.pace.click(f.locator([stuck]), { within }),
+        (f, within) => f.pace.type(f.locator([stuck]), 'x', { within }),
+        (f, within) => f.pace.clear(f.locator([stuck]), { within }),
+        (f, within) => f.pace.glance(f.locator([stuck]), { within }),
+        (f, within) =>
+          f.pace.pick(
+            f.select({ disabled: [false, false], checked: 0 }).loc,
+            1,
+            { within },
+          ),
+        (f, within) =>
+          f.pace.upload(f.locator([stuck]), 'C:\\r.pdf', { within }),
+      ];
+      // The select fake sits at BOX (y 500–536): shrink the dialog above it.
+      const box: Box = { ...DIALOG, height: 350 };
+      for (const act of acts) {
+        const f = setup();
+        await expect(act(f, f.locator([box]))).rejects.toThrow(/^pace: /);
+        expect(of(f.log, 'down')).toHaveLength(0);
+        expect(of(f.log, 'kdown')).toHaveLength(0);
+      }
+    });
+
+    it('without within, a click is the same as before', async () => {
+      const a = setup();
+      const b = setup();
+      await a.pace.click(a.locator([BOX]));
+      await b.pace.click(b.locator([BOX]), {});
+      expect(b.log).toEqual(a.log);
+    });
+  });
+
   it('never sends a move to where the pointer already is (Chrome reports it as a zero-movement pointermove)', async () => {
     // A box at the window's corner: overshoot and bulge points get clamped.
     const corner: Box = { x: VIEW.width - 30, y: 0, width: 30, height: 20 };

@@ -1,6 +1,6 @@
 import type { Locator } from 'patchright-core';
 import type { AnswerValue } from '@xapply/answerer';
-import type { Pace } from '../pace/pace.js';
+import type { Pace, TargetOptions } from '../pace/pace.js';
 import type { ReadField } from '../linkedin/types.js';
 import { toTypeable } from './typeable.js';
 
@@ -34,7 +34,16 @@ interface Ctx {
   pace: Pace;
   page: FillPage;
   resume: Resume;
+  /**
+   * The selector of the visible box that clips the fields (the form's
+   * `<dialog>`), passed to every pace call as `within`.
+   */
+  within?: string;
 }
+
+/** The pace options for a call: `within` as a locator, when the ctx has one. */
+const opts = ({ page, within }: Ctx): TargetOptions =>
+  within === undefined ? {} : { within: page.locator(within) };
 
 const done = (changedFromLinkedIn: boolean): FillResult => ({
   ok: true,
@@ -43,11 +52,9 @@ const done = (changedFromLinkedIn: boolean): FillResult => ({
 const fail = (reason: FillProblem): FillResult => ({ ok: false, reason });
 
 /** Clears the field, then reads it back: true when it is empty. */
-async function clearAndCheck(
-  { pace, page }: Ctx,
-  selector: string,
-): Promise<boolean> {
-  await pace.clear(page.locator(selector));
+async function clearAndCheck(ctx: Ctx, selector: string): Promise<boolean> {
+  const { pace, page } = ctx;
+  await pace.clear(page.locator(selector), opts(ctx));
   return (await page.value(selector)) === '';
 }
 
@@ -56,14 +63,15 @@ async function clearAndCheck(
  * doesn't, the field is cleared, so no part-typed text is left behind.
  */
 async function typeAndCheck(
-  { pace, page }: Ctx,
+  ctx: Ctx,
   selector: string,
   text: string,
 ): Promise<boolean> {
+  const { pace, page } = ctx;
   const field = page.locator(selector);
-  await pace.type(field, text);
+  await pace.type(field, text, opts(ctx));
   if (sameValue(await page.value(selector), text)) return true;
-  await pace.clear(field);
+  await pace.clear(field, opts(ctx));
   return false;
 }
 
@@ -136,7 +144,7 @@ async function fillText(
   if (f.question.type === 'typeahead') return fillTypeahead(f, text, ctx);
   const current = await page.value(f.selector);
   if (sameValue(current, text)) {
-    await pace.glance(page.locator(f.selector));
+    await pace.glance(page.locator(f.selector), opts(ctx));
     return done(false);
   }
   const changed = current !== '';
@@ -168,18 +176,19 @@ async function fillTypeahead(
   if (!(await typeAndCheck(ctx, f.selector, text))) return fail('not-taken');
   const option = await page.suggestion(f.suggestions, text);
   if (option === null) {
-    await pace.clear(field);
+    await pace.clear(field, opts(ctx));
     return fail('no-suggestion');
   }
-  await pace.click(page.locator(option));
+  await pace.click(page.locator(option), opts(ctx));
   return done(current !== '' && current !== text);
 }
 
 async function fillSelect(
   f: ReadField,
   value: AnswerValue,
-  { pace, page }: Ctx,
+  ctx: Ctx,
 ): Promise<FillResult> {
+  const { pace, page } = ctx;
   const options = f.question.options ?? [];
   const answer = asOne(value);
   const index = answer === null ? -1 : options.indexOf(answer);
@@ -187,10 +196,10 @@ async function fillSelect(
   const field = page.locator(f.selector);
   const current = await page.selectedText(f.selector);
   if (current === answer) {
-    await pace.glance(field);
+    await pace.glance(field, opts(ctx));
     return done(false);
   }
-  await pace.pick(field, f.pageIndexes?.[index] ?? index);
+  await pace.pick(field, f.pageIndexes?.[index] ?? index, opts(ctx));
   // A placeholder ("Select an option") is not one of the options, so it is
   // not LinkedIn's choice.
   return done(current !== null && options.includes(current));
@@ -212,8 +221,9 @@ async function optionStates(
 async function fillRadio(
   f: ReadField,
   value: AnswerValue,
-  { pace, page }: Ctx,
+  ctx: Ctx,
 ): Promise<FillResult> {
+  const { pace, page } = ctx;
   const answer = asOne(value);
   const index =
     answer === null ? -1 : (f.question.options ?? []).indexOf(answer);
@@ -221,14 +231,14 @@ async function fillRadio(
   const states = await optionStates(f, page);
   if (states === null) return fail('no-option');
   if (states[index]) {
-    await pace.glance(page.locator(f.selector));
+    await pace.glance(page.locator(f.selector), opts(ctx));
     return done(false);
   }
   // Click the answer's own radio, not the nth one in page order, and check
   // that it took.
   const sel = f.optionSelectors?.[index];
   if (sel === undefined) return fail('no-option');
-  await pace.click(page.locator(sel));
+  await pace.click(page.locator(sel), opts(ctx));
   if (!(await page.checked(sel))) return fail('no-option');
   return done(states.some(Boolean));
 }
@@ -236,8 +246,9 @@ async function fillRadio(
 async function fillGroup(
   f: ReadField,
   value: AnswerValue,
-  { pace, page }: Ctx,
+  ctx: Ctx,
 ): Promise<FillResult> {
+  const { pace, page } = ctx;
   const options = f.question.options ?? [];
   const wanted = asMany(value);
   if (wanted.some((w) => !options.includes(w))) return fail('no-option');
@@ -247,11 +258,11 @@ async function fillGroup(
   const want = options.map((o) => wanted.includes(o));
   const differs = want.map((w, i) => w !== states[i]);
   if (!differs.some(Boolean)) {
-    await pace.glance(page.locator(f.selector));
+    await pace.glance(page.locator(f.selector), opts(ctx));
     return done(false);
   }
   for (const [i, sel] of sels.entries()) {
-    if (differs[i]) await pace.click(page.locator(sel));
+    if (differs[i]) await pace.click(page.locator(sel), opts(ctx));
   }
   return done(states.some(Boolean));
 }
@@ -259,8 +270,9 @@ async function fillGroup(
 async function fillCheckbox(
   f: ReadField,
   value: AnswerValue,
-  { pace, page }: Ctx,
+  ctx: Ctx,
 ): Promise<FillResult> {
+  const { pace, page } = ctx;
   const answer = asOne(value)?.trim().toLowerCase();
   const want =
     answer === 'yes' || answer === 'true'
@@ -272,17 +284,15 @@ async function fillCheckbox(
   const field = page.locator(f.selector);
   const ticked = await page.checked(f.selector);
   if (ticked === want) {
-    await pace.glance(field);
+    await pace.glance(field, opts(ctx));
     return done(false);
   }
-  await pace.click(field);
+  await pace.click(field, opts(ctx));
   return done(ticked);
 }
 
-async function fillResume(
-  f: ReadField,
-  { pace, page, resume }: Ctx,
-): Promise<FillResult> {
+async function fillResume(f: ReadField, ctx: Ctx): Promise<FillResult> {
+  const { pace, page, resume } = ctx;
   const choices = f.resumeChoices ?? [];
   const otherSelected = (skip?: string) =>
     choices.some((c) => c.selected && c.selector !== skip);
@@ -290,13 +300,13 @@ async function fillResume(
   if (same) {
     const target = page.locator(same.selector);
     if (same.selected) {
-      await pace.glance(target);
+      await pace.glance(target, opts(ctx));
       return done(false);
     }
-    await pace.click(target);
+    await pace.click(target, opts(ctx));
     return done(otherSelected(same.selector));
   }
   if (!resume.windowsPath) return fail('no-resume');
-  await pace.upload(page.locator(f.selector), resume.windowsPath);
+  await pace.upload(page.locator(f.selector), resume.windowsPath, opts(ctx));
   return done(otherSelected());
 }

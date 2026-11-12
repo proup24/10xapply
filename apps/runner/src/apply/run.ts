@@ -4,7 +4,7 @@ import { all, textOf } from '../linkedin/el.js';
 import { stepKey } from '../linkedin/form-step.js';
 import { readFormCompany, readJobPage } from '../linkedin/job-page.js';
 import { jobViewUrl } from '../linkedin/job-url.js';
-import { MORE_BUTTON } from '../linkedin/selectors.js';
+import { FORM_DIALOG, MORE_BUTTON } from '../linkedin/selectors.js';
 import type { StepRead } from '../linkedin/types.js';
 import { pathPrefix } from '../reports/write-report.js';
 import { RunEnd, asRunEnd, checkStop, guardPace, safety } from './stop.js';
@@ -192,7 +192,9 @@ async function advance(
   const { pace, page } = w;
   const before = stepKey(read);
   guardNext(await look(w), read.next);
-  await pace.click(page.locator(read.next.selector));
+  await pace.click(page.locator(read.next.selector), {
+    within: page.locator(FORM_DIALOG),
+  });
   const after = await settleStep(
     w,
     STEP_WAIT_MS,
@@ -290,11 +292,15 @@ async function dismissAndDiscard(
   if (bridgeGone()) return;
   const dismiss = readDismiss(await look(w));
   if (dismiss === null || bridgeGone()) return;
-  await pace.click(page.locator(dismiss));
+  await pace.click(page.locator(dismiss), {
+    within: page.locator(FORM_DIALOG),
+  });
   for (let i = 0; ; i++) {
     if (bridgeGone()) return;
     const selector = readDiscard(await look(w));
     if (selector !== null) {
+      // The prompt is its own small dialog with no stable selector, so its
+      // Discard is clicked against the window, not a `within` box.
       await pace.click(page.locator(selector));
       return;
     }

@@ -13,31 +13,50 @@ const selOf = (l: Locator) => (l as unknown as { sel: string }).sel;
  * toggles the box (unless the selector is inert), typing appends, clearing
  * empties.
  */
-function fakePace(calls: string[], s: PageState = {}): Pace {
+function fakePace(
+  calls: string[],
+  s: PageState = {},
+  withins: (string | null)[] = [],
+): Pace {
+  /** The `within` each targeted action got, by selector, or null. */
+  const w = (o?: { within?: Locator }) =>
+    void withins.push(o?.within ? selOf(o.within) : null);
   return {
     mood: 1,
     defaulted: [],
-    click: async (t) => {
+    click: async (t, o) => {
+      w(o);
       const sel = selOf(t);
       calls.push(`click ${sel}`);
       if (s.inert?.includes(sel)) return;
       s.checked = { ...s.checked, [sel]: !(s.checked?.[sel] ?? false) };
     },
-    type: async (f, text) => {
+    type: async (f, text, o) => {
+      w(o);
       const sel = selOf(f);
       calls.push(`type ${sel} ${text}`);
       if (s.deaf?.includes(sel)) return;
       s.values = { ...s.values, [sel]: (s.values?.[sel] ?? '') + text };
     },
-    clear: async (f) => {
+    clear: async (f, o) => {
+      w(o);
       const sel = selOf(f);
       calls.push(`clear ${sel}`);
       if (s.sticky?.includes(sel)) return;
       s.values = { ...s.values, [sel]: '' };
     },
-    glance: async (f) => void calls.push(`glance ${selOf(f)}`),
-    pick: async (c, i) => void calls.push(`pick ${selOf(c)} ${i}`),
-    upload: async (b, p) => void calls.push(`upload ${selOf(b)} ${p}`),
+    glance: async (f, o) => {
+      w(o);
+      calls.push(`glance ${selOf(f)}`);
+    },
+    pick: async (c, i, o) => {
+      w(o);
+      calls.push(`pick ${selOf(c)} ${i}`);
+    },
+    upload: async (b, p, o) => {
+      w(o);
+      calls.push(`upload ${selOf(b)} ${p}`);
+    },
     scroll: async (a) => void calls.push(`scroll ${selOf(a)}`),
     read: async () => void calls.push('read'),
     pause: async () => void calls.push('pause'),
@@ -541,5 +560,82 @@ describe('fillField', () => {
     });
     expect(calls).toEqual([]);
     expect(result).toEqual({ ok: false, reason: 'no-resume' });
+  });
+
+  describe('within', () => {
+    const cases: [string, ReadField, string | string[], PageState][] = [
+      ['types', field('text'), 'Ada', {}],
+      ['clears and types', field('text'), 'Ada', { values: { '#f': 'Bob' } }],
+      ['glances', field('text'), 'Ada', { values: { '#f': 'Ada' } }],
+      ['picks', field('select', { options: ['A', 'B'] }), 'B', {}],
+      [
+        'clicks a radio',
+        field('radio', { options: ['A', 'B'], optionSelectors: ['#a', '#b'] }),
+        'B',
+        { checked: { '#b': false } },
+      ],
+      [
+        'clicks group boxes',
+        field('checkbox-group', {
+          options: ['A', 'B'],
+          optionSelectors: ['#a', '#b'],
+        }),
+        ['A', 'B'],
+        {},
+      ],
+      ['ticks a checkbox', field('checkbox'), 'Yes', {}],
+      [
+        'types and clicks a suggestion',
+        field('typeahead', { suggestions: '#list' }),
+        'Paris',
+        { suggestions: { '#list': { Paris: '#opt' } } },
+      ],
+      [
+        'clears a typeahead with no suggestion',
+        field('typeahead', { suggestions: '#list' }),
+        'Paris',
+        {},
+      ],
+      [
+        'clicks a listed resume',
+        field('file', {
+          resumeChoices: [
+            { fileName: 'cv.pdf', selector: '#cv', selected: false },
+          ],
+        }),
+        'cv.pdf',
+        {},
+      ],
+      ['uploads', field('file'), 'cv.pdf', {}],
+    ];
+
+    for (const [name, f, value, state] of cases) {
+      it(`passes the form box to every pace action when it ${name}`, async () => {
+        const calls: string[] = [];
+        const withins: (string | null)[] = [];
+        const st = structuredClone(state);
+        await fillField(f, value, {
+          pace: fakePace(calls, st, withins),
+          page: fakePage(st),
+          resume,
+          within: '#dlg',
+        });
+        expect(withins.length).toBeGreaterThan(0);
+        expect(withins).toHaveLength(calls.length);
+        expect(withins.every((w) => w === '#dlg')).toBe(true);
+      });
+    }
+
+    it('passes no box when the ctx has none', async () => {
+      const calls: string[] = [];
+      const withins: (string | null)[] = [];
+      const st: PageState = {};
+      await fillField(field('text'), 'Ada', {
+        pace: fakePace(calls, st, withins),
+        page: fakePage(st),
+        resume,
+      });
+      expect(withins).toEqual([null]);
+    });
   });
 });

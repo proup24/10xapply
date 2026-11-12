@@ -12,37 +12,52 @@ import { planKeys } from './typing.js';
 export type Optional =
   'expand-description' | 'scroll-description' | 'idle-move';
 
+/** Options for an action that targets an element. */
+export interface TargetOptions {
+  /**
+   * The visible box that clips the target, such as a `<dialog>` with its
+   * own scrolling content. The target must be brought inside the part of
+   * this box that is in the window, the wheel turns over it, and nothing is
+   * pressed outside it. Its box is read again on every check.
+   */
+  within?: Locator;
+}
+
 export interface Pace {
   /** This run's pace factor; dwell, read and pause times are multiplied by it. */
   readonly mood: number;
   /** Measures drawn from DEFAULTS because the profile had fewer than 2 samples. */
   readonly defaulted: readonly MeasureName[];
-  click(target: Locator): Promise<void>;
+  click(target: Locator, opts?: TargetOptions): Promise<void>;
   /**
    * Clicks the field first. Never sends Tab or Enter. Types printable ASCII
    * only, each character as a key; throws before anything moves on any other
    * character, and sends no key unless the field took focus. A `\n` is
    * sent as Enter, only into a `<textarea>`.
    */
-  type(field: Locator, text: string): Promise<void>;
+  type(field: Locator, text: string, opts?: TargetOptions): Promise<void>;
   /**
    * Clicks the field, then Ctrl+A and Backspace at the author's key timing.
    * Sends no key unless the field took focus.
    */
-  clear(field: Locator): Promise<void>;
+  clear(field: Locator, opts?: TargetOptions): Promise<void>;
   /** A prefilled field: move onto it, dwell, no typing. */
-  glance(field: Locator): Promise<void>;
+  glance(field: Locator, opts?: TargetOptions): Promise<void>;
   /**
    * A `<select>` (by option index: click to open, then arrow keys and Enter
    * in the open list) or a radio group (the nth radio's label).
    */
-  pick(control: Locator, index: number): Promise<void>;
+  pick(control: Locator, index: number, opts?: TargetOptions): Promise<void>;
   /**
    * Clicks the button inside `deps.uploadOnChooser`, dwells as if in the
    * file dialog, and has it set `filePath` (a path where Chrome runs) on the
    * chooser's input.
    */
-  upload(button: Locator, filePath: string): Promise<void>;
+  upload(
+    button: Locator,
+    filePath: string,
+    opts?: TargetOptions,
+  ): Promise<void>;
   /** Wheel notches over `area`; negative notches scroll up. */
   scroll(area: Locator, notches?: number): Promise<void>;
   /** Dwell for a text of `chars` characters, or a plain read when unknown. */
@@ -265,24 +280,54 @@ export function createPace(
     return pos;
   }
 
-  /** The part of `box` inside the viewport; throws when none of it is. */
-  function clip(box: Box, view: { width: number; height: number }): Box {
-    const x0 = Math.max(box.x, 0);
-    const y0 = Math.max(box.y, 0);
-    const x1 = Math.min(box.x + box.width, view.width);
-    const y1 = Math.min(box.y + box.height, view.height);
-    if (x1 - x0 < 1 || y1 - y0 < 1) {
-      throw new Error('pace: target is off-screen; scroll it into view first');
-    }
+  /** The part of `a` inside `b`, or null when they don't overlap by 1 px. */
+  function intersect(a: Box, b: Box): Box | null {
+    const x0 = Math.max(a.x, b.x);
+    const y0 = Math.max(a.y, b.y);
+    const x1 = Math.min(a.x + a.width, b.x + b.width);
+    const y1 = Math.min(a.y + a.height, b.y + b.height);
+    if (x1 - x0 < 1 || y1 - y0 < 1) return null;
     return { x: x0, y: y0, width: x1 - x0, height: y1 - y0 };
   }
 
-  /** The part of the target's box inside the viewport; times the read. */
-  async function visibleBox(target: Locator): Promise<Box> {
+  /**
+   * Where a target must be to be acted on: the window, or the part of
+   * `within`'s box inside it. `within`'s box is read on each call.
+   */
+  async function effectiveView(
+    within: Locator | undefined,
+    known?: { width: number; height: number },
+  ): Promise<Box> {
+    const view = known ?? (await viewport());
+    const win: Box = { x: 0, y: 0, width: view.width, height: view.height };
+    if (!within) return win;
+    const box = await within.boundingBox();
+    if (!box) {
+      throw new Error('pace: the visible box has no box (hidden or detached)');
+    }
+    const shown = intersect(box, win);
+    if (!shown) throw new Error('pace: the visible box is off-screen');
+    return shown;
+  }
+
+  /** The part of `box` inside `area`; throws when none of it is. */
+  function clip(box: Box, area: Box): Box {
+    const shown = intersect(box, area);
+    if (!shown) {
+      throw new Error('pace: target is off-screen; scroll it into view first');
+    }
+    return shown;
+  }
+
+  /** The part of the target's box inside the effective view; times the reads. */
+  async function visibleBox(
+    target: Locator,
+    within: Locator | undefined,
+  ): Promise<Box> {
     const t0 = now();
     const box = await target.boundingBox();
     if (!box) throw new Error('pace: target has no box (hidden or detached)');
-    const shown = clip(box, await viewport());
+    const shown = clip(box, await effectiveView(within));
     const cost = now() - t0;
     boxCost = boxCost === null ? cost : 0.7 * boxCost + 0.3 * cost;
     return shown;
@@ -290,40 +335,43 @@ export function createPace(
 
   /**
    * How far (CSS px, + is down) the page must scroll to show the target
-   * comfortably: 0 when it is fully in the window, or a tall target covers
-   * half of it. Throws for a target off to the side.
+   * comfortably in `area` (the effective view): 0 when it is fully inside,
+   * or a tall target covers half of it. Throws for a target off to the side.
    */
-  function revealDistance(
-    box: Box,
-    view: { width: number; height: number },
-  ): number {
-    if (box.x + box.width <= 0 || box.x >= view.width) {
+  function revealDistance(box: Box, area: Box): number {
+    const areaTop = area.y;
+    const areaBottom = area.y + area.height;
+    if (box.x + box.width <= area.x || box.x >= area.x + area.width) {
       throw new Error('pace: target is off-screen to the side; not scrolling');
     }
     const top = box.y;
     const bottom = box.y + box.height;
-    const shown = Math.min(bottom, view.height) - Math.max(top, 0);
-    if (box.height <= view.height) {
-      if (top >= 0 && bottom <= view.height) return 0;
-    } else if (shown >= view.height / 2) {
+    const shown = Math.min(bottom, areaBottom) - Math.max(top, areaTop);
+    if (box.height <= area.height) {
+      if (top >= areaTop && bottom <= areaBottom) return 0;
+    } else if (shown >= area.height / 2) {
       return 0;
     }
-    const margin = view.height * REVEAL_MARGIN;
-    // Below (or taller than the window): bring its bottom, or its top, up.
-    if (top > 0 && box.height <= view.height) {
-      return bottom - (view.height - margin);
+    const margin = area.height * REVEAL_MARGIN;
+    // Below (or taller than the area): bring its bottom, or its top, up.
+    if (top > areaTop && box.height <= area.height) {
+      return bottom - (areaBottom - margin);
     }
-    return top - margin;
+    return top - (areaTop + margin);
   }
 
   /**
    * Scrolls an off-screen target into view the way a person does: the
-   * pointer goes over the target's column mid-window, then wheel bursts at
-   * the author's rhythm, reading the box again after each burst. Gives up
-   * after REVEAL_MAX_NOTCHES notches or when bursts stop moving the target.
-   * Returns the visible part of the target's last box.
+   * pointer goes over the target's column mid-window (mid-`within`, when
+   * given), then wheel bursts at the author's rhythm, reading both boxes
+   * again after each burst. Gives up after REVEAL_MAX_NOTCHES notches or
+   * when bursts stop moving the target. Returns the part of the target's
+   * last box inside the effective view.
    */
-  async function reveal(target: Locator): Promise<Box> {
+  async function reveal(
+    target: Locator,
+    within: Locator | undefined,
+  ): Promise<Box> {
     let used = 0;
     let stuck = 0;
     let lastY: number | null = null;
@@ -331,8 +379,9 @@ export function createPace(
       const box = await target.boundingBox();
       if (!box) throw new Error('pace: target has no box (hidden or detached)');
       const view = await viewport();
-      const distance = revealDistance(box, view);
-      if (distance === 0) return clip(box, view);
+      const area = await effectiveView(within, view);
+      const distance = revealDistance(box, area);
+      if (distance === 0) return clip(box, area);
       if (lastY !== null) {
         stuck = box.y === lastY ? stuck + 1 : 0;
         if (stuck >= REVEAL_MAX_STUCK) {
@@ -355,7 +404,7 @@ export function createPace(
             draw(profile, 'wheelGap', rng),
         );
       } else {
-        await moveOver(scrollSpot(box, view), view);
+        await moveOver(scrollSpot(box, area), view);
         await wait(draw(profile, 'hoverToPress', rng));
       }
       const px = await notchPx();
@@ -371,16 +420,19 @@ export function createPace(
     }
   }
 
-  /** Where the pointer rests while scrolling: the target's column, mid-window. */
-  function scrollSpot(box: Box, view: { width: number; height: number }): Box {
-    const x0 = Math.max(box.x, 0);
-    const x1 = Math.min(box.x + box.width, view.width);
+  /**
+   * Where the pointer rests while scrolling: the target's column, in the
+   * middle of `area` (the effective view).
+   */
+  function scrollSpot(box: Box, area: Box): Box {
+    const x0 = Math.max(box.x, area.x);
+    const x1 = Math.min(box.x + box.width, area.x + area.width);
     const width = Math.min(x1 - x0, 120);
     return {
       x: (x0 + x1) / 2 - width / 2,
-      y: view.height * 0.35,
+      y: area.y + area.height * 0.35,
       width,
-      height: view.height * 0.3,
+      height: area.height * 0.3,
     };
   }
 
@@ -407,9 +459,12 @@ export function createPace(
    * again before the final approach, so a page that scrolled or a window
    * that moved never gets a stale click.
    */
-  async function approach(target: Locator): Promise<void> {
+  async function approach(
+    target: Locator,
+    within: Locator | undefined,
+  ): Promise<void> {
     await position();
-    const shown = await reveal(target);
+    const shown = await reveal(target, within);
     // After a scroll the pointer rests where it wheeled.
     const from = await position();
     const view = await viewport();
@@ -422,7 +477,7 @@ export function createPace(
     // pause mid-stroke shows up as a long sample interval). A target that
     // moved ends the stroke where it is and gets a new one.
     let read: { box: Box } | { error: unknown } | null = null;
-    const reading = visibleBox(target).then(
+    const reading = visibleBox(target, within).then(
       (box) => void (read = { box }),
       (error: unknown) => void (read = { error }),
     );
@@ -442,12 +497,16 @@ export function createPace(
    * Waits a hoverToPress draw from the last move sent, reading the target's
    * box at the end of it: the read's usual cost comes off the wait, so the
    * page sees the author's hover and the read is still the last thing
-   * before the press. True when the pointer is on the target.
+   * before the press. True when the pointer is on the part of the target
+   * inside the effective view.
    */
-  async function hoverThenCheck(target: Locator): Promise<boolean> {
+  async function hoverThenCheck(
+    target: Locator,
+    within: Locator | undefined,
+  ): Promise<boolean> {
     const due = (lastMoveAt ?? now()) + draw(profile, 'hoverToPress', rng);
     await wait(due - (boxCost ?? 0) - now());
-    const on = await onTarget(target);
+    const on = await onTarget(target, within);
     await wait(due - now());
     return on;
   }
@@ -464,18 +523,28 @@ export function createPace(
     await up();
   }
 
-  /** True when the mouse rests inside the target's current box. */
-  async function onTarget(target: Locator): Promise<boolean> {
-    const box = await visibleBox(target);
+  /**
+   * True when the mouse rests inside the target's current box, clipped to
+   * the effective view.
+   */
+  async function onTarget(
+    target: Locator,
+    within: Locator | undefined,
+  ): Promise<boolean> {
+    const box = await visibleBox(target, within);
     return pos !== null && inside(pos, box);
   }
 
-  async function click(target: Locator): Promise<void> {
-    await approach(target);
+  async function click(
+    target: Locator,
+    opts: TargetOptions = {},
+  ): Promise<void> {
+    const { within } = opts;
+    await approach(target, within);
     // The box is read once more right before the press: never a stale click.
-    if (!(await hoverThenCheck(target))) {
-      await approach(target);
-      if (!(await hoverThenCheck(target))) {
+    if (!(await hoverThenCheck(target, within))) {
+      await approach(target, within);
+      if (!(await hoverThenCheck(target, within))) {
         throw new Error('pace: target keeps moving; not pressing');
       }
     }
@@ -486,13 +555,17 @@ export function createPace(
     );
   }
 
-  async function type(field: Locator, text: string): Promise<void> {
+  async function type(
+    field: Locator,
+    text: string,
+    opts: TargetOptions = {},
+  ): Promise<void> {
     // A newline is Enter, which submits a form from an input: textarea only.
     const newlines =
       text.includes('\n') &&
       (await field.locator('xpath=self::textarea').count()) === 1;
     assertKeyed(newlines ? text.replace(/\n/g, '') : text);
-    await clickAndFocus(field);
+    await clickAndFocus(field, opts);
     // Lay keydowns and keyups out on one timeline; holds may overlap the next key.
     const keys: { at: number; up: number; ch: string }[] = [];
     let at = 0;
@@ -534,8 +607,11 @@ export function createPace(
   }
 
   /** Clicks the field and refuses to go on unless it took focus. */
-  async function clickAndFocus(field: Locator): Promise<void> {
-    await click(field);
+  async function clickAndFocus(
+    field: Locator,
+    opts: TargetOptions,
+  ): Promise<void> {
+    await click(field, opts);
     await dwell('fieldDwellBeforeTyping');
     // Keys go to whatever has focus: refuse unless it is this field.
     if ((await field.and(page.locator(':focus')).count()) !== 1) {
@@ -544,8 +620,11 @@ export function createPace(
   }
 
   /** Ctrl+A then Backspace: Ctrl goes down before A and up after it. */
-  async function clear(field: Locator): Promise<void> {
-    await clickAndFocus(field);
+  async function clear(
+    field: Locator,
+    opts: TargetOptions = {},
+  ): Promise<void> {
+    await clickAndFocus(field, opts);
     const down = new Set<string>();
     try {
       await wait(draw(profile, 'keyGapInWord', rng, { min: 1 }));
@@ -624,17 +703,21 @@ export function createPace(
     return out;
   }
 
-  async function pick(control: Locator, index: number): Promise<void> {
+  async function pick(
+    control: Locator,
+    index: number,
+    opts: TargetOptions = {},
+  ): Promise<void> {
     const radios = control.locator('input[type="radio"]');
     if ((await radios.count()) > 0) {
       const radio = radios.nth(index);
-      await click(await radioTarget(control, radio));
+      await click(await radioTarget(control, radio), opts);
       return;
     }
     const steps = await selectSteps(control, index);
     // Open the list with the mouse, then move in it with the keys and take
     // the option with Enter, so Chrome fires a trusted `change`.
-    await click(control);
+    await click(control, opts);
     await dwell('pickDwell');
     await assertListOpen(control);
     const key = steps > 0 ? 'ArrowDown' : 'ArrowUp';
@@ -766,11 +849,11 @@ export function createPace(
     type,
     clear,
     pick,
-    async glance(field) {
-      await approach(field);
+    async glance(field, opts = {}) {
+      await approach(field, opts.within);
       await dwell('fieldDwellPrefilled');
     },
-    async upload(button, filePath) {
+    async upload(button, filePath, opts = {}) {
       // Patchright's own setFiles over a remote connection sets the files by
       // script (an untrusted `change`), so there is no fallback to it.
       const upload = deps.uploadOnChooser;
@@ -779,12 +862,12 @@ export function createPace(
       }
       await upload(
         filePath,
-        () => click(button),
+        () => click(button, opts),
         () => dwell('fileChooserDwell'),
       );
     },
     async scroll(area, notches) {
-      await approach(area);
+      await approach(area, undefined);
       const n =
         notches ?? Math.round(draw(profile, 'wheelBurst', rng, { min: 1 }));
       const px = await notchPx();

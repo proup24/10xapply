@@ -12,7 +12,7 @@ import {
 import type { FactBank } from '@xapply/fact-bank';
 import { parsePage, type Document } from '../linkedin/dom.js';
 import { readStep } from '../linkedin/form-step.js';
-import { DISMISS, EASY_APPLY } from '../linkedin/selectors.js';
+import { DISMISS, EASY_APPLY, FORM_DIALOG } from '../linkedin/selectors.js';
 import { ConfigError } from '../config.js';
 import type { Pace } from '../pace/pace.js';
 import type { TerminalIO } from '../terminal/author-mode.js';
@@ -68,6 +68,8 @@ interface Call {
   op: string;
   sel: string;
   arg?: string | number;
+  /** The selector of the `within` box a pace action got, if any. */
+  within?: string;
 }
 
 /** Every acted-on selector whose element reads as Submit, in this test. */
@@ -173,10 +175,20 @@ function harness(s: Setup): Harness {
     if (!sc) throw new Error(`no screen ${current}`);
     return sc;
   };
-  const act = (op: string, l: Locator, arg?: string | number) => {
+  const act = (
+    op: string,
+    l: Locator,
+    arg?: string | number,
+    opts?: { within?: Locator },
+  ) => {
     const sel = selOf(l);
     checkNotSubmit(screen().html, sel);
-    calls.push(arg === undefined ? { op, sel } : { op, sel, arg });
+    calls.push({
+      op,
+      sel,
+      ...(arg === undefined ? {} : { arg }),
+      ...(opts?.within ? { within: selOf(opts.within) } : {}),
+    });
     const to = screen().on?.[sel];
     if (to) current = to;
   };
@@ -208,23 +220,23 @@ function harness(s: Setup): Harness {
   const pace: Pace = {
     mood: 1,
     defaulted: [],
-    click: async (t) => {
-      act('click', t);
+    click: async (t, o) => {
+      act('click', t, undefined, o);
       const sel = selOf(t);
       checked[sel] = !(checked[sel] ?? false);
     },
-    type: async (f, text) => {
-      act('type', f, text);
+    type: async (f, text, o) => {
+      act('type', f, text, o);
       if (s.deaf?.includes(selOf(f))) return;
       values[selOf(f)] = (values[selOf(f)] ?? '') + text;
     },
-    clear: async (f) => {
-      act('clear', f);
+    clear: async (f, o) => {
+      act('clear', f, undefined, o);
       values[selOf(f)] = '';
     },
-    glance: async (f) => act('glance', f),
-    pick: async (c, i) => act('pick', c, i),
-    upload: async (b, p) => act('upload', b, p),
+    glance: async (f, o) => act('glance', f, undefined, o),
+    pick: async (c, i, o) => act('pick', c, i, o),
+    upload: async (b, p, o) => act('upload', b, p, o),
     scroll: async (a) => act('scroll', a),
     read: async (n) => void calls.push({ op: 'read', sel: '', arg: n ?? -1 }),
     pause: async () => void calls.push({ op: 'pause', sel: '' }),
@@ -398,6 +410,43 @@ describe('runApply', () => {
     expect(run.timings.perStepMs).toHaveLength(3);
     expect(run.timings.totalMs).toBeGreaterThan(0);
     expect(run.startedAt).toMatch(/^\d{4}-\d\d-\d\dT/);
+  });
+
+  it('every action inside the form keeps to the form dialog', async () => {
+    const h = harness({ screens: fullFlow() });
+    const run = await runApply('123', h.deps);
+    expect(run.outcome).toBe('reached-review');
+    const acts = h.calls.filter((c) =>
+      ['click', 'type', 'clear', 'glance', 'pick', 'upload'].includes(c.op),
+    );
+    // The job page's Easy Apply and the save prompt's Discard get no box.
+    const outside = [EASY_APPLY, DISCARD];
+    expect(acts.filter((c) => outside.includes(c.sel))).toEqual([
+      { op: 'click', sel: EASY_APPLY },
+      { op: 'click', sel: DISCARD },
+    ]);
+    const inForm = acts.filter((c) => !outside.includes(c.sel));
+    // Fills, every Next and Review, and the close-out's Dismiss.
+    expect(inForm.length).toBeGreaterThan(5);
+    expect(inForm.map((c) => c.sel)).toContain(DISMISS);
+    expect(inForm.map((c) => c.sel)).toContain(nextOf(CONTACT));
+    expect(inForm.filter((c) => c.within !== FORM_DIALOG)).toEqual([]);
+  });
+
+  it('a guarded pace passes the form dialog through', async () => {
+    const h = harness({ screens: oneStep(synth({ fields: [A] })) });
+    await runApply('123', h.deps);
+    expect(h.calls).toContainEqual({
+      op: 'type',
+      sel: '#qa',
+      arg: 'ok',
+      within: FORM_DIALOG,
+    });
+    expect(h.calls).toContainEqual({
+      op: 'click',
+      sel: '#next',
+      within: FORM_DIALOG,
+    });
   });
 
   it('a rejected review prompt still dismisses, discards and closes', async () => {

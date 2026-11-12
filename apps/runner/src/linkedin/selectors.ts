@@ -30,6 +30,15 @@ export const FOLLOW_PREFIXES = ['Following, click to unfollow ', 'Follow '];
  * It has no role="dialog".
  */
 export const FORM_HEADER = '#dialog-header';
+/**
+ * The Easy Apply form's `<dialog>`: the one that holds `#dialog-header`
+ * (step-contact.html, step-resume.html, review.html and every step and
+ * review fixture). Its content scrolls on its own, so it is the visible box
+ * (`within`) for every pace action inside the form. The "Save this
+ * application?" prompt is a second `<dialog>` without this label
+ * (review-save-prompt.html).
+ */
+export const FORM_DIALOG = 'dialog[aria-labelledby="dialog-header"]';
 /** The form header's `h2` reads "Apply to <company>" (step-contact.html). */
 export const FORM_COMPANY_PREFIX = 'Apply to ';
 /** The step buttons: Back, Next, Review, Submit application (step-resume.html). */
@@ -56,8 +65,7 @@ export const FORM_ERRORS = '[role="alert"], [id^="error-message"]';
  * form header: the "Save this application?" prompt has a Dismiss of its own
  * (review.html, review-save-prompt.html).
  */
-export const DISMISS =
-  'dialog[aria-labelledby="dialog-header"] button[aria-label="Dismiss"]';
+export const DISMISS = `${FORM_DIALOG} button[aria-label="Dismiss"]`;
 /**
  * After Dismiss, LinkedIn asks "Save this application?" in a second
  * `<dialog>` with "Discard" and "Save" buttons that carry no aria-label, so

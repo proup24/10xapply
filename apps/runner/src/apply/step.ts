@@ -1,6 +1,7 @@
 import type { AnswerValue, FormQuestion, Job } from '@xapply/answerer';
 import type { FactBank } from '@xapply/fact-bank';
 import { all } from '../linkedin/el.js';
+import { FORM_DIALOG } from '../linkedin/selectors.js';
 import { parsePage, type Document } from '../linkedin/dom.js';
 import { readStep, stepKey } from '../linkedin/form-step.js';
 import type { ReadField, StepRead } from '../linkedin/types.js';
@@ -268,10 +269,12 @@ function save(w: Walk, rec: QuestionRecord, value: AnswerValue): void {
   }
 }
 
+/** Every fill keeps to the form's `<dialog>`, whose content scrolls on its own. */
 const ctx = (w: Walk) => ({
   pace: w.pace,
   page: w.page,
   resume: w.deps.resume,
+  within: FORM_DIALOG,
 });
 
 function jobOf(w: Walk): Job {
