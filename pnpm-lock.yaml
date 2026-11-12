@@ -241,6 +241,9 @@ importers:
       '@xapply/fact-bank':
         specifier: workspace:*
         version: link:../../libs/fact-bank
+      linkedom:
+        specifier: ^0.18.15
+        version: 0.18.15
       patchright-core:
         specifier: 1.64.3
         version: 1.64.3
@@ -251,9 +254,6 @@ importers:
       '@types/ws':
         specifier: ^8.18.1
         version: 8.18.2
-      linkedom:
-        specifier: ^0.18.15
-        version: 0.18.15
       tsx:
         specifier: ^4.23.15
         version: 4.23.15
