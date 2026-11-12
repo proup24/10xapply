@@ -438,6 +438,8 @@ test('runner (real name): safe commands pass', () => {
     'pnpm nx run runner:bridge-check',
     'pnpm nx run runner:bridge-check-crash',
     'pnpm nx run runner:pace-record',
+    'pnpm nx run runner:facts-check',
+    'tsx apps/runner/src/main.ts facts check',
     'tsx apps/runner/src/main.ts pace compare',
     'tsx apps/runner/src/main.ts bridge check',
     'pnpm nx run runner:apply --dry-run',

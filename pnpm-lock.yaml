@@ -235,6 +235,9 @@ importers:
 
   apps/runner:
     dependencies:
+      '@xapply/fact-bank':
+        specifier: workspace:*
+        version: link:../../libs/fact-bank
       patchright-core:
         specifier: 1.64.3
         version: 1.64.3

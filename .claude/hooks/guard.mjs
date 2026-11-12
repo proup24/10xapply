@@ -355,6 +355,8 @@ export const RUNNER_SAFE_SUBCOMMANDS = [
   'bot-check',
   'bot-check-repeat',
   'session',
+  'facts',
+  'facts-check',
 ];
 export const DEV_TARGETS = ['build', 'test', 'lint', 'typecheck'];
 

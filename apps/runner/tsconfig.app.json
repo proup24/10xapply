@@ -15,5 +15,10 @@
     "src/**/*.spec.ts",
     "src/**/testing/**/*.ts",
     "eslint.config.mjs"
+  ],
+  "references": [
+    {
+      "path": "../../libs/fact-bank/tsconfig.lib.json"
+    }
   ]
 }

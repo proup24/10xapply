@@ -8,6 +8,7 @@ import {
   recordCommand,
   summaryCommand,
 } from './commands/pace.js';
+import { factsCheckCommand } from './commands/facts.js';
 import { sessionCommand } from './commands/session.js';
 import { ConfigError } from './config.js';
 import { redact } from './redact.js';
@@ -22,7 +23,8 @@ const USAGE = `usage: runner <command>
   pace practice    run the local practice form with the pace module (--runs N, default 5; --record)
   pace summary     count the recorded samples per measure against the minimums
   pace compare     compare the runner's recordings with yours (shape, timing, variety)
-  bridge check     check the bridge extension (--crash: also check the crash stop)`;
+  bridge check     check the bridge extension (--crash: also check the crash stop)
+  facts check      check the fact bank file (optional path; prints no values)`;
 
 /** The value after `--flag`, as a positive integer, or undefined. */
 function intFlag(argv: string[], flag: string): number | undefined {
@@ -57,6 +59,8 @@ export async function main(argv: string[]): Promise<number> {
       });
     if (a === 'pace' && b === 'summary') return summaryCommand();
     if (a === 'pace' && b === 'compare') return compareCommand();
+    if (a === 'facts' && b === 'check')
+      return factsCheckCommand({ path: argv[2] });
   } catch (e) {
     if (e instanceof ConfigError || e instanceof RelayPortInUseError) {
       console.error(redact(e.message));

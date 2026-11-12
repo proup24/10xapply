@@ -82,6 +82,16 @@
           "command": "tsx src/main.ts pace summary"
         }
       },
+      "facts-check": {
+        "executor": "nx:run-commands",
+        "dependsOn": [
+          "^build"
+        ],
+        "options": {
+          "cwd": "apps/runner",
+          "command": "tsx src/main.ts facts check"
+        }
+      },
       "pace-compare": {
         "executor": "nx:run-commands",
         "options": {
@@ -92,6 +102,7 @@
     }
   },
   "dependencies": {
+    "@xapply/fact-bank": "workspace:*",
     "patchright-core": "1.64.3",
     "ws": "^8.22.2"
   },
