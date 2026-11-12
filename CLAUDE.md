@@ -56,7 +56,7 @@ Build in small slices, one per session: brainstorm, then spec (`docs/superpowers
 - `pnpm nx run runner:pace-build` builds the pace profile from the recordings.
 - `pnpm nx run runner:pace-practice` has the runner fill the local practice page five times, recorded for the comparison.
 - `pnpm nx run runner:pace-compare` compares the runner's recordings with the author's and writes a report.
-- `pnpm nx run runner:facts-check` checks the fact bank file and prints counts and problems, never a value.
+- `pnpm nx run runner:facts-check [-- <path>]` checks the fact bank file and prints counts and problems, never a value. The optional path is resolved from the repo root. In a non-TTY shell add `--outputStyle=stream` to see its output.
 - `pnpm nx run runner:session` loads LinkedIn's feed once and reports whether the session is signed in.
 - `bridge-install` also copies a 1-byte practice PDF next to the extension, for the upload check.
 - The runner's local config (the token, and an optional `RUNNER_RELAY_PORT`, default 9333) lives in the untracked `apps/runner/.env.local`, written by `bridge-install`.
@@ -85,7 +85,7 @@ See [docs/roadmap/README.md](docs/roadmap/README.md): phases, slice order and th
 - Claude debugs from `run-reports/` and from scrubbed page snapshots committed as fixtures.
 - Claude may start a `--dry-run` against a real job only when the author asks in that session, and only a few a day.
 - `guard.mjs` blocks runner launches without `--dry-run` (after the target or file, not in front of it). In `guard.mjs`, `RUNNER_NAME = 'runner'` and `RUNNER_SAFE_SUBCOMMANDS = ['bridge', 'bridge-install', 'bridge-check', 'bridge-check-crash', 'pace', 'pace-record', 'pace-record-typing', 'pace-summary', 'pace-build', 'pace-practice', 'pace-compare', 'bot-check', 'bot-check-repeat', 'session', 'facts', 'facts-check']`.
-- Claude may run `runner:session` only when the author asks in that session. Every other safe subcommand (the bridge, `pace` and bot-check ones) never touches LinkedIn and needs no ask.
+- Claude may run `runner:session` only when the author asks in that session. Every other safe subcommand (the bridge, `pace`, bot-check and `facts` ones) never touches LinkedIn and needs no ask.
 - No scripts run in LinkedIn's page; the runner reads through locators only. An ESLint rule in `apps/runner` bans `evaluate`, `evaluateHandle`, `$eval`, `$$eval`, `evaluateAll`, `exposeFunction`, `exposeBinding` and `addInitScript`. The relay and extension also refuse cookie and storage reads, `Browser.close`, `Runtime.addBinding`, and `Page.addScriptToEvaluateOnNewDocument` (except Patchright's own empty-source utility-world script). On a run tab's sessions they pass only three `Target.*` methods: `setAutoAttach`, `detachFromTarget` and `getTargetInfo`.
 - Only the pace module (`apps/runner/src/pace/`) acts on a page; other code calls `pace.click`, `pace.type` and so on. ESLint bans Patchright input methods elsewhere.
 - The runner's file uploads go through the relay (`DOM.setFileInputFiles` on a Windows-side path), not Patchright's setFiles.

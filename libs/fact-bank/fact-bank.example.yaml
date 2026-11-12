@@ -15,6 +15,8 @@ fields:
   email: sam@example.com
   phone:
     countryCode: '+44'
+    # Write it without the leading 0 of the national form when the country
+    # drops it (UK: 7700900123, not 07700900123). It is joined to countryCode as is.
     number: '7700900123' # without the country code
     country: United Kingdom # for a "phone country" dropdown
   city: Leeds
