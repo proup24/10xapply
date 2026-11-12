@@ -1,0 +1,183 @@
+import {
+  evaluate,
+  expressionNumbers,
+  MathError,
+  MONTHS,
+  numbersIn,
+  yearsSince,
+} from './math.js';
+import { matchOption, sourceText } from './sources.js';
+import {
+  CHOICE_TYPES,
+  TEXT_TYPES,
+  type AnswerContext,
+  type AnswerValue,
+  type Candidate,
+  type FormQuestion,
+  type Source,
+} from './types.js';
+
+type AnswerCandidate = Extract<Candidate, { outcome: 'answer' }>;
+
+/** A failure names the check that failed and never holds a value. */
+export type CheckResult =
+  { ok: true; value: AnswerValue } | { ok: false; detail: string };
+
+const fail = (detail: string): CheckResult => ({ ok: false, detail });
+
+const NUMBER_ONLY = /^\d+(?:\.\d+)?$/;
+const WHOLE_NUMBER = /^\d+$/;
+
+function monthNamed(month: number, text: string): boolean {
+  const lower = text.toLowerCase();
+  return Object.entries(MONTHS).some(
+    ([name, n]) =>
+      n === month && new RegExp(String.raw`\b${name}\b`).test(lower),
+  );
+}
+
+function checkMath(
+  c: AnswerCandidate,
+  texts: string[],
+  allowed: Set<number>,
+  runDate: string,
+  value: string,
+): CheckResult | { result: number } {
+  const spec = c.math;
+  if (!spec) return fail('math missing');
+  try {
+    let result: number;
+    if (spec.kind === 'years-since') {
+      if (!allowed.has(spec.year)) return fail('number not in sources');
+      if (
+        spec.month !== undefined &&
+        !texts.some((t) => monthNamed(spec.month as number, t))
+      ) {
+        return fail('number not in sources');
+      }
+      result = yearsSince(spec, runDate);
+    } else {
+      if (!expressionNumbers(spec.expression).every((n) => allowed.has(n))) {
+        return fail('number not in sources');
+      }
+      result = Math.floor(evaluate(spec.expression));
+    }
+    if (!WHOLE_NUMBER.test(value) || Number(value) !== result) {
+      return fail('math does not match');
+    }
+    return { result };
+  } catch (e) {
+    if (e instanceof MathError) return fail('math does not match');
+    throw e;
+  }
+}
+
+function checkChoice(q: FormQuestion, value: AnswerValue): CheckResult {
+  const options = q.options ?? [];
+  if (q.type === 'checkbox-group') {
+    if (!Array.isArray(value)) return fail('wrong value shape');
+    if (value.length === 0) {
+      return q.required
+        ? fail('empty required answer')
+        : { ok: true, value: [] };
+    }
+    const matched: string[] = [];
+    for (const item of value) {
+      const option =
+        typeof item === 'string' ? matchOption(item, options) : null;
+      if (option === null || matched.includes(option)) {
+        return fail('option not offered');
+      }
+      matched.push(option);
+    }
+    return { ok: true, value: matched };
+  }
+  if (typeof value !== 'string') return fail('wrong value shape');
+  const option = matchOption(value, options);
+  return option === null
+    ? fail('option not offered')
+    : { ok: true, value: option };
+}
+
+/**
+ * The deterministic checks. These are the main guard against an invented or
+ * wrong answer, so any doubt fails the check.
+ */
+export function checkCandidate(
+  q: FormQuestion,
+  c: AnswerCandidate,
+  ctx: AnswerContext,
+): CheckResult {
+  const isChoice = (CHOICE_TYPES as readonly string[]).includes(q.type);
+  const isText = (TEXT_TYPES as readonly string[]).includes(q.type);
+  const isNumber = q.type === 'number';
+  const isFile = q.type === 'file';
+  if (!isChoice && !isText && !isNumber && !isFile)
+    return fail('wrong value shape');
+
+  const wantsArray = q.type === 'checkbox-group';
+  if (Array.isArray(c.value) !== wantsArray) return fail('wrong value shape');
+
+  // Every source exists.
+  const texts: string[] = [];
+  for (const source of c.sources) {
+    const text = sourceText(source, ctx);
+    if (text === null) return fail('unknown source');
+    texts.push(text);
+  }
+  // A job post or the run date never backs a claim about the author.
+  if (c.sources.every((s) => s.kind === 'job-post' || s.kind === 'run-date')) {
+    return fail('no source about the author');
+  }
+
+  if (isFile) {
+    const hasResume = c.sources.some(
+      (s) => s.kind === 'field' && s.key === 'resume',
+    );
+    return c.value === ctx.bank.fields.resume && hasResume
+      ? { ok: true, value: c.value }
+      : fail('not the resume');
+  }
+
+  if (isChoice) return checkChoice(q, c.value);
+
+  // Text and number values.
+  const raw = c.value as string;
+  const value = raw.trim();
+  if (/[{}]/.test(value)) return fail('unfilled placeholder');
+  if (value === '')
+    return q.required ? fail('empty required answer') : { ok: true, value };
+  if (q.maxLength !== undefined && value.length > q.maxLength)
+    return fail('too long');
+  if (isNumber && !NUMBER_ONLY.test(value)) return fail('not a number');
+
+  if (c.derivation === 'as-written') {
+    const answers = c.sources.filter((s: Source) => s.kind === 'answer');
+    if (answers.length !== 1) return fail('not as written');
+    const expected = sourceText(answers[0], ctx);
+    if (expected === null || value !== expected.trim())
+      return fail('not as written');
+  }
+
+  // Numbers: each must be in a cited source (a cited answer, for fitted), or be checked math.
+  const fromTexts =
+    c.derivation === 'fitted'
+      ? c.sources.flatMap((s, i) => (s.kind === 'answer' ? [texts[i]] : []))
+      : texts;
+  const allowed = new Set(fromTexts.flatMap(numbersIn));
+  if (c.derivation === 'math') {
+    const math = checkMath(
+      c,
+      texts,
+      new Set(texts.flatMap(numbersIn)),
+      ctx.runDate,
+      value,
+    );
+    if ('ok' in math) return math;
+    allowed.add(math.result);
+  }
+  if (!numbersIn(value).every((n) => allowed.has(n)))
+    return fail('number not in sources');
+
+  return { ok: true, value };
+}
