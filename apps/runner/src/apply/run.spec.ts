@@ -478,6 +478,65 @@ describe('runApply', () => {
     expect(h.acts()).toEqual([]);
   });
 
+  describe('a job page that renders after the load event', () => {
+    const SKELETON =
+      '<html><body><main><h1>Loading</h1><div class="skeleton"></div></main></body></html>';
+    const waits = (h: Harness) => h.calls.filter((c) => c.op === 'wait');
+
+    it('waits through a skeleton, then walks normally', async () => {
+      const h = harness({
+        screens: {
+          skel: { html: SKELETON, then: { after: 2, to: 'job' } },
+          ...fullFlow(),
+        },
+        start: 'skel',
+      });
+      const run = await runApply('123', h.deps);
+      expect(run.outcome).toBe('reached-review');
+      expect(run.job?.description).toBeTruthy();
+      expect(waits(h).length).toBeGreaterThanOrEqual(2);
+    });
+
+    it('a skeleton that never fills is unexpected-page, not not-easy-apply', async () => {
+      const h = harness({
+        screens: { skel: { html: SKELETON } },
+        start: 'skel',
+      });
+      const run = await runApply('123', h.deps);
+      expect(run.outcome).toBe('safety-stop');
+      expect(run.stop).toMatchObject({ kind: 'unexpected-page' });
+      expect(waits(h).length).toBe(20);
+      expect(h.acts()).toEqual([]);
+    });
+
+    it('recognises the applied page as soon as it shows', async () => {
+      const h = harness({
+        screens: {
+          skel: { html: SKELETON, then: { after: 1, to: 'done' } },
+          done: { html: fixture('job-applied.html') },
+        },
+        start: 'skel',
+      });
+      const run = await runApply('123', h.deps);
+      expect(run.outcome).toBe('already-applied');
+      expect(waits(h).length).toBeLessThanOrEqual(2);
+    });
+
+    it('stops waiting when the stop reason is set', async () => {
+      const h = harness({
+        screens: { skel: { html: SKELETON } },
+        start: 'skel',
+        stopWhen: (calls) =>
+          calls.filter((c) => c.op === 'wait').length >= 1
+            ? 'interrupted'
+            : null,
+      });
+      const run = await runApply('123', h.deps);
+      expect(run.outcome).toBe('stopped');
+      expect(waits(h).length).toBe(1);
+    });
+  });
+
   it('signed out after load', async () => {
     const h = harness({
       screens: {
@@ -513,8 +572,11 @@ describe('runApply', () => {
     });
     const run = await runApply('123', h.deps);
     expect(run.stop).toMatchObject({ kind: 'unexpected-page', step: null });
-    // Polled every 500 ms for 10 s.
-    expect(h.calls.filter((c) => c.op === 'wait')).toHaveLength(20);
+    // After the click, polled every 500 ms for 10 s.
+    const afterClick = h.calls.slice(
+      h.calls.findIndex((c) => c.op === 'click'),
+    );
+    expect(afterClick.filter((c) => c.op === 'wait')).toHaveLength(20);
     expect(h.calls.every((c) => c.op !== 'wait' || c.arg === 500)).toBe(true);
   });
 

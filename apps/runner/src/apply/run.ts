@@ -16,6 +16,8 @@ import type { ApplyDeps, ApplyPage, ApplyRun } from './types.js';
  * it settles (two reads in a row agree).
  */
 const STEP_WAIT_MS = 10_000;
+/** How long the job page gets to render its details after the load event. */
+const JOB_WAIT_MS = 10_000;
 /** How long the "Save this application?" prompt gets after Dismiss. */
 const PROMPT_WAIT_MS = 5_000;
 export const REVIEW_PROMPT =
@@ -96,18 +98,43 @@ function prefixOf(page: ApplyPage): string | null {
   }
 }
 
+/**
+ * LinkedIn renders the job details after the load event. Reads every 500 ms,
+ * for up to `ms`, until the page shows as applied, or has a description and
+ * the same decision (Easy Apply present or not, same description length) on
+ * two reads in a row. If time runs out the last read is returned. Every read
+ * goes through `look`, so the sign-in and security checks run on each one.
+ */
+async function settleJobPage(w: Walk, ms: number) {
+  let prev: string | null = null;
+  for (let i = 0; ; i++) {
+    const doc = await look(w);
+    const jr = readJobPage(doc);
+    if (jr.applied) return { doc, jr };
+    const key =
+      jr.description === null
+        ? null
+        : `${jr.easyApply !== null}:${jr.description.length}`;
+    if (key !== null && key === prev) return { doc, jr };
+    if (i >= ms / POLL_MS) return { doc, jr };
+    prev = key;
+    checkStop(w.deps);
+    await w.deps.wait(POLL_MS);
+  }
+}
+
 /** Loads and checks the job, reads the post, then clicks Easy Apply. */
 async function openJob(w: Walk): Promise<void> {
   const { page, pace, run } = w;
   checkStop(w.deps);
   await page.goto(jobViewUrl(run.jobId));
-  const doc = await look(w);
-  const jr = readJobPage(doc);
+  const { doc, jr } = await settleJobPage(w, JOB_WAIT_MS);
   if (jr.applied) throw new RunEnd('already-applied');
-  if (jr.easyApply === null) throw new RunEnd('not-easy-apply');
+  // A page still missing its description is never judged on its button.
   if (jr.description === null) {
     throw safety('unexpected-page', 'no job description on the page');
   }
+  if (jr.easyApply === null) throw new RunEnd('not-easy-apply');
   run.job = {
     title: jr.title ?? '',
     company: jr.company ?? '',
