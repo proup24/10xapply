@@ -116,13 +116,6 @@
           "cwd": "apps/runner",
           "command": "tsx --conditions=@xapply/source src/main.ts pace compare"
         }
-      },
-      "tty-probe": {
-        "executor": "nx:run-commands",
-        "options": {
-          "cwd": "apps/runner",
-          "command": "tsx --conditions=@xapply/source src/tty-probe.ts"
-        }
       }
     }
   },
