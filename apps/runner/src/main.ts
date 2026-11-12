@@ -50,6 +50,16 @@ function stringFlag(argv: string[], flag: string): string | undefined {
   return v;
 }
 
+/** Flags are `--flag value`. A `--flag=value` form would be silently ignored, so it is refused. */
+function refuseEqualsForms(argv: string[]): void {
+  const bad = argv.find((a) => a.startsWith('--') && a.includes('='));
+  if (bad !== undefined) {
+    throw new ConfigError(
+      `flags take a space, not "=": write ${bad.split('=')[0]} <value> (see usage)`,
+    );
+  }
+}
+
 function setFlag(argv: string[]): 'example' | 'private' | undefined {
   const v = stringFlag(argv, '--set');
   if (v !== undefined && v !== 'example' && v !== 'private') {
@@ -82,7 +92,8 @@ export async function main(argv: string[]): Promise<number> {
     if (a === 'pace' && b === 'compare') return compareCommand();
     if (a === 'facts' && b === 'check')
       return factsCheckCommand({ path: argv[2] });
-    if (a === 'answers' && b === 'eval')
+    if (a === 'answers' && b === 'eval') {
+      refuseEqualsForms(argv);
       return await answersEvalCommand({
         set: setFlag(argv),
         answerModel: stringFlag(argv, '--answer-model'),
@@ -91,6 +102,7 @@ export async function main(argv: string[]): Promise<number> {
         repeat: intFlag(argv, '--repeat'),
         caseId: stringFlag(argv, '--case'),
       });
+    }
   } catch (e) {
     if (e instanceof ConfigError || e instanceof RelayPortInUseError) {
       console.error(redact(e.message));

@@ -46,6 +46,56 @@ const silentCaller: ModelCaller = {
   },
 };
 
+const VALUE_SECRET = 'Quxvalue';
+const FINDING_SECRET = 'Wibblefinding';
+const HIT_SECRET = 'Snarkclaim';
+
+/** Backs a composed answer carrying a secret, confirms every check, and has the judge quote secrets. */
+const composedCaller: ModelCaller = {
+  async call(req) {
+    const generated = {
+      outcome: 'answer',
+      reason: null,
+      value: `I led the ${VALUE_SECRET} work.`,
+      sources: [
+        {
+          kind: 'fact',
+          key: null,
+          text: `I am a ${SECRET} citizen.`,
+          id: null,
+          variant: null,
+          quote: null,
+        },
+      ],
+      derivation: 'composed',
+      inferences: [],
+      math: null,
+    };
+    const replies: unknown[] =
+      req.role === 'judge'
+        ? [{ unsupported: [FINDING_SECRET], mustNotClaimHits: [HIT_SECRET] }]
+        : [
+            { fits: true, why: '' },
+            { claims: [], storyDetailAdded: false },
+            generated,
+          ];
+    const reply = req.role === 'answer' ? generated : undefined;
+    const value =
+      reply ??
+      replies.map((r) => req.schema.safeParse(r)).find((r) => r.success)?.data;
+    return {
+      value: value as never,
+      stat: {
+        role: req.role,
+        model: req.model,
+        latencyMs: 1,
+        costUsd: null,
+        ok: true,
+      },
+    };
+  },
+};
+
 const unavailableCaller: ModelCaller = {
   async call() {
     throw new ModelUnavailableError('claude is not signed in');
@@ -181,6 +231,30 @@ describe('answersEvalCommand', () => {
     const full = join(paths.root, 'private/answers-eval');
     expect(files(full)).toEqual(['2026-11-12T10-20-30.000Z.json']);
     expect(readFileSync(join(full, files(full)[0]), 'utf8')).toContain(SECRET);
+  });
+
+  it('private set: a backed composed answer and the judge findings stay out of stdout and run-reports', async () => {
+    const paths = layout(`${BACKED}\n      mustNotClaim: [${HIT_SECRET}]`);
+    const { out } = await run(paths, {
+      set: 'private',
+      caller: composedCaller,
+      caseId: 'needs-model',
+    });
+    expect(out).toContain('needs-model');
+    expect(out).toContain('unsupported 1');
+    for (const secret of [VALUE_SECRET, FINDING_SECRET, HIT_SECRET]) {
+      expect(out).not.toContain(secret);
+    }
+    const dir = join(paths.root, 'run-reports/answers-eval');
+    const text = readFileSync(join(dir, files(dir)[0]), 'utf8');
+    const full = join(paths.root, 'private/answers-eval');
+    const fullText = readFileSync(join(full, files(full)[0]), 'utf8');
+    for (const secret of [VALUE_SECRET, FINDING_SECRET, HIT_SECRET]) {
+      expect(text).not.toContain(secret);
+    }
+    expect(fullText).toContain(VALUE_SECRET);
+    expect(fullText).toContain(FINDING_SECRET);
+    expect(fullText).toContain(HIT_SECRET);
   });
 
   it('prints a ModelUnavailableError message and returns 1', async () => {
