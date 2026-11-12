@@ -157,6 +157,43 @@ describe('checkCandidate: sources', () => {
       ),
     ).toEqual({ ok: true, value: 'I enjoy code review.' });
   });
+  it('needs every inference source to exist and be among the cited sources', () => {
+    const story: Source = { kind: 'story', id: 'missed-launch-date' };
+    const withInference = (source: Source, sources: Source[]) =>
+      check(
+        q({ type: 'textarea' }),
+        ans({
+          value: 'I own my deadlines.',
+          sources,
+          inferences: [{ claim: 'I own my deadlines', source }],
+        }),
+      );
+    expect(withInference(story, [authorFact, story])).toEqual({
+      ok: true,
+      value: 'I own my deadlines.',
+    });
+    expect(
+      withInference(
+        {
+          kind: 'fact',
+          text: ' I am currently a Backend Engineer at Example Ltd, employed full-time. ',
+        },
+        [authorFact],
+      ),
+    ).toEqual({ ok: true, value: 'I own my deadlines.' });
+    fails(withInference(story, [authorFact]), 'unknown source');
+    fails(
+      withInference({ kind: 'story', id: 'nope' }, [authorFact]),
+      'unknown source',
+    );
+    fails(
+      withInference({ kind: 'answer', id: 'contractor-rate', variant: 1 }, [
+        authorFact,
+        { kind: 'answer', id: 'contractor-rate', variant: 0 },
+      ]),
+      'unknown source',
+    );
+  });
 });
 
 describe('checkCandidate: choices', () => {
@@ -697,10 +734,11 @@ describe('checkCandidate: math', () => {
     fails(years('0', since(2021, 3), '2020-01-01'), 'math does not match');
   });
 
+  const hourly: Source = { kind: 'answer', id: 'contractor-rate', variant: 0 };
   const arith = (
     value: string,
     expression: string,
-    sources: Source[] = [salary, runDate],
+    sources: Source[] = [salary, hourly],
   ) =>
     check(
       number,
@@ -712,30 +750,65 @@ describe('checkCandidate: math', () => {
       }),
     );
   it('arithmetic passes when every number is allowed and the floored result matches', () => {
-    expect(arith('2', '5000 / 2026')).toEqual({ ok: true, value: '2' });
-    expect(arith('3', '(5000 + 2026) / 2026')).toEqual({
+    expect(arith('166', '5000 / 30')).toEqual({ ok: true, value: '166' });
+    expect(arith('167', '(5000 + 30) / 30')).toEqual({
       ok: true,
-      value: '3',
+      value: '167',
     });
   });
   it('arithmetic fails a wrong result, a number not in sources, or a bad expression', () => {
-    fails(arith('3', '5000 / 2026'), 'math does not match');
-    fails(arith('12', '5000 / 2026 * 6'), 'number not in sources');
+    fails(arith('167', '5000 / 30'), 'math does not match');
+    fails(arith('1000', '5000 / 30 * 6'), 'number not in sources');
     fails(arith('2', '5000 /'), 'math does not match');
     fails(arith('2', 'alert(1)'), 'math does not match');
     fails(arith('2', '5000 / 0'), 'math does not match');
   });
-  it('arithmetic needs a run-date source for run-date numbers', () => {
+  it('arithmetic never uses run-date numbers, even with a run-date source', () => {
     fails(arith('2', '5000 / 2026', [salary]), 'number not in sources');
+    fails(
+      arith('2', '5000 / 2026', [salary, runDate]),
+      'number not in sources',
+    );
+  });
+  it('arithmetic cannot stand in for years-since', () => {
+    // "since December 2021" on 2026-11-12 is 4 years; 2026 - 2021 would say 5.
+    const december = inlineFact(
+      'I have used Kubernetes in production since December 2021.',
+    );
+    fails(
+      checkCandidate(
+        number,
+        ans({
+          value: '5',
+          derivation: 'math',
+          sources: [december, runDate],
+          math: { kind: 'arithmetic', expression: '2026 - 2021' },
+        }),
+        withFacts(december.text),
+      ),
+      'number not in sources',
+    );
+    expect(
+      checkCandidate(
+        number,
+        ans({
+          value: '4',
+          derivation: 'math',
+          sources: [december, runDate],
+          math: since(2021, 12),
+        }),
+        withFacts(december.text),
+      ),
+    ).toEqual({ ok: true, value: '4' });
   });
   it('a math value must be a bare whole number', () => {
     const r = check(
       q({ type: 'text' }),
       ans({
-        value: '2 years',
+        value: '166 per hour',
         derivation: 'math',
-        sources: [salary, runDate],
-        math: { kind: 'arithmetic', expression: '5000 / 2026' },
+        sources: [salary, hourly],
+        math: { kind: 'arithmetic', expression: '5000 / 30' },
       }),
     );
     fails(r, 'math does not match');

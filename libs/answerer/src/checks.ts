@@ -43,6 +43,28 @@ function hasMonthYear(text: string, names: string, year: number): boolean {
   return new RegExp(String.raw`\b(?:${names})\b,?\s+${year}\b`, 'i').test(text);
 }
 
+/** Same source, compared by its identifying keys (fact text and quotes trimmed). */
+function sameSource(a: Source, b: Source): boolean {
+  switch (a.kind) {
+    case 'field':
+      return b.kind === 'field' && a.key === b.key;
+    case 'fact':
+      return b.kind === 'fact' && a.text.trim() === b.text.trim();
+    case 'answer':
+      return b.kind === 'answer' && a.id === b.id && a.variant === b.variant;
+    case 'story':
+      return b.kind === 'story' && a.id === b.id;
+    case 'job-post':
+      return (
+        b.kind === 'job-post' &&
+        a.quote.replace(/\s+/g, ' ').trim() ===
+          b.quote.replace(/\s+/g, ' ').trim()
+      );
+    case 'run-date':
+      return b.kind === 'run-date';
+  }
+}
+
 function checkMath(
   c: AnswerCandidate,
   authorTexts: string[],
@@ -159,6 +181,15 @@ export function checkCandidate(
     if (text === null) return fail('unknown source');
     texts.push(text);
   }
+  // Every inference rests on a source that exists and is cited.
+  for (const inference of c.inferences) {
+    if (
+      sourceText(inference.source, ctx) === null ||
+      !c.sources.some((s) => sameSource(s, inference.source))
+    ) {
+      return fail('unknown source');
+    }
+  }
   // A job post or the run date never backs a claim about the author.
   if (c.sources.every((s) => s.kind === 'job-post' || s.kind === 'run-date')) {
     return fail('no source about the author');
@@ -205,11 +236,9 @@ export function checkCandidate(
   );
   const allowed = new Set(free.flatMap(numbersIn));
   if (c.derivation === 'math') {
-    // Arithmetic may use the run date's numbers when a run-date source is cited.
+    // Arithmetic never uses the run date's numbers: a span of time up to now
+    // is years-since, which counts months correctly.
     const inExpression = new Set(allowed);
-    if (c.sources.some((s) => s.kind === 'run-date')) {
-      numbersIn(ctx.runDate).forEach((n) => inExpression.add(n));
-    }
     const authorTexts = c.sources.flatMap((s, i) =>
       s.kind === 'fact' || s.kind === 'answer' || s.kind === 'story'
         ? [texts[i]]

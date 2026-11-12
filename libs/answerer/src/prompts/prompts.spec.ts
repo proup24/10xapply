@@ -161,9 +161,13 @@ describe('system prompts', () => {
       'years-since',
       'Silence is not "No"',
       'maxLength',
+      'Never use arithmetic for years since a date; always use years-since.',
+      "The run date's numbers are never usable in arithmetic",
+      "Every inference's source must also be listed in sources",
     ]) {
       expect(GENERATOR_SYSTEM).toContain(s);
     }
+    expect(GENERATOR_SYSTEM).not.toContain('strong engineer');
   });
 });
 
@@ -340,12 +344,12 @@ describe('schemas', () => {
             kind: 'arithmetic',
             year: null,
             month: null,
-            expression: '2026 - 2021',
+            expression: '5000 / 30',
           },
         }),
       ),
     ).toMatchObject({
-      math: { kind: 'arithmetic', expression: '2026 - 2021' },
+      math: { kind: 'arithmetic', expression: '5000 / 30' },
     });
   });
 

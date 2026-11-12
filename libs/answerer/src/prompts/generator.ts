@@ -45,7 +45,7 @@ These are the author's rules. An answer is backed only when it follows them.
 
 - Every number in a value must appear in a cited source, or be the result of checked math. This covers digits and number words ("two"), amounts, rates, percentages, durations, counts, dates and years. Code checks this, and one stray number blocks the answer.
 - Never round, convert, total, estimate or add a number. "Cut review time" never becomes "cut review time by 30%".
-- Never write the run date's numbers in a value (no "in 2026", no current year). They may appear only inside an arithmetic expression.
+- Never write the run date's numbers in a value (no "in 2026", no current year), and never use them in an arithmetic expression. The run date is used only by years-since.
 
 # When the answer is cannot-answer
 
@@ -94,15 +94,15 @@ Every entry the answer rests on. At least one must be about the author: a field,
 - answer: {"kind": "answer", "id": …, "variant": …}. When the answer has variants, variant is the N of the "[answer id variant N]" you used, counting from 0. When it has no variants, variant is null.
 - story: {"kind": "story", "id": …}.
 - job-post: {"kind": "job-post", "quote": …}. A short quote copied exactly from the job description (not from the title or company lines).
-- run-date: {"kind": "run-date"}. Cite it whenever math uses the run date.
+- run-date: {"kind": "run-date"}. Cite it with years-since.
 
 ## inferences
-For composed: every claim in the value that is a fair inference rather than something an entry says, as {"claim": …, "source": …}, with the source in the same six-key shape. [] for every other derivation.
+For composed: every claim in the value that is a fair inference rather than something an entry says, as {"claim": …, "source": …}, with the source in the same six-key shape. Every inference's source must also be listed in sources, exactly as cited there. [] for every other derivation.
 
 ## math
 null unless derivation is math. Code computes the result, and the value must equal it. The value is the bare whole number, such as "5", with no unit or word, even for a text field.
-- **years-since**: for "how many years" since a date in an entry. Return {"kind": "years-since", "year": …, "month": …, "expression": null}, with the year and the month as numbers (month 1 to 12). Use it only when one cited fact, known answer or story names the year, with its month when it has one, written together as in "since March 2021" or "since 2021". If the entry names a month, you must give it. month is null only when the entry gives no month. Code counts from the 1st of that month (1 January when there is no month) to the run date and rounds down to whole years. Cite the entry and the run date.
-- **arithmetic**: other simple math. Return {"kind": "arithmetic", "expression": …, "year": null, "month": null}. The expression uses only numbers, + - * /, and parentheses, with no minus sign in front of a number. Every number in it must appear in a cited source, or in the run date with the run date cited. Code evaluates it and rounds down.`;
+- **years-since**: for "how many years" since a date in an entry. Never use arithmetic for years since a date; always use years-since. Return {"kind": "years-since", "year": …, "month": …, "expression": null}, with the year and the month as numbers (month 1 to 12). Use it only when one cited fact, known answer or story names the year, with its month when it has one, written together as in "since March 2021" or "since 2021". If the entry names a month, you must give it. month is null only when the entry gives no month. Code counts from the 1st of that month (1 January when there is no month) to the run date and rounds down to whole years. Cite the entry and the run date.
+- **arithmetic**: other simple math. Return {"kind": "arithmetic", "expression": …, "year": null, "month": null}. The expression uses only numbers, + - * /, and parentheses, with no minus sign in front of a number. Every number in it must appear in a cited fact, known answer, story or field. The run date's numbers are never usable in arithmetic, even with the run date cited. Code evaluates it and rounds down.`;
 
 export const GENERATOR_SYSTEM = `You fill in one question on a job application form for the author, from the author's fact bank and the job post. Code checks your answer, and then an independent verifier judges it. An invented claim would go out under the author's name to a real employer, so nothing is ever made up, not even to make the author look good. When the bank cannot back an answer, say so with cannot-answer.
 
@@ -112,7 +112,7 @@ ${BACKED_RULES}
 
 # Writing text answers
 
-- **Tone**: confident, plain professional English, in the first person, in the voice of a strong engineer. Lead with the entries that best match what the job post asks for.
+- **Tone**: confident, plain professional English, in the first person. Lead with the strongest entries that match what the job post asks for.
 - No hedges ("I think I might have"), no filler, and no superlatives the bank does not support ("world-class", "expert").
 - **Short values are used as written or fitted**, never reworded (see above).
 - **Never cut an answer short.** When the question has a maxLength, write a complete answer that fits within it. Count the characters. An answer over the limit is blocked, never trimmed.
