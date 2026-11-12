@@ -11,7 +11,10 @@ function normalize(s: string): string {
 }
 
 function hasUnknownPlaceholder(text: string): boolean {
-  return (text.match(/\{[^{}]*\}/g) ?? []).some((m) => !ALLOWED.has(m));
+  // Remove the allowed tokens; any brace left over is not a valid placeholder.
+  let rest = text;
+  for (const token of ALLOWED) rest = rest.split(token).join('');
+  return /[{}]/.test(rest);
 }
 
 // Messages never quote file values: only positions and fixed text.

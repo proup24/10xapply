@@ -54,7 +54,14 @@ describe('crossEntryProblems', () => {
       );
     expect(bad('{source}')).toEqual([]);
     expect(bad('{company} {jobTitle}')).toEqual([]);
-    for (const a of ['{ source }', '{Source}']) {
+    expect(bad('{company} via {source}')).toEqual([]);
+    for (const a of [
+      '{ source }',
+      '{Source}',
+      '{{source}}',
+      '{x {source}',
+      'oops }',
+    ]) {
       expect(bad(a)).toEqual([
         {
           where: 'answers[0] (id: notice-period).answer',
