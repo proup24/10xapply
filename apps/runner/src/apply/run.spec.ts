@@ -12,7 +12,12 @@ import {
 import type { FactBank } from '@xapply/fact-bank';
 import { parsePage, type Document } from '../linkedin/dom.js';
 import { readStep } from '../linkedin/form-step.js';
-import { DISMISS, EASY_APPLY, FORM_DIALOG } from '../linkedin/selectors.js';
+import {
+  DISMISS,
+  EASY_APPLY,
+  FORM_DIALOG,
+  SAVE_PROMPT_DIALOG,
+} from '../linkedin/selectors.js';
 import { ConfigError } from '../config.js';
 import type { Pace } from '../pace/pace.js';
 import type { TerminalIO } from '../terminal/author-mode.js';
@@ -32,6 +37,11 @@ const LOCATION = fixture('step-questions-location.html');
 const REVIEW = fixture('review.html');
 const ONE_PAGE = fixture('review-one-page.html');
 const SAVE_PROMPT = fixture('review-save-prompt.html');
+/** A contact step with the save prompt open over it, after a backdrop click. */
+const BACKDROP_PROMPT = fixture('review-backdrop-prompt.html');
+/** That prompt's Discard button (review-backdrop-prompt.html). */
+const BACKDROP_DISCARD =
+  'button[componentkey="b5c808de-27d8-46a8-88e2-a0d7ced09d23"]';
 /** The save prompt's Discard button (review-save-prompt.html). */
 const DISCARD = 'button[componentkey="0b8ffbda-ce8d-4452-bf6a-5d96b318ac9e"]';
 const JOB_PATH = '/jobs/view/123/';
@@ -74,6 +84,8 @@ interface Call {
 
 /** Every acted-on selector whose element reads as Submit, in this test. */
 const submitHits: string[] = [];
+/** Every acted-on selector whose element is a "Save" button, in this test. */
+const saveHits: string[] = [];
 
 const SUBMIT = /submit/i;
 function checkNotSubmit(html: string, sel: string) {
@@ -81,6 +93,7 @@ function checkNotSubmit(html: string, sel: string) {
     const text = el.textContent ?? '';
     const label = el.getAttribute('aria-label') ?? '';
     if (SUBMIT.test(text) || SUBMIT.test(label)) submitHits.push(sel);
+    if (text.trim() === 'Save') saveHits.push(sel);
   }
 }
 
@@ -379,6 +392,8 @@ describe('runApply', () => {
   afterEach(() => {
     const hits = submitHits.splice(0);
     expect(hits).toEqual([]);
+    // Nor ever the save prompt's Save.
+    expect(saveHits.splice(0)).toEqual([]);
   });
 
   it('reaches review and never clicks a submit selector', async () => {
@@ -419,11 +434,11 @@ describe('runApply', () => {
     const acts = h.calls.filter((c) =>
       ['click', 'type', 'clear', 'glance', 'pick', 'upload'].includes(c.op),
     );
-    // The job page's Easy Apply and the save prompt's Discard get no box.
+    // The job page's Easy Apply gets no box; Discard gets the prompt's own.
     const outside = [EASY_APPLY, DISCARD];
     expect(acts.filter((c) => outside.includes(c.sel))).toEqual([
       { op: 'click', sel: EASY_APPLY },
-      { op: 'click', sel: DISCARD },
+      { op: 'click', sel: DISCARD, within: SAVE_PROMPT_DIALOG },
     ]);
     const inForm = acts.filter((c) => !outside.includes(c.sel));
     // Fills, every Next and Review, and the close-out's Dismiss.
@@ -447,6 +462,38 @@ describe('runApply', () => {
       sel: '#next',
       within: FORM_DIALOG,
     });
+  });
+
+  it('the normal close-out clicks the form Dismiss in the form, then Discard in the prompt', async () => {
+    const h = harness({ screens: fullFlow() });
+    await runApply('123', h.deps);
+    const clicks = h.calls.filter((c) => c.op === 'click');
+    expect(clicks.slice(-2)).toEqual([
+      { op: 'click', sel: DISMISS, within: FORM_DIALOG },
+      { op: 'click', sel: DISCARD, within: SAVE_PROMPT_DIALOG },
+    ]);
+    expect(h.closed()).toBe(true);
+  });
+
+  it('a stop with the save prompt already open clicks Discard and never Dismiss', async () => {
+    const h = harness({
+      screens: {
+        job: { html: JOB, on: { [EASY_APPLY]: 'backdrop' } },
+        // Next on this page leaves it as it is: the step does not change.
+        backdrop: { html: BACKDROP_PROMPT, on: { [BACKDROP_DISCARD]: 'gone' } },
+        gone: { html: JOB },
+      },
+    });
+    const run = await runApply('123', h.deps);
+    expect(run.outcome).toBe('safety-stop');
+    const clicks = h.calls.filter((c) => c.op === 'click');
+    expect(clicks.map((c) => c.sel)).not.toContain(DISMISS);
+    expect(clicks.at(-1)).toEqual({
+      op: 'click',
+      sel: BACKDROP_DISCARD,
+      within: SAVE_PROMPT_DIALOG,
+    });
+    expect(h.closed()).toBe(true);
   });
 
   it('a rejected review prompt still dismisses, discards and closes', async () => {

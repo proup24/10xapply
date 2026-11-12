@@ -72,6 +72,15 @@ export const DISMISS = `${FORM_DIALOG} button[aria-label="Dismiss"]`;
  * Discard is found by its text (review-save-prompt.html).
  */
 export const SAVE_PROMPT_TITLE = 'Save this application?';
+/**
+ * The save prompt's own `<dialog>`: the open dialog that is not the form's
+ * (review-save-prompt.html, review-backdrop-prompt.html). It has the same
+ * class and data-testid as the form and no label, so it is told apart by
+ * lacking the form's `aria-labelledby`. Readers hand it out only when it
+ * matches exactly one dialog and that dialog holds the prompt's title.
+ */
+export const SAVE_PROMPT_DIALOG =
+  'dialog[data-testid="dialog"]:not([aria-labelledby="dialog-header"])';
 export const DISCARD_TEXT = 'Discard';
 
 /** `[attr="value"]` with the value quoted for CSS. */
