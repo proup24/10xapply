@@ -254,9 +254,6 @@ importers:
 
   libs/fact-bank:
     dependencies:
-      tslib:
-        specifier: ^2.3.0
-        version: 2.9.1
       yaml:
         specifier: ^2.9.0
         version: 2.9.0
