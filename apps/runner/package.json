@@ -9,94 +9,91 @@
         "executor": "nx:run-commands",
         "options": {
           "cwd": "apps/runner",
-          "command": "tsx src/main.ts session"
+          "command": "tsx --conditions=@xapply/source src/main.ts session"
         }
       },
       "bot-check": {
         "executor": "nx:run-commands",
         "options": {
           "cwd": "apps/runner",
-          "command": "tsx src/main.ts bot-check"
+          "command": "tsx --conditions=@xapply/source src/main.ts bot-check"
         }
       },
       "bot-check-repeat": {
         "executor": "nx:run-commands",
         "options": {
           "cwd": "apps/runner",
-          "command": "tsx src/main.ts bot-check --repeat 3 --record"
+          "command": "tsx --conditions=@xapply/source src/main.ts bot-check --repeat 3 --record"
         }
       },
       "bridge-install": {
         "executor": "nx:run-commands",
         "options": {
           "cwd": "apps/runner",
-          "command": "tsx src/main.ts bridge install"
+          "command": "tsx --conditions=@xapply/source src/main.ts bridge install"
         }
       },
       "bridge-check": {
         "executor": "nx:run-commands",
         "options": {
           "cwd": "apps/runner",
-          "command": "tsx src/main.ts bridge check"
+          "command": "tsx --conditions=@xapply/source src/main.ts bridge check"
         }
       },
       "bridge-check-crash": {
         "executor": "nx:run-commands",
         "options": {
           "cwd": "apps/runner",
-          "command": "tsx src/main.ts bridge check --crash"
+          "command": "tsx --conditions=@xapply/source src/main.ts bridge check --crash"
         }
       },
       "pace-record": {
         "executor": "nx:run-commands",
         "options": {
           "cwd": "apps/runner",
-          "command": "tsx src/main.ts pace record"
+          "command": "tsx --conditions=@xapply/source src/main.ts pace record"
         }
       },
       "pace-record-typing": {
         "executor": "nx:run-commands",
         "options": {
           "cwd": "apps/runner",
-          "command": "tsx src/main.ts pace record --typing"
+          "command": "tsx --conditions=@xapply/source src/main.ts pace record --typing"
         }
       },
       "pace-practice": {
         "executor": "nx:run-commands",
         "options": {
           "cwd": "apps/runner",
-          "command": "tsx src/main.ts pace practice --runs 5 --record"
+          "command": "tsx --conditions=@xapply/source src/main.ts pace practice --runs 5 --record"
         }
       },
       "pace-build": {
         "executor": "nx:run-commands",
         "options": {
           "cwd": "apps/runner",
-          "command": "tsx src/main.ts pace build"
+          "command": "tsx --conditions=@xapply/source src/main.ts pace build"
         }
       },
       "pace-summary": {
         "executor": "nx:run-commands",
         "options": {
           "cwd": "apps/runner",
-          "command": "tsx src/main.ts pace summary"
+          "command": "tsx --conditions=@xapply/source src/main.ts pace summary"
         }
       },
       "facts-check": {
         "executor": "nx:run-commands",
-        "dependsOn": [
-          "^build"
-        ],
         "options": {
           "cwd": "apps/runner",
-          "command": "tsx src/main.ts facts check"
+          "command": "tsx --conditions=@xapply/source src/main.ts facts check"
         }
       },
       "pace-compare": {
         "executor": "nx:run-commands",
         "options": {
           "cwd": "apps/runner",
-          "command": "tsx src/main.ts pace compare"
+          "command": "tsx --conditions=@xapply/source src/main.ts pace compare"
         }
       }
     }
