@@ -6,7 +6,12 @@ import { FactBankError, type FactBank } from '@xapply/fact-bank';
 import type { Bridge } from '../bridge/bridge.js';
 import { INTERRUPTED } from '../apply/run.js';
 import type { ApplyDeps, ApplyRun } from '../apply/types.js';
-import { applyCommand, type ApplyCommandDeps } from './apply.js';
+import type { Page } from 'patchright-core';
+import {
+  adaptApplyPage,
+  applyCommand,
+  type ApplyCommandDeps,
+} from './apply.js';
 
 const URL_OK = 'https://www.linkedin.com/jobs/view/4242/';
 const MARKERS = [
@@ -268,5 +273,126 @@ describe('applyCommand', () => {
     expect(g.id).toBe('4242');
     expect(g.deps.io).toBeNull();
     expect(g.deps.resume.fileName).toBe('resume.pdf');
+  });
+});
+
+describe('adaptApplyPage suggestion', () => {
+  const LIST = '[id="lb"]';
+  const OPTS = `${LIST} [role="option"]`;
+
+  interface Opt {
+    id: string | null;
+    text: string;
+  }
+
+  /** A fake Patchright page over a typeahead list; `afterTextRead` can reorder it. */
+  function fakePage(
+    opts: Opt[],
+    afterTextRead: (i: number, list: Opt[]) => void = () => undefined,
+  ): { page: Page; reads: string[] } {
+    const reads: string[] = [];
+    const page = {
+      locator: (sel: string) => {
+        reads.push(sel);
+        if (sel === OPTS) {
+          return {
+            count: async () => opts.length,
+            nth: (i: number) => ({
+              textContent: async () => {
+                const t = opts[i]?.text ?? null;
+                afterTextRead(i, opts);
+                return t;
+              },
+              getAttribute: async () => opts[i]?.id ?? null,
+            }),
+          };
+        }
+        const m = /^\[id="lb"\] \[id="(.+)"\]$/.exec(sel);
+        if (m) {
+          return {
+            textContent: async () =>
+              opts.find((o) => o.id === m[1]?.replace(/\\(.)/g, '$1'))?.text ??
+              null,
+          };
+        }
+        throw new Error(`unexpected selector ${sel}`);
+      },
+    };
+    return { page: page as unknown as Page, reads };
+  }
+
+  const bridge = { pageHtml: async () => '' };
+  const noWait = async () => undefined;
+
+  it('anchors on the matched text, not an index, when options have no id', async () => {
+    const opts: Opt[] = [
+      { id: null, text: 'Paris' },
+      { id: null, text: ' London ' },
+    ];
+    let swapped = false;
+    const { page } = fakePage(opts, (i, list) => {
+      // The list reorders right after the match is read.
+      if (i === 1 && !swapped) {
+        swapped = true;
+        list.reverse();
+      }
+    });
+    const sel = await adaptApplyPage(page, bridge, noWait).suggestion(
+      LIST,
+      'london',
+    );
+    expect(sel).toBe(`${LIST} [role="option"]:text-is("London")`);
+    expect(sel).not.toContain('nth');
+  });
+
+  it('keeps an id only if its text still matches after a reorder', async () => {
+    const opts: Opt[] = [
+      { id: 'o1', text: 'Paris' },
+      { id: 'o2', text: 'London' },
+    ];
+    let swapped = false;
+    const { page } = fakePage(opts, (i, list) => {
+      if (i === 1 && !swapped) {
+        swapped = true;
+        list.reverse(); // nth(1) is now Paris, o1
+      }
+    });
+    const sel = await adaptApplyPage(page, bridge, noWait).suggestion(
+      LIST,
+      'London',
+    );
+    // The id read after the reorder is o1 (Paris): rejected for the text.
+    expect(sel).toBe(`${LIST} [role="option"]:text-is("London")`);
+  });
+
+  it('uses a stable id whose text still matches', async () => {
+    const { page } = fakePage([
+      { id: 'o1', text: 'Paris' },
+      { id: 'o"2', text: 'London' },
+    ]);
+    const sel = await adaptApplyPage(page, bridge, noWait).suggestion(
+      LIST,
+      'london',
+    );
+    expect(sel).toBe(`${LIST} [id="o\\"2"]`);
+  });
+
+  it('returns null when nothing matches within the wait', async () => {
+    let waits = 0;
+    const { page } = fakePage([{ id: null, text: 'Paris' }]);
+    const sel = await adaptApplyPage(page, bridge, async () => {
+      waits++;
+    }).suggestion(LIST, 'London');
+    expect(sel).toBeNull();
+    expect(waits).toBe(20);
+  });
+
+  it('escapes quotes and backslashes in the anchored text', async () => {
+    const { page } = fakePage([{ id: null, text: 'A "B" \\ C' }]);
+    const sel = await adaptApplyPage(page, bridge, noWait).suggestion(
+      LIST,
+      'a "b" \\ c',
+    );
+    expect(sel).toBe(`${LIST} [role="option"]:text-is("A \\"B\\" \\\\ C")`);
   });
 });

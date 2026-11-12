@@ -82,8 +82,14 @@ const calls = [
   },
 ];
 
+/** The value, or a thrown error naming what was missing: no `!`. */
+function must<T>(v: T | null | undefined): T {
+  if (v === null || v === undefined) throw new Error('expected a value');
+  return v;
+}
+
 function makeRun(bank: FactBank): ApplyRun {
-  const fact = bank.facts[0]!.text;
+  const fact = must(bank.facts[0]).text;
   const backed: AnswerResult = {
     questionId: 's1-q1',
     required: true,
@@ -236,7 +242,7 @@ describe('apply reports', () => {
       step: 2,
       pathPrefix: '/jobs/',
     });
-    expect(redacted.questions[0]!.result?.sources).toHaveLength(6);
+    expect(must(redacted.questions[0]).result?.sources).toHaveLength(6);
     expect(summary).toContain('safety-stop');
     expect(summary).toContain('error');
   });
@@ -249,20 +255,20 @@ describe('apply reports', () => {
       expect(md).toContain(q.question.label);
       for (const o of q.question.options ?? []) expect(md).toContain(o);
     }
-    expect(md).toContain(bank.facts[0]!.text);
+    expect(md).toContain(must(bank.facts[0]).text);
     expect(md).toContain(bank.fields.email);
-    expect(md).toContain(bank.answers[1]!.variants![0]!.answer);
-    expect(md).toContain(bank.stories[0]!.story);
+    expect(md).toContain(must(must(must(bank.answers[1]).variants)[0]).answer);
+    expect(md).toContain(must(bank.stories[0]).story);
     expect(md).toContain('saved-id');
     expect(md).toContain('no-option');
-    const first = run.questions[0]!.result as Extract<
+    const first = must(run.questions[0]).result as Extract<
       AnswerResult,
       { status: 'backed' }
     >;
-    expect(md).toContain(first.inferences[0]!.claim);
-    expect(md).toContain(run.stop!.error!);
-    expect(md).toContain(run.stop!.pageErrors![0]!);
-    expect(md).toContain(run.job!.title);
+    expect(md).toContain(must(first.inferences[0]).claim);
+    expect(md).toContain(must(must(run.stop).error));
+    expect(md).toContain(must(must(must(run.stop).pageErrors)[0]));
+    expect(md).toContain(must(run.job).title);
   });
 
   it('writes three files to the given dirs', () => {

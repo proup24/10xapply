@@ -221,10 +221,15 @@ async function closeOut(w: Walk, formOpen: boolean): Promise<void> {
     run.stop?.kind === 'bridge' && run.stop.detail !== INTERRUPTED;
   try {
     if (formOpen && !bridgeStop) {
-      if (deps.io && run.outcome === 'reached-review') {
-        await deps.io.ask(REVIEW_PROMPT);
-      } else if (deps.io && run.outcome === 'safety-stop') {
-        await deps.io.ask(STOP_PROMPT);
+      // Ctrl+C or end of input at the Enter still dismisses and discards.
+      try {
+        if (deps.io && run.outcome === 'reached-review') {
+          await deps.io.ask(REVIEW_PROMPT);
+        } else if (deps.io && run.outcome === 'safety-stop') {
+          await deps.io.ask(STOP_PROMPT);
+        }
+      } catch {
+        // Carry on to Dismiss and Discard.
       }
       await dismissAndDiscard(w, bridgeGone);
     }

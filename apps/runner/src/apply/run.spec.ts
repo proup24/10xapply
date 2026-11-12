@@ -11,7 +11,7 @@ import { DISMISS, EASY_APPLY } from '../linkedin/selectors.js';
 import { ConfigError } from '../config.js';
 import type { Pace } from '../pace/pace.js';
 import type { TerminalIO } from '../terminal/author-mode.js';
-import { guardNext, runApply } from './run.js';
+import { REVIEW_PROMPT, guardNext, runApply } from './run.js';
 import type { ApplyDeps, ApplyPage, ApplyRun } from './types.js';
 
 const FIXTURES = join(dirname(fileURLToPath(import.meta.url)), 'fixtures');
@@ -103,6 +103,8 @@ interface Setup {
   stopWhen?: (calls: Call[]) => string | null;
   saveId?: string;
   openFails?: boolean;
+  /** `ask` rejects on this prompt (Ctrl+C or end of input). */
+  rejectAsk?: string;
 }
 
 type Reply = AnswerValue | { blocked: true };
@@ -215,6 +217,7 @@ function harness(s: Setup): Harness {
         print: (line) => void printed.push(line),
         ask: async (prompt) => {
           asked.push(prompt);
+          if (prompt === s.rejectAsk) throw new Error('input closed');
           return replies.shift() ?? '';
         },
       }
@@ -377,6 +380,22 @@ describe('runApply', () => {
     expect(run.timings.perStepMs).toHaveLength(3);
     expect(run.timings.totalMs).toBeGreaterThan(0);
     expect(run.startedAt).toMatch(/^\d{4}-\d\d-\d\dT/);
+  });
+
+  it('a rejected review prompt still dismisses, discards and closes', async () => {
+    const h = harness({
+      screens: fullFlow(),
+      author: [],
+      rejectAsk: REVIEW_PROMPT,
+    });
+    const run = await runApply('123', h.deps);
+    expect(run.outcome).toBe('reached-review');
+    expect(h.asked).toEqual([REVIEW_PROMPT]);
+    expect(h.acts().slice(-2)).toEqual([
+      `click ${DISMISS}`,
+      `click ${DISCARD}`,
+    ]);
+    expect(h.closed()).toBe(true);
   });
 
   it('numbers questions s1-q1…', async () => {

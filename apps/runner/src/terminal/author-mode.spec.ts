@@ -31,4 +31,25 @@ describe('nodeTerminal', () => {
     input.end();
     await expect(p).rejects.toBeInstanceOf(InputClosedError);
   });
+
+  it('Ctrl+C at a prompt reaches the process as SIGINT and ask rejects', async () => {
+    const input = new PassThrough();
+    // A TTY-like output puts readline in terminal mode, where \x03 is Ctrl+C.
+    const output = Object.assign(new PassThrough(), {
+      isTTY: true,
+      columns: 80,
+    });
+    const got: string[] = [];
+    const onSigint = (sig: string) => void got.push(sig);
+    process.on('SIGINT', onSigint);
+    try {
+      const io = nodeTerminal({ input, output });
+      const p = io.ask('? ');
+      input.write('\x03');
+      await expect(p).rejects.toBeInstanceOf(InputClosedError);
+      expect(got).toEqual(['SIGINT']);
+    } finally {
+      process.off('SIGINT', onSigint);
+    }
+  });
 });

@@ -323,7 +323,12 @@ describe('readStep type mapping', () => {
       ]),
     ).toEqual([
       ['Relocate?', ['Yes', 'No'], ['#a1', '#a2'], '#g1'],
-      ['Remote?', ['Never', 'Sometimes', 'Always'], ['#b1', '#b2', '#b3'], '#g2'],
+      [
+        'Remote?',
+        ['Never', 'Sometimes', 'Always'],
+        ['#b1', '#b2', '#b3'],
+        '#g2',
+      ],
     ]);
   });
 
@@ -348,7 +353,9 @@ describe('readStep type mapping', () => {
       ),
     );
     expect(r.fields).toEqual([]);
-    expect(r.unknown).toEqual([{ tag: 'input', role: null, inputType: 'radio' }]);
+    expect(r.unknown).toEqual([
+      { tag: 'input', role: null, inputType: 'radio' },
+    ]);
   });
 
   it('a fieldset of several checkboxes is checkbox-group', () => {
@@ -424,9 +431,14 @@ describe('readStep type mapping', () => {
         ),
       ),
     );
-    const resume = r.kind === 'step' ? r.fields.find((f) => f.question.label === 'Resume') : undefined;
+    const resume =
+      r.kind === 'step'
+        ? r.fields.find((f) => f.question.label === 'Resume')
+        : undefined;
     expect(resume?.selector).not.toBe('button[componentkey="up-2"]');
-    expect(r.kind === 'step' && r.fields.some((f) => f.selector === '#cl')).toBe(true);
+    expect(
+      r.kind === 'step' && r.fields.some((f) => f.selector === '#cl'),
+    ).toBe(true);
   });
 
   it('sends a control whose only selector is ambiguous to unknown', () => {
@@ -438,7 +450,11 @@ describe('readStep type mapping', () => {
       ),
     );
     expect(r.fields).toEqual([]);
-    expect(r.unknown.map((u) => u.inputType)).toEqual(['text', 'text', 'radio']);
+    expect(r.unknown.map((u) => u.inputType)).toEqual([
+      'text',
+      'text',
+      'radio',
+    ]);
   });
 
   it('an input[type=range] is unknown', () => {

@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs';
 import { setTimeout as sleep } from 'node:timers/promises';
-import type { Page } from 'patchright-core';
+import type { Locator, Page } from 'patchright-core';
 import {
   answerQuestion,
   createClaudeCliCaller,
@@ -122,6 +122,37 @@ export function adaptApplyPage(
   wait: (ms: number) => Promise<void> = (ms) => sleep(ms),
 ): ApplyPage {
   const optionsOf = (list: string) => page.locator(`${list} [role="option"]`);
+  const textAt = async (sel: Locator): Promise<string> =>
+    clean((await sel.textContent({ timeout: READ_TIMEOUT_MS })) ?? '');
+
+  /**
+   * The selector of the option reading `want` (cleaned, any case), or
+   * null. It is anchored on that text, never on a position, so a list that
+   * reorders meanwhile still gets the right option clicked. An option's id
+   * is used only if the element it names still reads `want` when re-read.
+   */
+  const matchingOption = async (
+    list: string,
+    want: string,
+  ): Promise<string | null> => {
+    const options = optionsOf(list);
+    const n = await options.count();
+    for (let k = 0; k < n; k++) {
+      const text = await textAt(options.nth(k));
+      if (text.toLowerCase() !== want) continue;
+      const id = await options
+        .nth(k)
+        .getAttribute('id', { timeout: READ_TIMEOUT_MS });
+      if (id) {
+        const byId = `${list} [id=${quoted(id)}]`;
+        if ((await textAt(page.locator(byId))).toLowerCase() === want) {
+          return byId;
+        }
+      }
+      return `${list} [role="option"]:text-is(${quoted(text)})`;
+    }
+    return null;
+  };
   return {
     goto: async (url) => {
       await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30_000 });
@@ -144,16 +175,8 @@ export function adaptApplyPage(
       const want = clean(text).toLowerCase();
       const tries = Math.ceil(SUGGESTION_WAIT_MS / SUGGESTION_POLL_MS);
       for (let i = 0; i <= tries; i++) {
-        const texts = await optionsOf(list).allTextContents();
-        const k = texts.findIndex((t) => clean(t).toLowerCase() === want);
-        if (k >= 0) {
-          const id = await optionsOf(list)
-            .nth(k)
-            .getAttribute('id', { timeout: READ_TIMEOUT_MS });
-          return id
-            ? `${list} [id=${quoted(id)}]`
-            : `${list} [role="option"] >> nth=${k}`;
-        }
+        const found = await matchingOption(list, want);
+        if (found !== null) return found;
         if (i < tries) await wait(SUGGESTION_POLL_MS);
       }
       return null;
