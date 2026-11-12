@@ -76,7 +76,11 @@ const composedCaller: ModelCaller = {
         ? [{ unsupported: [FINDING_SECRET], mustNotClaimHits: [HIT_SECRET] }]
         : [
             { fits: true, why: '' },
-            { claims: [], storyDetailAdded: false },
+            {
+              // A non-empty answer needs at least one claim to be confirmed.
+              claims: [{ claim: 'A claim.', mark: 'backed', source: 'fact' }],
+              storyDetailAdded: false,
+            },
             generated,
           ];
     const reply = req.role === 'answer' ? generated : undefined;
