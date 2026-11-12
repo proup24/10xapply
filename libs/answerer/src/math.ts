@@ -167,16 +167,26 @@ export function evaluate(expression: string): number {
 /** The numeric literals in an expression, in order. Throws MathError if it is not valid. */
 export function expressionNumbers(expression: string): number[] {
   evaluate(expression);
-  return tokenize(expression).flatMap((t) => (t.kind === 'num' ? [t.value] : []));
+  return tokenize(expression).flatMap((t) =>
+    t.kind === 'num' ? [t.value] : [],
+  );
 }
 
 /** Whole years from the 1st of `month` (or 1 January) of `year` to `runDate` (YYYY-MM-DD), rounded down. */
-export function yearsSince(spec: { year: number; month?: number }, runDate: string): number {
+export function yearsSince(
+  spec: { year: number; month?: number },
+  runDate: string,
+): number {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(runDate);
   if (!m) throw new MathError('invalid run date');
   const [runYear, runMonth] = [Number(m[1]), Number(m[2])];
   const month = spec.month ?? 1;
-  if (!Number.isInteger(spec.year) || !Number.isInteger(month) || month < 1 || month > 12) {
+  if (
+    !Number.isInteger(spec.year) ||
+    !Number.isInteger(month) ||
+    month < 1 ||
+    month > 12
+  ) {
     throw new MathError('invalid start date');
   }
   if (spec.year > runYear || (spec.year === runYear && month > runMonth)) {

@@ -1,9 +1,18 @@
 import { describe, expect, it } from 'vitest';
-import { evaluate, expressionNumbers, MathError, MONTHS, numbersIn, yearsSince } from './math.js';
+import {
+  evaluate,
+  expressionNumbers,
+  MathError,
+  MONTHS,
+  numbersIn,
+  yearsSince,
+} from './math.js';
 
 describe('numbersIn', () => {
   it('reads plain numbers', () => {
-    expect(numbersIn('5000 USD per month, 30 USD per hour')).toEqual([5000, 30]);
+    expect(numbersIn('5000 USD per month, 30 USD per hour')).toEqual([
+      5000, 30,
+    ]);
   });
   it('reads commas, decimals and percentages', () => {
     expect(numbersIn('5,000 and 2.5 and 30%')).toEqual([5000, 2.5, 30]);
@@ -29,7 +38,16 @@ describe('evaluate', () => {
     expect(evaluate('1.5 * 2')).toBe(3);
   });
   it('rejects anything else', () => {
-    for (const bad of ['process.exit()', '2 ** 3', '', '1 +', '(1', '1 / 0', '-1', '1 2']) {
+    for (const bad of [
+      'process.exit()',
+      '2 ** 3',
+      '',
+      '1 +',
+      '(1',
+      '1 / 0',
+      '-1',
+      '1 2',
+    ]) {
       expect(() => evaluate(bad)).toThrow(MathError);
     }
   });
@@ -55,7 +73,9 @@ describe('yearsSince', () => {
     expect(yearsSince({ year: 2021, month: 12 }, '2026-11-12')).toBe(4);
     expect(yearsSince({ year: 2021, month: 11 }, '2026-11-12')).toBe(5);
     expect(() => yearsSince({ year: 2027 }, '2026-11-12')).toThrow(MathError);
-    expect(() => yearsSince({ year: 2021, month: 13 }, '2026-11-12')).toThrow(MathError);
+    expect(() => yearsSince({ year: 2021, month: 13 }, '2026-11-12')).toThrow(
+      MathError,
+    );
     expect(() => yearsSince({ year: 2021 }, 'tomorrow')).toThrow(MathError);
   });
 });
