@@ -18,7 +18,7 @@ export function matchOption(value: string, options: string[]): string | null {
 
 const squash = (s: string): string => s.replace(/\s+/g, ' ').trim();
 
-function fieldValue(
+export function fieldValue(
   key: Extract<Source, { kind: 'field' }>['key'],
   bank: SourceContext['bank'],
 ): string | null {
