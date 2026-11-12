@@ -203,6 +203,30 @@ describe('fillField', () => {
     expect(result).toEqual({ ok: true, changedFromLinkedIn: false });
   });
 
+  it('a short number that differs only by punctuation is not the same', async () => {
+    const a = await run(field('number'), '1.5', { values: { '#f': '15' } });
+    expect(a.calls).toEqual(['clear #f', 'type #f 1.5']);
+    expect(a.result).toEqual({ ok: true, changedFromLinkedIn: true });
+    const b = await run(field('text'), '3-5', { values: { '#f': '35' } });
+    expect(b.calls).toEqual(['clear #f', 'type #f 3-5']);
+    const state: PageState = { values: {} };
+    const calls: string[] = [];
+    const pace = fakePace(calls, state);
+    const dropDot: Pace = {
+      ...pace,
+      type: async (f) => {
+        calls.push(`type ${selOf(f)}`);
+        state.values = { ...state.values, '#f': '15' };
+      },
+    };
+    const c = await fillField(field('text'), '1.5', {
+      pace: dropDot,
+      page: fakePage(state),
+      resume,
+    });
+    expect(c).toEqual({ ok: false, reason: 'not-taken' });
+  });
+
   it('a phone the field reformats after typing is taken', async () => {
     const state: PageState = { values: {} };
     const calls: string[] = [];

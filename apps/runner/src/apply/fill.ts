@@ -70,13 +70,15 @@ async function typeAndCheck(
 const PHONE_LIKE = /^[\d\s().+-]+$/;
 
 /**
- * Equal as typed, or both phone-like (digits, spaces, brackets, dots, dashes,
- * plus) and equal once spaces, brackets, dots and dashes are removed. The
+ * Equal as typed, or both phone-shaped (at least 7 digits, with spaces, brackets,
+ * dots, dashes, plus) and equal once spaces, brackets, dots and dashes are removed. The
  * digits and the plus stay strict. Anything else must match exactly.
  */
 function sameValue(a: string, b: string): boolean {
   if (a === b) return true;
-  const phoneLike = (v: string) => PHONE_LIKE.test(v) && /\d/.test(v);
+  // At least 7 digits each: shorter values (1.5, 3-5) stay exact.
+  const phoneLike = (v: string) =>
+    PHONE_LIKE.test(v) && (v.match(/\d/g)?.length ?? 0) >= 7;
   if (!phoneLike(a) || !phoneLike(b)) return false;
   const strip = (v: string) => v.replace(/[\s().-]/g, '');
   return strip(a) === strip(b);
