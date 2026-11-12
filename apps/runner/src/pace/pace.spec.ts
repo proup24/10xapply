@@ -734,6 +734,62 @@ describe('createPace', () => {
     expect(of(log, 'text')).toHaveLength(0);
   });
 
+  it('clear selects all then deletes', async () => {
+    const { pace, log, locator } = setup();
+    await pace.clear(locator([BOX]));
+    expect(of(log, 'up')).toHaveLength(1);
+    const keys = log
+      .filter((e) => e.kind === 'kdown' || e.kind === 'kup')
+      .map((e) => `${e.kind}:${(e as { key: string }).key}`);
+    expect(keys).toEqual([
+      'kdown:Control',
+      'kdown:a',
+      'kup:a',
+      'kup:Control',
+      'kdown:Backspace',
+      'kup:Backspace',
+    ]);
+    expect(of(log, 'text')).toHaveLength(0);
+  });
+
+  it('clear sends nothing without focus', async () => {
+    const { pace, log, locator } = setup();
+    const unfocused = locator([BOX], {
+      and: () => ({ count: async () => 0 }),
+    });
+    await expect(pace.clear(unfocused)).rejects.toThrow(
+      'pace: the field did not take focus; no keys sent',
+    );
+    expect(of(log, 'kdown')).toHaveLength(0);
+    expect(of(log, 'kup')).toHaveLength(0);
+  });
+
+  it('type sends Enter for a newline in a textarea', async () => {
+    const { pace, log, locator } = setup();
+    const asked: string[] = [];
+    const area = locator([BOX], {
+      locator: (sel: string) => {
+        asked.push(sel);
+        return { count: async () => 1 };
+      },
+    });
+    await pace.type(area, 'a\nb');
+    expect(asked).toEqual(['xpath=self::textarea']);
+    const downs = of(log, 'kdown').map((e) => e.key);
+    expect(downs).toEqual(['a', 'Enter', 'b']);
+    const ups = of(log, 'kup').map((e) => e.key);
+    expect(ups).toEqual(['a', 'Enter', 'b']);
+  });
+
+  it('type throws on a newline in an input before moving', async () => {
+    const { pace, log, locator } = setup();
+    const input = locator([BOX], {
+      locator: () => ({ count: async () => 0 }),
+    });
+    await expect(pace.type(input, 'a\nb')).rejects.toThrow(/1 newline/);
+    expect(log).toEqual([]);
+  });
+
   it('type checks focus on the field itself, after the click', async () => {
     const { pace, log, locator } = setup();
     const asked: { pseudo: string; afterUp: boolean }[] = [];

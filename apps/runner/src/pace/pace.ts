@@ -21,9 +21,15 @@ export interface Pace {
   /**
    * Clicks the field first. Never sends Tab or Enter. Types printable ASCII
    * only, each character as a key; throws before anything moves on any other
-   * character, and sends no key unless the field took focus.
+   * character, and sends no key unless the field took focus. A `\n` is
+   * sent as Enter, only into a `<textarea>`.
    */
   type(field: Locator, text: string): Promise<void>;
+  /**
+   * Clicks the field, then Ctrl+A and Backspace at the author's key timing.
+   * Sends no key unless the field took focus.
+   */
+  clear(field: Locator): Promise<void>;
   /** A prefilled field: move onto it, dwell, no typing. */
   glance(field: Locator): Promise<void>;
   /**
@@ -481,19 +487,18 @@ export function createPace(
   }
 
   async function type(field: Locator, text: string): Promise<void> {
-    assertKeyed(text);
-    await click(field);
-    await dwell('fieldDwellBeforeTyping');
-    // Keys go to whatever has focus: refuse unless it is this field.
-    if ((await field.and(page.locator(':focus')).count()) !== 1) {
-      throw new Error('pace: the field did not take focus; no keys sent');
-    }
+    // A newline is Enter, which submits a form from an input: textarea only.
+    const newlines =
+      text.includes('\n') &&
+      (await field.locator('xpath=self::textarea').count()) === 1;
+    assertKeyed(newlines ? text.replace(/\n/g, '') : text);
+    await clickAndFocus(field);
     // Lay keydowns and keyups out on one timeline; holds may overlap the next key.
     const keys: { at: number; up: number; ch: string }[] = [];
     let at = 0;
     for (const k of planKeys(text, profile, rng, keyHold)) {
       at += k.gapBefore;
-      keys.push({ at, up: at + k.hold, ch: k.ch });
+      keys.push({ at, up: at + k.hold, ch: k.ch === '\n' ? 'Enter' : k.ch });
     }
     const events: { at: number; key: string; down: boolean }[] = [];
     for (const k of keys) {
@@ -523,6 +528,42 @@ export function createPace(
         );
       }
       await out.flush();
+    } finally {
+      await releaseAll(down);
+    }
+  }
+
+  /** Clicks the field and refuses to go on unless it took focus. */
+  async function clickAndFocus(field: Locator): Promise<void> {
+    await click(field);
+    await dwell('fieldDwellBeforeTyping');
+    // Keys go to whatever has focus: refuse unless it is this field.
+    if ((await field.and(page.locator(':focus')).count()) !== 1) {
+      throw new Error('pace: the field did not take focus; no keys sent');
+    }
+  }
+
+  /** Ctrl+A then Backspace: Ctrl goes down before A and up after it. */
+  async function clear(field: Locator): Promise<void> {
+    await clickAndFocus(field);
+    const down = new Set<string>();
+    try {
+      await wait(draw(profile, 'keyGapInWord', rng, { min: 1 }));
+      down.add('Control');
+      await page.keyboard.down('Control');
+      await wait(draw(profile, 'keyGapInWord', rng, { min: 1 }));
+      down.add('a');
+      await hold(
+        keyHold(),
+        () => page.keyboard.down('a'),
+        () => page.keyboard.up('a'),
+      );
+      down.delete('a');
+      await wait(keyHold() * SHIFT_TRAIL_SHARE);
+      down.delete('Control');
+      await page.keyboard.up('Control');
+      await wait(draw(profile, 'keyGapInWord', rng, { min: 1 }));
+      await press('Backspace');
     } finally {
       await releaseAll(down);
     }
@@ -723,6 +764,7 @@ export function createPace(
     defaulted,
     click,
     type,
+    clear,
     pick,
     async glance(field) {
       await approach(field);
