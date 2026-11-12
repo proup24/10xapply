@@ -263,6 +263,9 @@ importers:
       '@xapply/fact-bank':
         specifier: workspace:*
         version: link:../fact-bank
+      yaml:
+        specifier: ^2.9.0
+        version: 2.9.0
       zod:
         specifier: ^4.6.7
         version: 4.6.7

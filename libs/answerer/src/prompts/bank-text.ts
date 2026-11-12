@@ -59,19 +59,9 @@ export function renderBank(bank: FactBank): string {
  * the run date. It stays the same for every question of the form.
  */
 export function renderContext(ctx: PromptContext): string {
-  const { job } = ctx;
   return [
     `<fact_bank>\n${renderBank(ctx.bank)}\n</fact_bank>`,
-    [
-      '<job_post>',
-      `Title: ${job.title}`,
-      `Company: ${job.company}`,
-      ...(job.location ? [`Location: ${job.location}`] : []),
-      `Found through: ${job.source}`,
-      'Description:',
-      clean(job.description),
-      '</job_post>',
-    ].join('\n'),
+    renderJobPost(ctx.job),
     [
       '<run_date>',
       ctx.runDate,
@@ -79,6 +69,20 @@ export function renderContext(ctx: PromptContext): string {
       '</run_date>',
     ].join('\n'),
   ].join('\n\n');
+}
+
+/** The job post section: title, company, location, where it was found, and the description. */
+export function renderJobPost(job: PromptContext['job']): string {
+  return [
+    '<job_post>',
+    `Title: ${job.title}`,
+    `Company: ${job.company}`,
+    ...(job.location ? [`Location: ${job.location}`] : []),
+    `Found through: ${job.source}`,
+    'Description:',
+    clean(job.description),
+    '</job_post>',
+  ].join('\n');
 }
 
 /** The question, always the last part of a prompt. */

@@ -68,7 +68,7 @@ describe('renderBank', () => {
   const text = renderBank(bank);
   it('numbers facts from 0 in bank order', () => {
     expect(text).toContain('[fact 0] I am a British citizen.');
-    expect(text).toContain('[fact 3] My notice period is one month.');
+    expect(text).toContain('[fact 3] My notice period is one week.');
   });
   it('renders variants with their 0-based index and when', () => {
     expect(text).toContain(

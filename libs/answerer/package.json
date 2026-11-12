@@ -20,6 +20,7 @@
   },
   "dependencies": {
     "@xapply/fact-bank": "workspace:*",
+    "yaml": "^2.9.0",
     "zod": "^4.6.7"
   }
 }

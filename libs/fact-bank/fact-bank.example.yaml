@@ -36,10 +36,13 @@ facts:
   - I am a British citizen.
   - I am authorized to work in the United Kingdom only.
   - I am willing to relocate.
-  - My notice period is one month.
+  - My notice period is one week.
   - text: I am currently a Backend Engineer at Example Ltd, employed full-time.
     tags: [current-job]
     confirmed: 2026-10-01
+  - I have used Kubernetes in production since March 2021.
+  - I have written TypeScript professionally since 2019.
+  - I am comfortable leading code reviews for a team of five engineers.
 
 # Known answers: questions you have answered before, with the answer you chose.
 # - id is kebab-case and unique across answers and stories.

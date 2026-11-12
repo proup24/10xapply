@@ -292,15 +292,15 @@ describe('answerQuestion: verify', () => {
       const notice = q({ label: 'What is your notice period?', type: 'text' });
       const noticeFact = src({
         kind: 'fact',
-        text: 'My notice period is one month.',
+        text: 'My notice period is one week.',
       });
       const { result, requests } = await run(notice, [
-        pick('One month', 'bucket', [noticeFact]),
-        pick(' one MONTH '),
+        pick('One week', 'bucket', [noticeFact]),
+        pick(' one WEEK '),
       ]);
       expect(result).toMatchObject({
         status: 'backed',
-        value: 'One month',
+        value: 'One week',
         verification: { verdict: 'confirmed', rounds: 1 },
       });
       expect(requests.map((r) => r.role)).toEqual(['answer', 'verify']);
@@ -308,7 +308,7 @@ describe('answerQuestion: verify', () => {
 
       const mismatch = await run(
         notice,
-        [pick('One month', 'bucket', [noticeFact]), pick('Two weeks')],
+        [pick('One week', 'bucket', [noticeFact]), pick('Two weeks')],
         0,
       );
       expectBlocked(
