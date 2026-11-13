@@ -393,7 +393,7 @@ function readFields(
       repeats(q.options ?? []) ||
       (optionSelectors?.includes(null) ?? false)
     ) {
-      unknown.push(unknownOf(el));
+      unknown.push(unknownOf(doc, el));
       return;
     }
     const field: ReadField = {
@@ -463,7 +463,7 @@ function readFields(
         if (!ownedFiles.has(el)) push(el, el, simple(el, 'file'));
       } else if (type === 'number') push(el, el, simple(el, 'number'));
       else if (TEXT_INPUTS.has(type)) readText(el);
-      else unknown.push(unknownOf(el));
+      else unknown.push(unknownOf(doc, el));
     } else if (
       (role !== null && INPUT_ROLES.has(role)) ||
       (el.hasAttribute('contenteditable') &&
@@ -471,7 +471,7 @@ function readFields(
     ) {
       if (role === 'listbox' && lists.has(el.getAttribute('id') ?? ''))
         continue;
-      unknown.push(unknownOf(el));
+      unknown.push(unknownOf(doc, el));
     }
   }
   return { fields, unknown };
@@ -566,7 +566,7 @@ function readFields(
       text = name !== '' && own !== '' && !others.includes(own) ? own : '';
       for (const r of radios) seen.add(r);
       if (text === '') {
-        unknown.push(unknownOf(el));
+        unknown.push(unknownOf(doc, el));
         return;
       }
     } else {
@@ -610,7 +610,7 @@ function readFields(
     }));
     const selector = target ? selectorFor(doc, target) : null;
     if (selector === null || resumeChoices.some((c) => c.selector === null)) {
-      unknown.push(unknownOf(el));
+      unknown.push(unknownOf(doc, el));
       return;
     }
     fields.push({
@@ -652,7 +652,7 @@ function readFields(
     const distinct = new Set(names);
     const shared = names.length !== distinct.size;
     if (distinct.size > 1 && shared) {
-      unknown.push(unknownOf(el));
+      unknown.push(unknownOf(doc, el));
       return;
     }
     const text = group ? groupLabel(group) : '';
@@ -696,14 +696,31 @@ function sharedLabel(els: El[]): string {
   return labels.size === 1 ? ([...labels][0] ?? '') : '';
 }
 
-function unknownOf(el: El): UnknownField {
+/**
+ * An unknown field, with its label for the requirements check: the cleaned
+ * text of its `label[for]`, else its fieldset's legend, else null. A radio
+ * or checkbox's own `label[for]` is an option's text, so its legend (the
+ * question) comes first.
+ */
+function unknownOf(doc: Document, el: El): UnknownField {
   const tag = el.tagName.toLowerCase();
+  const inputType =
+    tag === 'input' ? (el.getAttribute('type') ?? 'text').toLowerCase() : null;
+  const id = el.getAttribute('id');
+  const forLabel = id ? one(doc, `label${attr('for', id)}`) : null;
+  const fieldset = el.closest('fieldset');
+  const legend = fieldset ? one(fieldset, 'legend') : null;
+  const own = forLabel ? textOf(forLabel) : '';
+  const group = legend ? textOf(legend) : '';
+  const text =
+    inputType === 'radio' || inputType === 'checkbox'
+      ? group || own
+      : own || group;
+  const label = text.replace(STAR, '');
   return {
     tag,
     role: el.getAttribute('role'),
-    inputType:
-      tag === 'input'
-        ? (el.getAttribute('type') ?? 'text').toLowerCase()
-        : null,
+    inputType,
+    label: label === '' ? null : label,
   };
 }

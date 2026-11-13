@@ -3,6 +3,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { FactBankError, type FactBank } from '@xapply/fact-bank';
+import { RulesError, type Rules } from '@xapply/disqualify';
+import type { ModelCaller, ModelRequest } from '@xapply/answerer';
 import type { Bridge } from '../bridge/bridge.js';
 import { INTERRUPTED } from '../apply/run.js';
 import { ReadMismatchError } from '../apply/fill.js';
@@ -67,6 +69,8 @@ function markedRun(): ApplyRun {
       },
     ],
     unknownFields: [],
+    checks: [],
+    disqualification: null,
     timings: { totalMs: 10, perStepMs: [5, 5] },
   };
 }
@@ -95,6 +99,7 @@ interface Harness {
   lines: string[];
   connect: ReturnType<typeof vi.fn>;
   loadBank: ReturnType<typeof vi.fn>;
+  loadRules: ReturnType<typeof vi.fn>;
   written: ApplyRun[];
   bridge: Bridge & { closed: number };
 }
@@ -106,11 +111,14 @@ function harness(over: Partial<ApplyCommandDeps> = {}): Harness {
   const written: ApplyRun[] = [];
   const connect = vi.fn(async () => bridge);
   const loadBank = vi.fn(() => bank);
+  const loadRules = vi.fn((): Rules => ({ authorizedCountries: ['MA'] }));
   const deps: Partial<ApplyCommandDeps> = {
     authorMode: false,
     out: (l) => void lines.push(l),
     bankPath: '/nowhere/bank.yaml',
     loadBank,
+    rulesPath: '/nowhere/rules.yaml',
+    loadRules,
     installResume: () => ({
       fileName: 'resume.pdf',
       windowsPath: 'C:\\x\\resume.pdf',
@@ -120,6 +128,7 @@ function harness(over: Partial<ApplyCommandDeps> = {}): Harness {
       answerModel: 'a',
       verifyModel: 'v',
       judgeModel: 'j',
+      extractModel: 'x',
       maxRegenerations: 1,
     }),
     loadProfile: () => ({}) as never,
@@ -135,7 +144,7 @@ function harness(over: Partial<ApplyCommandDeps> = {}): Harness {
     onSigint: () => () => undefined,
     ...over,
   };
-  return { deps, lines, connect, loadBank, written, bridge };
+  return { deps, lines, connect, loadBank, loadRules, written, bridge };
 }
 
 describe('applyCommand', () => {
@@ -205,6 +214,74 @@ describe('applyCommand', () => {
     expect(await applyCommand([URL_OK, '--dry-run'], h.deps)).toBe(2);
     expect(h.lines.join('\n')).toContain('fields.email');
     expect(h.connect).not.toHaveBeenCalled();
+  });
+
+  it('a rules file that fails to load prints its problems and never connects', async () => {
+    const h = harness({
+      loadRules: () => {
+        throw new RulesError([
+          'authorizedCountries: needs at least one country code',
+        ]);
+      },
+    });
+    expect(await applyCommand([URL_OK, '--dry-run'], h.deps)).toBe(2);
+    expect(h.lines).toEqual([
+      'apply: the disqualify rules did not load; fix them first',
+      '  authorizedCountries: needs at least one country code',
+    ]);
+    expect(h.connect).not.toHaveBeenCalled();
+    expect(h.written).toEqual([]);
+  });
+
+  it('loads the rules from rulesPath, after the bank', async () => {
+    const h = harness();
+    await applyCommand([URL_OK, '--dry-run'], h.deps);
+    expect(h.loadRules).toHaveBeenCalledWith('/nowhere/rules.yaml');
+    expect(h.loadBank.mock.invocationCallOrder[0]).toBeLessThan(
+      h.loadRules.mock.invocationCallOrder[0] ?? 0,
+    );
+  });
+
+  it('passes the rules and both checks, on the extract model, to runApply', async () => {
+    const reqs: ModelRequest<unknown>[] = [];
+    const caller: ModelCaller = {
+      call: async <T>(req: ModelRequest<T>) => {
+        reqs.push(req as ModelRequest<unknown>);
+        return {
+          value: { claims: [] } as T,
+          stat: {
+            role: 'extract' as const,
+            model: req.model,
+            latencyMs: 1,
+            costUsd: null,
+            ok: true,
+          },
+        };
+      },
+    };
+    let got: ApplyDeps | null = null;
+    const h = harness({
+      caller: () => caller,
+      runApply: async (_id: string, deps: ApplyDeps) => {
+        got = deps;
+        const job = { title: 'T', company: 'C', description: 'D' };
+        expect(await deps.checkJob(job)).toMatchObject({ claims: [] });
+        expect(
+          await deps.checkQuestions(
+            [{ id: 's1-q1', label: 'Q', type: 'text' }],
+            job,
+          ),
+        ).toMatchObject({ claims: [] });
+        return markedRun();
+      },
+    });
+    await applyCommand([URL_OK, '--dry-run'], h.deps);
+    const g = got as unknown as ApplyDeps;
+    expect(g.rules).toEqual({ authorizedCountries: ['MA'] });
+    expect(reqs.map((r) => [r.role, r.model])).toEqual([
+      ['extract', 'x'],
+      ['extract', 'x'],
+    ]);
   });
 
   it('a missing resume exits 2 before connecting', async () => {

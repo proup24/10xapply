@@ -1,0 +1,536 @@
+# The committed golden set for the disqualification check (made-up postings).
+# Form-question wordings start from the labels in the runner's fixtures and the
+# scrubbed snapshots, varied by hand. Job descriptions are written for the set.
+#
+# A case gives a job (or uses defaultJob), the form questions, and what the
+# extractor must report. `expect.claims` lists only the rule-kind claims that
+# matter for the verdict and the country. A run passes when the verdict matches
+# and every expected claim has a returned claim of the same kind with the same
+# countries (regions and UK expanded). Extra claims are allowed.
+# Question ids are assigned s1-q1, s1-q2, ... in order.
+# `checkJob` defaults to true when a case gives its own `job`; the default job
+# is then only context for the questions check.
+rules:
+  authorizedCountries: [MA]
+
+defaultJob:
+  title: Backend Engineer
+  company: Acme Payments
+  description: |
+    Acme Payments builds card payment services for small online shops. You will
+    build and run TypeScript services on Kubernetes, own features from design to
+    production, and take part in code review every day.
+
+    The team works remotely across several time zones.
+
+cases:
+  # ---------------------------------------------------------- authorization
+  - id: auth-us
+    group: authorization
+    questions:
+      - label: Are you legally authorized to work in the United States?
+        type: radio
+        options: [Yes, 'No']
+    expect:
+      verdict: disqualified
+      claims: [{ kind: asks-authorization, countries: [US] }]
+
+  - id: auth-uk-written-uk
+    group: authorization
+    questions:
+      - label: Are you authorized to work in the UK?
+        type: radio
+        options: [Yes, 'No']
+    expect:
+      verdict: disqualified
+      claims: [{ kind: asks-authorization, countries: [UK] }]
+
+  - id: auth-canada-eligible
+    group: authorization
+    questions:
+      - label: Are you legally eligible to work in Canada?
+        type: radio
+        options: [Yes, 'No']
+    expect:
+      verdict: disqualified
+      claims: [{ kind: asks-authorization, countries: [CA] }]
+
+  - id: auth-germany-right-to-work
+    group: authorization
+    questions:
+      - label: Do you have the right to work in Germany?
+        type: radio
+        options: [Yes, 'No']
+    expect:
+      verdict: disqualified
+      claims: [{ kind: asks-authorization, countries: [DE] }]
+
+  - id: auth-eu
+    group: authorization
+    questions:
+      - label: Are you authorized to work in the European Union?
+        type: radio
+        options: [Yes, 'No']
+    expect:
+      verdict: disqualified
+      claims: [{ kind: asks-authorization, countries: [EU] }]
+
+  - id: auth-us-or-canada
+    group: authorization
+    questions:
+      - label: Are you authorized to work in the US or Canada?
+        type: radio
+        options: [Yes, 'No']
+    expect:
+      verdict: disqualified
+      claims: [{ kind: asks-authorization, countries: [US, CA] }]
+
+  - id: auth-country-of-the-job
+    group: authorization
+    job:
+      title: Backend Engineer
+      company: Acme Payments
+      description: |
+        Join our engineering team in Madrid, Spain. You will build payment
+        services in TypeScript and work from our office in the city centre.
+    checkJob: false
+    questions:
+      - label: Are you legally authorized to work in the country of this job?
+        type: radio
+        options: [Yes, 'No']
+    expect:
+      verdict: disqualified
+      claims: [{ kind: asks-authorization, countries: [ES] }]
+
+  - id: auth-status-single-choice
+    group: authorization
+    questions:
+      - label: What is your current US work authorization status?
+        type: select
+        options: [US citizen, Green card holder, I require sponsorship]
+    expect:
+      verdict: disqualified
+      claims: [{ kind: asks-authorization, countries: [US] }]
+
+  - id: auth-us-citizen
+    group: authorization
+    questions:
+      - label: Are you a US citizen?
+        type: radio
+        options: [Yes, 'No']
+    expect:
+      verdict: disqualified
+      claims: [{ kind: asks-authorization, countries: [US] }]
+
+  - id: auth-us-citizen-or-resident
+    group: authorization
+    questions:
+      - label: Are you a U.S. citizen or permanent resident?
+        type: radio
+        options: [Yes, 'No']
+    expect:
+      verdict: disqualified
+      claims: [{ kind: asks-authorization, countries: [US] }]
+
+  - id: auth-work-permit
+    group: authorization
+    questions:
+      - label: Do you hold a valid work permit for Switzerland?
+        type: radio
+        options: [Yes, 'No']
+    expect:
+      verdict: disqualified
+      claims: [{ kind: asks-authorization, countries: [CH] }]
+
+  - id: auth-spain-fixture
+    group: authorization
+    questions:
+      - label: Are you legally authorized to work in Spain?
+        type: radio
+        options: [Yes, 'No']
+    expect:
+      verdict: disqualified
+      claims: [{ kind: asks-authorization, countries: [ES] }]
+
+  # ------------------------------------------------------------ sponsorship
+  - id: spons-now-or-future-job-country
+    group: sponsorship
+    job:
+      title: Senior Backend Engineer
+      company: Acme Payments
+      description: |
+        Our team is based in Austin, Texas, in the United States. You will own
+        services that process card payments.
+    checkJob: false
+    questions:
+      - label: Will you now or in the future require sponsorship for employment visa status?
+        type: radio
+        options: [Yes, 'No']
+    expect:
+      verdict: disqualified
+      claims: [{ kind: asks-sponsorship, countries: [US] }]
+
+  - id: spons-visa-support-uk
+    group: sponsorship
+    questions:
+      - label: Will you now or in the future require visa support to work in the United Kingdom?
+        type: radio
+        options: [Yes, 'No']
+    expect:
+      verdict: disqualified
+      claims: [{ kind: asks-sponsorship, countries: [GB] }]
+
+  - id: spons-h1b
+    group: sponsorship
+    questions:
+      - label: Do you now or will you in the future require H-1B sponsorship?
+        type: radio
+        options: [Yes, 'No']
+    expect:
+      verdict: disqualified
+      claims: [{ kind: asks-sponsorship, countries: [US] }]
+
+  - id: spons-employer-germany
+    group: sponsorship
+    questions:
+      - label: Will you require employer sponsorship to work in Germany?
+        type: radio
+        options: [Yes, 'No']
+    expect:
+      verdict: disqualified
+      claims: [{ kind: asks-sponsorship, countries: [DE] }]
+
+  - id: spons-work-visa-canada
+    group: sponsorship
+    questions:
+      - label: Do you need the company to sponsor your work visa in Canada?
+        type: radio
+        options: [Yes, 'No']
+    expect:
+      verdict: disqualified
+      claims: [{ kind: asks-sponsorship, countries: [CA] }]
+
+  - id: spons-australia
+    group: sponsorship
+    questions:
+      - label: Will you require sponsorship for an Australian work visa?
+        type: radio
+        options: [Yes, 'No']
+    expect:
+      verdict: disqualified
+      claims: [{ kind: asks-sponsorship, countries: [AU] }]
+
+  - id: spons-netherlands
+    group: sponsorship
+    questions:
+      - label: Now or in the future, will you need immigration sponsorship to work in the Netherlands?
+        type: radio
+        options: [Yes, 'No']
+    expect:
+      verdict: disqualified
+      claims: [{ kind: asks-sponsorship, countries: [NL] }]
+
+  - id: spons-eu
+    group: sponsorship
+    questions:
+      - label: Do you require visa sponsorship to work in the European Union?
+        type: radio
+        options: [Yes, 'No']
+    expect:
+      verdict: disqualified
+      claims: [{ kind: asks-sponsorship, countries: [EU] }]
+
+  # --------------------------------------------------------------- job-page
+  - id: jp-unable-to-sponsor
+    group: job-page
+    job:
+      title: Backend Engineer
+      company: Acme Payments
+      description: |
+        Build payment services in TypeScript. We are unable to sponsor work
+        visas in the United States for this role.
+    expect:
+      verdict: disqualified
+      claims: [{ kind: no-sponsorship, countries: [US] }]
+
+  - id: jp-right-to-work-uk
+    group: job-page
+    job:
+      title: Backend Engineer
+      company: Acme Payments
+      description: |
+        Build payment services in TypeScript. Candidates must already have the
+        right to work in the United Kingdom.
+    expect:
+      verdict: disqualified
+      claims: [{ kind: requires-authorization, countries: [GB] }]
+
+  - id: jp-must-be-authorized-us
+    group: job-page
+    job:
+      title: Platform Engineer
+      company: Acme Payments
+      description: |
+        Run our Kubernetes platform. Applicants must be authorized to work in
+        the United States.
+    expect:
+      verdict: disqualified
+      claims: [{ kind: requires-authorization, countries: [US] }]
+
+  - id: jp-requires-eu
+    group: job-page
+    job:
+      title: Backend Engineer
+      company: Acme Payments
+      description: |
+        Build payment services in TypeScript. You must have the right to work
+        in the EU; we do not handle relocation.
+    expect:
+      verdict: disqualified
+      claims: [{ kind: requires-authorization, countries: [EU] }]
+
+  - id: jp-contradiction
+    group: job-page
+    job:
+      title: Backend Engineer
+      company: Acme Payments
+      description: |
+        We sponsor visas for the right candidate. Please note that for this
+        role we are unable to sponsor work visas in the United States.
+    expect:
+      verdict: disqualified
+      claims: [{ kind: no-sponsorship, countries: [US] }]
+
+  - id: jp-sponsors-and-form-asks
+    group: job-page
+    job:
+      title: Backend Engineer
+      company: Acme Payments
+      description: |
+        We sponsor work visas in Germany and help with relocation. Build payment
+        services in TypeScript with a team in Berlin.
+    questions:
+      - label: Will you now or in the future require sponsorship to work in Germany?
+        type: radio
+        options: [Yes, 'No']
+    expect:
+      verdict: pass
+      claims: [{ kind: asks-sponsorship, countries: [DE] }]
+
+  - id: jp-offer-no-country-and-form-asks
+    group: job-page
+    job:
+      title: Backend Engineer
+      company: Acme Payments
+      description: |
+        We sponsor visas for the right candidate. Build payment services in
+        TypeScript.
+    questions:
+      - label: Do you require visa sponsorship to work in France?
+        type: radio
+        options: [Yes, 'No']
+    expect:
+      verdict: pass
+      claims:
+        - { kind: offers-sponsorship, countries: [] }
+        - { kind: asks-sponsorship, countries: [FR] }
+
+  - id: jp-offer-no-country-and-gb-question
+    group: job-page
+    job:
+      title: Backend Engineer
+      company: Acme Payments
+      description: |
+        We offer visa sponsorship and relocation support. Build payment services
+        in TypeScript.
+    questions:
+      - label: Are you authorized to work in the UK?
+        type: radio
+        options: [Yes, 'No']
+    expect:
+      verdict: pass
+      claims: [{ kind: asks-authorization, countries: [GB] }]
+
+  - id: jp-relocation-only-and-form-asks
+    group: job-page
+    job:
+      title: Backend Engineer
+      company: Acme Payments
+      description: |
+        Build payment services in TypeScript with our team in Amsterdam. A
+        relocation package is provided, and we help you find a flat.
+    questions:
+      - label: Will you now or in the future require sponsorship to work in the Netherlands?
+        type: radio
+        options: [Yes, 'No']
+    expect:
+      verdict: disqualified
+      claims: [{ kind: asks-sponsorship, countries: [NL] }]
+
+  - id: jp-sponsors-germany-and-us-question
+    group: job-page
+    job:
+      title: Backend Engineer
+      company: Acme Payments
+      description: |
+        Build payment services in TypeScript. We sponsor visas in Germany for
+        engineers joining our Berlin office.
+    questions:
+      - label: Will you now or in the future require visa sponsorship to work in the United States?
+        type: radio
+        options: [Yes, 'No']
+    expect:
+      verdict: disqualified
+      claims: [{ kind: asks-sponsorship, countries: [US] }]
+
+  # -------------------------------------------------------------- near-miss
+  - id: near-authorized-morocco
+    group: near-miss
+    questions:
+      - label: Are you authorized to work in Morocco?
+        type: radio
+        options: [Yes, 'No']
+    expect:
+      verdict: pass
+      claims: [{ kind: asks-authorization, countries: [MA] }]
+
+  - id: near-select-countries
+    group: near-miss
+    questions:
+      - label: Select the countries you can work in
+        type: multiselect
+        options: [United States, United Kingdom, Canada, Germany, Morocco]
+    expect:
+      verdict: pass
+      claims: []
+
+  - id: near-country-you-live-in
+    group: near-miss
+    questions:
+      - label: Are you authorized to work in the country you live in?
+        type: radio
+        options: [Yes, 'No']
+    expect:
+      verdict: pass
+      claims: [{ kind: asks-authorization, countries: [] }]
+
+  - id: near-relocation
+    group: near-miss
+    questions:
+      - label: Are you willing to relocate for this role?
+        type: radio
+        options: [Yes, 'No']
+    expect:
+      verdict: pass
+      claims: []
+
+  - id: near-driving-licence
+    group: near-miss
+    questions:
+      - label: Do you hold a valid driving licence?
+        type: radio
+        options: [Yes, 'No']
+    expect:
+      verdict: pass
+      claims: []
+
+  - id: near-remote-worldwide
+    group: near-miss
+    job:
+      title: Backend Engineer
+      company: Acme Payments
+      description: |
+        This role is fully remote and open to candidates worldwide. You will
+        build payment services in TypeScript and work with colleagues across
+        many time zones.
+    expect:
+      verdict: pass
+      claims: []
+
+  - id: near-degree
+    group: near-miss
+    questions:
+      - label: Do you have a Bachelor's degree in Computer Science or a related field?
+        type: radio
+        options: [Yes, 'No']
+    expect:
+      verdict: pass
+      claims: []
+
+  - id: near-years-yes-no
+    group: near-miss
+    questions:
+      - label: Do you have 5 or more years of experience with TypeScript?
+        type: radio
+        options: [Yes, 'No']
+    expect:
+      verdict: pass
+      claims: []
+
+  # --------------------------------------------------------------- location
+  - id: loc-based-in-berlin
+    group: location
+    job:
+      title: Backend Engineer
+      company: Acme Payments
+      description: |
+        You must be based in Berlin. Build payment services in TypeScript with
+        a small team.
+    expect:
+      verdict: pass
+      claims: []
+
+  - id: loc-hybrid-paris
+    group: location
+    job:
+      title: Backend Engineer
+      company: Acme Payments
+      description: |
+        Hybrid role, three days a week in our Paris office. Build payment
+        services in TypeScript.
+    expect:
+      verdict: pass
+      claims: []
+
+  - id: loc-onsite-question
+    group: location
+    questions:
+      - label: Are you comfortable working on-site in Dublin three days a week?
+        type: radio
+        options: [Yes, 'No']
+    expect:
+      verdict: pass
+      claims: []
+
+  # --------------------------------------------------------------- language
+  - id: lang-fluent-german
+    group: language
+    job:
+      title: Backend Engineer
+      company: Acme Payments
+      description: |
+        Fluent German is required for daily work with our customers. Build
+        payment services in TypeScript.
+    expect:
+      verdict: pass
+      claims: []
+
+  - id: lang-english-level
+    group: language
+    questions:
+      - label: What is your level of English?
+        type: select
+        options: [Basic, Conversational, Fluent, Native]
+    expect:
+      verdict: pass
+      claims: []
+
+  - id: lang-french-question
+    group: language
+    questions:
+      - label: Do you speak French fluently?
+        type: radio
+        options: [Yes, 'No']
+    expect:
+      verdict: pass
+      claims: []

@@ -31,6 +31,8 @@ const good = ok({
   total_cost_usd: 0.01,
 });
 
+const noSleep = async () => undefined;
+
 function scripted(outs: Out[]) {
   const calls: Array<Parameters<Spawn>> = [];
   const spawn: Spawn = async (...a) => {
@@ -80,6 +82,7 @@ describe('claudeArgs / childEnv', () => {
       CLAUDE_CONFIG_DIR: '/home/x/.claude',
       CLAUDE_CODE_ENTRYPOINT: 'cli',
       PATH: '/bin',
+      DISABLE_AUTOUPDATER: '1',
     });
   });
 });
@@ -106,14 +109,16 @@ describe('createClaudeCliCaller', () => {
     expect(opts.stdin).toBe(SECRET);
     expect(opts.cwd).not.toBe(process.cwd());
     expect(opts.cwd.startsWith(tmpdir())).toBe(true);
-    expect(opts.env).toEqual({ PATH: '/bin' });
+    expect(opts.env).toEqual({ PATH: '/bin', DISABLE_AUTOUPDATER: '1' });
     expect(opts.timeoutMs).toBe(180_000);
     expect(existsSync(opts.cwd)).toBe(false);
   });
 
   it('costUsd is null when total_cost_usd is missing', async () => {
     const { spawn } = scripted([ok({ structured_output: { n: 1 } })]);
-    const res = await createClaudeCliCaller({ spawn }).call(req);
+    const res = await createClaudeCliCaller({ sleep: noSleep, spawn }).call(
+      req,
+    );
     expect(res.stat.costUsd).toBeNull();
   });
 
@@ -122,7 +127,9 @@ describe('createClaudeCliCaller', () => {
       { code: 0, stdout: 'Update available!\n', timedOut: false },
       good,
     ]);
-    const res = await createClaudeCliCaller({ spawn }).call(req);
+    const res = await createClaudeCliCaller({ sleep: noSleep, spawn }).call(
+      req,
+    );
     expect(res.value).toEqual({ n: 7 });
     expect(calls).toHaveLength(2);
   });
@@ -134,7 +141,7 @@ describe('createClaudeCliCaller', () => {
       ok({ is_error: true, result: `echo ${SECRET}` }),
     ];
     const { spawn, calls } = scripted(bad);
-    const err = await createClaudeCliCaller({ spawn })
+    const err = await createClaudeCliCaller({ sleep: noSleep, spawn })
       .call(req)
       .catch((e: unknown) => e);
     expect(err).toBeInstanceOf(ModelCallError);
@@ -148,7 +155,7 @@ describe('createClaudeCliCaller', () => {
   ])('treats %s as transient', async (_n, out) => {
     const { spawn, calls } = scripted([out, out, out]);
     await expect(
-      createClaudeCliCaller({ spawn }).call(req),
+      createClaudeCliCaller({ sleep: noSleep, spawn }).call(req),
     ).rejects.toBeInstanceOf(ModelCallError);
     expect(calls).toHaveLength(3);
   });
@@ -157,7 +164,7 @@ describe('createClaudeCliCaller', () => {
     const bad = { code: 1, stdout: '', timedOut: false };
     const { spawn, calls } = scripted([bad, bad]);
     await expect(
-      createClaudeCliCaller({ spawn, retries: 1 }).call(req),
+      createClaudeCliCaller({ sleep: noSleep, spawn, retries: 1 }).call(req),
     ).rejects.toBeInstanceOf(ModelCallError);
     expect(calls).toHaveLength(2);
   });
@@ -167,7 +174,7 @@ describe('createClaudeCliCaller', () => {
       ok({ is_error: true, api_error_status: 401 }),
     ]);
     await expect(
-      createClaudeCliCaller({ spawn }).call(req),
+      createClaudeCliCaller({ sleep: noSleep, spawn }).call(req),
     ).rejects.toBeInstanceOf(ModelUnavailableError);
     expect(calls).toHaveLength(1);
   });
@@ -176,7 +183,7 @@ describe('createClaudeCliCaller', () => {
     const { spawn, calls } = scripted([
       ok({ is_error: true, result: 'Claude usage limit reached' }),
     ]);
-    const err = await createClaudeCliCaller({ spawn })
+    const err = await createClaudeCliCaller({ sleep: noSleep, spawn })
       .call(req)
       .catch((e: unknown) => e);
     expect(err).toBeInstanceOf(ModelUnavailableError);
@@ -189,7 +196,7 @@ describe('createClaudeCliCaller', () => {
       { code: 1, stdout: 'Please log in', timedOut: false },
     ]);
     await expect(
-      createClaudeCliCaller({ spawn }).call(req),
+      createClaudeCliCaller({ sleep: noSleep, spawn }).call(req),
     ).rejects.toBeInstanceOf(ModelUnavailableError);
   });
 
@@ -202,7 +209,7 @@ describe('createClaudeCliCaller', () => {
         result: 'authentication log in',
       }),
     ]);
-    const res = await createClaudeCliCaller({ spawn }).call({
+    const res = await createClaudeCliCaller({ sleep: noSleep, spawn }).call({
       ...req,
       schema: s,
     });
@@ -215,7 +222,7 @@ describe('createClaudeCliCaller', () => {
       ok({ structured_output: { n: SECRET } }),
       ok({ structured_output: { n: SECRET } }),
     ]);
-    const err = (await createClaudeCliCaller({ spawn })
+    const err = (await createClaudeCliCaller({ sleep: noSleep, spawn })
       .call(req)
       .catch((e: unknown) => e)) as Error;
     expect(err.message).not.toContain(SECRET);
@@ -229,8 +236,70 @@ describe('createClaudeCliCaller', () => {
       throw new Error('boom');
     };
     await expect(
-      createClaudeCliCaller({ spawn, retries: 0 }).call(req),
+      createClaudeCliCaller({ sleep: noSleep, spawn, retries: 0 }).call(req),
     ).rejects.toBeInstanceOf(ModelCallError);
     expect(existsSync(dir)).toBe(false);
+  });
+
+  describe('waits between attempts', () => {
+    const recorder = () => {
+      const waits: number[] = [];
+      return { waits, sleep: async (ms: number) => void waits.push(ms) };
+    };
+    const bad: Out = { code: 1, stdout: '', timedOut: false };
+
+    it('waits 5 s, then 30 s, and not after the last attempt', async () => {
+      const { spawn } = scripted([bad, bad, bad]);
+      const { waits, sleep } = recorder();
+      await expect(
+        createClaudeCliCaller({ spawn, sleep }).call(req),
+      ).rejects.toBeInstanceOf(ModelCallError);
+      expect(waits).toEqual([5_000, 30_000]);
+    });
+
+    it('does not wait when the first attempt succeeds', async () => {
+      const { spawn } = scripted([good]);
+      const { waits, sleep } = recorder();
+      await createClaudeCliCaller({ spawn, sleep }).call(req);
+      expect(waits).toEqual([]);
+    });
+
+    it('rides out a CLI that cannot start for a moment, such as during its own update', async () => {
+      let n = 0;
+      const spawn: Spawn = async () => {
+        n++;
+        if (n === 1) throw new Error('spawn ENOENT');
+        return n === 2 ? bad : good;
+      };
+      const { waits, sleep } = recorder();
+      const res = await createClaudeCliCaller({ spawn, sleep }).call(req);
+      expect(res.value).toEqual({ n: 7 });
+      expect(waits).toEqual([5_000, 30_000]);
+    });
+
+    it('honours retryDelaysMs, reusing the last delay', async () => {
+      const { spawn } = scripted([bad, bad, bad, bad]);
+      const { waits, sleep } = recorder();
+      await expect(
+        createClaudeCliCaller({
+          spawn,
+          sleep,
+          retries: 3,
+          retryDelaysMs: [1, 2],
+        }).call(req),
+      ).rejects.toBeInstanceOf(ModelCallError);
+      expect(waits).toEqual([1, 2, 2]);
+    });
+
+    it('does not wait or retry when the model is unavailable', async () => {
+      const { spawn } = scripted([
+        ok({ is_error: true, api_error_status: 401 }),
+      ]);
+      const { waits, sleep } = recorder();
+      await expect(
+        createClaudeCliCaller({ spawn, sleep }).call(req),
+      ).rejects.toBeInstanceOf(ModelUnavailableError);
+      expect(waits).toEqual([]);
+    });
   });
 });

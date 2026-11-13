@@ -420,7 +420,7 @@ describe('readStep type mapping', () => {
     );
     expect(r.fields).toEqual([]);
     expect(r.unknown).toEqual([
-      { tag: 'input', role: null, inputType: 'radio' },
+      { tag: 'input', role: null, inputType: 'radio', label: null },
     ]);
   });
 
@@ -434,7 +434,7 @@ describe('readStep type mapping', () => {
     );
     expect(r.fields).toEqual([]);
     expect(r.unknown).toEqual([
-      { tag: 'input', role: null, inputType: 'checkbox' },
+      { tag: 'input', role: null, inputType: 'checkbox', label: 'Stacks' },
     ]);
   });
 
@@ -579,13 +579,30 @@ describe('readStep type mapping', () => {
     ]);
   });
 
+  it('an unknown field reads its label[for], else its fieldset legend, else null', () => {
+    const r = step(
+      readStep(
+        form(
+          '<label for="d1">  Visa   expiry date * </label><input id="d1" type="date">' +
+            '<fieldset><legend>Do you need sponsorship?</legend><input id="d2" type="date"><label for="d2"></label></fieldset>' +
+            '<input id="d3" type="date" aria-label="Not a label">',
+        ),
+      ),
+    );
+    expect(r.unknown.map((u) => u.label)).toEqual([
+      'Visa expiry date',
+      'Do you need sponsorship?',
+      null,
+    ]);
+  });
+
   it('an input[type=range] is unknown', () => {
     const r = step(
       readStep(form('<input id="r" type="range" aria-label="Level">')),
     );
     expect(r.fields).toEqual([]);
     expect(r.unknown).toEqual([
-      { tag: 'input', role: null, inputType: 'range' },
+      { tag: 'input', role: null, inputType: 'range', label: null },
     ]);
   });
 

@@ -1,0 +1,7 @@
+# Example disqualification rules. The values are made up; copy this file to
+# the private folder as disqualify.yaml and edit it.
+#
+# authorizedCountries: ISO 3166-1 alpha-2 codes (write GB for the UK) of the
+# countries where you are authorized to work without sponsorship. At least
+# one. Region names such as EU are not allowed here.
+authorizedCountries: [MA]

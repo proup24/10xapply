@@ -10,6 +10,7 @@ import {
 } from './commands/pace.js';
 import { answersEvalCommand } from './commands/answers.js';
 import { applyCommand } from './commands/apply.js';
+import { disqualifyEvalCommand } from './commands/disqualify.js';
 import { factsCheckCommand } from './commands/facts.js';
 import { sessionCommand } from './commands/session.js';
 import { snapshotCommand, snapshotScrubCommand } from './commands/snapshot.js';
@@ -30,8 +31,9 @@ const USAGE = `usage: runner <command>
   pace summary     count the recorded samples per measure against the minimums
   pace compare     compare the runner's recordings with yours (shape, timing, variety)
   bridge check     check the bridge extension (--crash: also check the crash stop)
-  facts check      check the fact bank file (optional path; prints no values)
-  answers eval     run the answerer's golden eval (--set example|private, --answer-model, --verify-model, --judge-model, --repeat N, --case ID)`;
+  facts check      check the fact bank file and the disqualify rules (optional bank path; prints no values)
+  answers eval     run the answerer's golden eval (--set example|private, --answer-model, --verify-model, --judge-model, --repeat N, --case ID)
+  disqualify eval  run the disqualification golden eval (--model, --repeat N, --case ID)`;
 
 /** The value after `--flag`, as a positive integer, or undefined. */
 function intFlag(argv: string[], flag: string): number | undefined {
@@ -107,6 +109,14 @@ export async function main(argv: string[]): Promise<number> {
         answerModel: stringFlag(argv, '--answer-model'),
         verifyModel: stringFlag(argv, '--verify-model'),
         judgeModel: stringFlag(argv, '--judge-model'),
+        repeat: intFlag(argv, '--repeat'),
+        caseId: stringFlag(argv, '--case'),
+      });
+    }
+    if (a === 'disqualify' && b === 'eval') {
+      refuseEqualsForms(argv);
+      return await disqualifyEvalCommand({
+        model: stringFlag(argv, '--model'),
         repeat: intFlag(argv, '--repeat'),
         caseId: stringFlag(argv, '--case'),
       });

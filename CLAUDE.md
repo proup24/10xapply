@@ -30,7 +30,7 @@ Failure even if it technically works:
 
 ## Stack
 
-- Nx 24 monorepo with pnpm, TypeScript strict with nodenext. Four projects so far: the runner (`apps/runner`, a Node CLI), the bridge extension (`apps/bridge-extension`, plain-JS MV3), `libs/fact-bank` (the fact bank's schema, loader and check) and `libs/answerer` (answers form questions from the bank through `claude -p`, plus its golden eval).
+- Nx 24 monorepo with pnpm, TypeScript strict with nodenext. Five projects so far: the runner (`apps/runner`, a Node CLI), the bridge extension (`apps/bridge-extension`, plain-JS MV3), `libs/fact-bank` (the fact bank's schema, loader and check), `libs/answerer` (answers form questions from the bank through `claude -p`, plus its golden eval) and `libs/disqualify` (the disqualification extractor, rules, decision and golden eval).
 - Expected, mirroring 10xjobs, **not built yet**: NestJS API (webhook intake) and workers (browser runs), Next.js web app, Supabase (Auth and Postgres with per-user row-level security), Prisma, Redis queues, LLMs through `claude -p` on the author's subscription, browsers on our own server. Each piece is decided in its own slice.
 - **Set up** (slice 02): ESLint, Vitest and Prettier, all run through Nx.
 - **Set up** (slice 03): Patchright (Playwright API) through our own bridge extension in the author's everyday Chrome (`apps/bridge-extension`, and the runner in `apps/runner`).
@@ -56,9 +56,10 @@ Build in small slices, one per session: brainstorm, then spec (`docs/superpowers
 - `pnpm nx run runner:pace-build` builds the pace profile from the recordings.
 - `pnpm nx run runner:pace-practice` has the runner fill the local practice page five times, recorded for the comparison.
 - `pnpm nx run runner:pace-compare` compares the runner's recordings with the author's and writes a report.
-- `pnpm nx run runner:facts-check [-- <path>]` checks the fact bank file and prints counts and problems, never a value. The optional path is resolved from the repo root. In a non-TTY shell add `--outputStyle=stream` to see its output.
+- `pnpm nx run runner:facts-check [-- <path>]` checks the fact bank file and the disqualify rules file (`disqualify.yaml` in the private folder) and prints counts and problems, never a value or a country code. The optional path is the bank's, resolved from the repo root. In a non-TTY shell add `--outputStyle=stream` to see its output.
 - `pnpm nx run runner:answers-eval [-- --set example|private --answer-model m --verify-model m --judge-model m --repeat n --case id]` runs the answerer's golden eval. It uses the subscription, never in CI. The default set is `example`. The private set prints and reports only ids and counts, and writes the full results under `private/answers-eval/`. The author runs the private set; see Guardrails.
-- `pnpm nx run runner:apply -- <job-url> --dry-run` walks an Easy Apply form, answers and fills it, and stops on the review page. It never submits; without `--dry-run` it exits 2.
+- `pnpm nx run runner:disqualify-eval [-- --model m --repeat n --case id]` runs the disqualification extractor's golden eval on the committed example set. It uses the subscription, never in CI, and never touches LinkedIn.
+- `pnpm nx run runner:apply -- <job-url> --dry-run` walks an Easy Apply form, answers and fills it, and stops on the review page. It needs the disqualify rules file and can end `disqualified` (on the job page or a form step) before filling anything. It never submits; without `--dry-run` it exits 2.
 - Quote a long LinkedIn job URL given to `runner:apply`, or replace it with `https://www.linkedin.com/jobs/view/<id>/`: an unquoted `&` backgrounds the command.
 - `pnpm nx run runner:snapshot -- <job-url>` opens the job in a run window while the author drives by hand and presses Enter to save each page's DOM (shadow roots included) under the private folder's `snapshots/`. It touches LinkedIn.
 - `pnpm nx run runner:snapshot-scrub` turns the raw snapshots into scrubbed copies in `snapshots/`, printing counts only. It never touches LinkedIn.
@@ -82,6 +83,7 @@ See [docs/roadmap/README.md](docs/roadmap/README.md): phases, slice order and th
 - `pace-recordings/` holds timing-only recordings and the pace profile. It is git-ignored, Claude may read it, and it is never committed.
 - Known guard false positive: any Bash command whose text names the `pace-recordings/runner/` folder is blocked as a runner launch. Use a glob.
 - The author's fact bank is `fact-bank.yaml` in the private folder (`private/`). Claude may run the check but never reads the file.
+- The author's disqualification rules are `disqualify.yaml` in the private folder. Claude may check it through `facts-check` but never reads it.
 - Personal overrides go in `.claude/settings.local.json`.
 - Prettier runs automatically on files Claude edits or writes.
 
@@ -90,9 +92,9 @@ See [docs/roadmap/README.md](docs/roadmap/README.md): phases, slice order and th
 - The author runs every real submit and takes over when a form goes wrong.
 - Claude debugs from `run-reports/` and from scrubbed page snapshots committed as fixtures.
 - Claude may start a `--dry-run` against a real job only when the author asks in that session, and only a few a day.
-- `guard.mjs` blocks runner launches without `--dry-run` (after the target or file, not in front of it). In `guard.mjs`, `RUNNER_NAME = 'runner'` and `RUNNER_SAFE_SUBCOMMANDS = ['bridge', 'bridge-install', 'bridge-check', 'bridge-check-crash', 'pace', 'pace-record', 'pace-record-typing', 'pace-summary', 'pace-build', 'pace-practice', 'pace-compare', 'bot-check', 'bot-check-repeat', 'session', 'facts', 'facts-check', 'answers', 'answers-eval', 'snapshot', 'snapshot-scrub']`.
+- `guard.mjs` blocks runner launches without `--dry-run` (after the target or file, not in front of it). In `guard.mjs`, `RUNNER_NAME = 'runner'` and `RUNNER_SAFE_SUBCOMMANDS = ['bridge', 'bridge-install', 'bridge-check', 'bridge-check-crash', 'pace', 'pace-record', 'pace-record-typing', 'pace-summary', 'pace-build', 'pace-practice', 'pace-compare', 'bot-check', 'bot-check-repeat', 'session', 'facts', 'facts-check', 'answers', 'answers-eval', 'disqualify', 'disqualify-eval', 'snapshot', 'snapshot-scrub']`.
 - Claude may run the answers eval on the example set freely. The private set sends the real bank to the model, so the author runs it themselves, for example by typing `! pnpm nx run runner:answers-eval -- --set private`. `guard.mjs` blocks the `private` token in Claude's commands.
-- Claude may run `runner:session` or `runner:snapshot` only when the author asks in that session. Every other safe subcommand (the bridge, `pace`, bot-check, `facts` and `answers` ones) never touches LinkedIn and needs no ask.
+- Claude may run `runner:session` or `runner:snapshot` only when the author asks in that session. Every other safe subcommand (the bridge, `pace`, bot-check, `facts`, `answers` and `disqualify` ones) never touches LinkedIn and needs no ask.
 - Author mode (stdin and stdout are TTYs and `CLAUDECODE` is unset) is the only mode that prints labels, answers or bank text, or reads the keyboard; any other run prints redacted output.
 - No scripts run in LinkedIn's page; the runner reads through locators only. An ESLint rule in `apps/runner` bans `evaluate`, `evaluateHandle`, `$eval`, `$$eval`, `evaluateAll`, `exposeFunction`, `exposeBinding` and `addInitScript`. The relay and extension also refuse cookie and storage reads, `Browser.close`, `Runtime.addBinding`, and `Page.addScriptToEvaluateOnNewDocument` (except Patchright's own empty-source utility-world script). On a run tab's sessions they pass only three `Target.*` methods: `setAutoAttach`, `detachFromTarget` and `getTargetInfo`.
 - Only the pace module (`apps/runner/src/pace/`) acts on a page; other code calls `pace.click`, `pace.type` and so on. ESLint bans Patchright input methods elsewhere.

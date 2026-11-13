@@ -1,3 +1,4 @@
+import { CheckFailedError } from '@xapply/disqualify';
 import type { Pace } from '../pace/pace.js';
 import type { ApplyDeps, ApplyOutcome, ApplyRun, SafetyStop } from './types.js';
 
@@ -48,6 +49,12 @@ export function asRunEnd(e: unknown, deps: ApplyDeps): RunEnd {
   const reason = deps.stopReason();
   if (reason !== null) {
     return new RunEnd('stopped', { kind: 'bridge', detail: reason });
+  }
+  if (e instanceof CheckFailedError) {
+    return safety(
+      'check-failed',
+      'the requirements check did not give a valid answer',
+    );
   }
   const message = e instanceof Error ? e.message : String(e);
   const firstLine = (message.split('\n')[0] ?? '').slice(0, 200);

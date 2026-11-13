@@ -359,6 +359,8 @@ export const RUNNER_SAFE_SUBCOMMANDS = [
   'facts-check',
   'answers',
   'answers-eval',
+  'disqualify',
+  'disqualify-eval',
   'snapshot',
   'snapshot-scrub',
 ];

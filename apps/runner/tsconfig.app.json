@@ -21,6 +21,9 @@
       "path": "../../libs/answerer/tsconfig.lib.json"
     },
     {
+      "path": "../../libs/disqualify/tsconfig.lib.json"
+    },
+    {
       "path": "../../libs/fact-bank/tsconfig.lib.json"
     }
   ]

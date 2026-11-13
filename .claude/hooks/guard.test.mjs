@@ -442,6 +442,8 @@ test('runner (real name): safe commands pass', () => {
     'pnpm nx run runner:pace-record',
     'pnpm nx run runner:facts-check',
     'pnpm nx run runner:answers-eval',
+    'pnpm nx run runner:disqualify-eval',
+    'pnpm nx run runner:disqualify-eval -- --repeat 3 --model sonnet',
     'pnpm nx run runner:snapshot -- https://www.linkedin.com/jobs/view/1/',
     'pnpm nx run runner:snapshot-scrub',
     'pnpm nx run runner:apply -- https://www.linkedin.com/jobs/view/1/ --dry-run',
