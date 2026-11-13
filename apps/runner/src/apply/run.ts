@@ -8,7 +8,11 @@ import { all, textOf } from '../linkedin/el.js';
 import { stepKey } from '../linkedin/form-step.js';
 import { readFormCompany, readJobPage } from '../linkedin/job-page.js';
 import { jobViewUrl } from '../linkedin/job-url.js';
-import { FORM_DIALOG, MORE_BUTTON } from '../linkedin/selectors.js';
+import {
+  FORM_CONTENT,
+  FORM_DIALOG,
+  MORE_BUTTON,
+} from '../linkedin/selectors.js';
 import type { StepRead } from '../linkedin/types.js';
 import { pathPrefix } from '../reports/write-report.js';
 import { RunEnd, asRunEnd, checkStop, guardPace, safety } from './stop.js';
@@ -197,7 +201,7 @@ async function advance(
   const before = stepKey(read);
   guardNext(await look(w), read.next);
   await pace.click(page.locator(read.next.selector), {
-    within: page.locator(FORM_DIALOG),
+    within: page.locator(FORM_CONTENT),
   });
   const after = await settleStep(
     w,
@@ -287,7 +291,8 @@ async function closeOut(w: Walk, formOpen: boolean): Promise<void> {
  * Closes the form without keeping a draft. A save prompt already open (a
  * press that landed on the backdrop opens it) gets its Discard straight
  * away. Otherwise the form's own Dismiss, then Discard once the prompt
- * shows (up to 5 s). Save is never clicked. Uses the unguarded pace, so
+ * shows (up to 5 s). Save is never clicked, and neither is a Discard whose
+ * dialog can't be pinned for `within`. Uses the unguarded pace, so
  * Ctrl+C doesn't block it; `bridgeGone` is checked before each step
  * instead.
  */
@@ -297,7 +302,7 @@ async function dismissAndDiscard(
 ): Promise<void> {
   const { page, unguarded: pace } = w;
   if (bridgeGone()) return;
-  const doc = await look(w);
+  const doc = await look(w, { prompt: 'allow' });
   if (bridgeGone()) return;
   if (await discard(w, doc)) return;
   const dismiss = readDismiss(doc);
@@ -307,24 +312,24 @@ async function dismissAndDiscard(
   });
   for (let i = 0; ; i++) {
     if (bridgeGone()) return;
-    if (await discard(w, await look(w))) return;
+    if (await discard(w, await look(w, { prompt: 'allow' }))) return;
     if (i >= PROMPT_WAIT_MS / POLL_MS) return;
     await w.deps.wait(POLL_MS);
   }
 }
 
 /**
- * Clicks the save prompt's Discard if the prompt shows on `doc`, inside the
- * prompt's own dialog when a selector picks it out alone. True if clicked.
+ * When the save prompt shows on `doc`, clicks its Discard inside the
+ * prompt's own dialog. A prompt whose dialog no selector picks out alone
+ * gets no press at all (the page is closed instead). True when the prompt
+ * showed, pressed or not.
  */
 async function discard(w: Walk, doc: Document): Promise<boolean> {
   const selector = readDiscard(doc);
   if (selector === null) return false;
-  const { page, unguarded: pace } = w;
   const dialog = readPromptDialog(doc);
-  await pace.click(
-    page.locator(selector),
-    dialog === null ? {} : { within: page.locator(dialog) },
-  );
+  if (dialog === null) return true;
+  const { page, unguarded: pace } = w;
+  await pace.click(page.locator(selector), { within: page.locator(dialog) });
   return true;
 }

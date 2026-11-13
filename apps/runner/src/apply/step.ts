@@ -1,7 +1,8 @@
 import type { AnswerValue, FormQuestion, Job } from '@xapply/answerer';
 import type { FactBank } from '@xapply/fact-bank';
 import { all } from '../linkedin/el.js';
-import { FORM_DIALOG } from '../linkedin/selectors.js';
+import { readDiscard } from '../linkedin/close.js';
+import { FORM_CONTENT } from '../linkedin/selectors.js';
 import { parsePage, type Document } from '../linkedin/dom.js';
 import { readStep, stepKey } from '../linkedin/form-step.js';
 import type { ReadField, StepRead } from '../linkedin/types.js';
@@ -43,9 +44,15 @@ type FormRead = Exclude<StepRead, { kind: 'none' }>;
 
 /**
  * Reads the page and classifies it with slice 03's session signals, so a
- * security check or a sign-in page is caught on every read.
+ * security check or a sign-in page is caught on every read. LinkedIn's
+ * "Save this application?" prompt open over the form is a stop too: the
+ * form still reads as a step under it, and no form action may land there.
+ * Only the close-out reads with `prompt: 'allow'`, to answer it.
  */
-export async function look(w: Pick<Walk, 'page'>): Promise<Document> {
+export async function look(
+  w: Pick<Walk, 'page'>,
+  opts: { prompt?: 'allow' } = {},
+): Promise<Document> {
   const doc = parsePage(await w.page.html());
   const seen = classifySession({
     path: w.page.path(),
@@ -57,6 +64,9 @@ export async function look(w: Pick<Walk, 'page'>): Promise<Document> {
   }
   if (seen === 'signed-out') {
     throw safety('signed-out', 'LinkedIn is showing a sign-in page');
+  }
+  if (opts.prompt !== 'allow' && readDiscard(doc) !== null) {
+    throw safety('unexpected-page', 'the save prompt is open');
   }
   return doc;
 }
@@ -188,6 +198,8 @@ async function answerField(
   let why: string;
   if (result.status === 'backed') {
     // fillField refuses text it can't type (not-typeable) before acting.
+    // The page is read first: a prompt that opened since stops the run.
+    await look(w);
     const fill = await fillField(f, result.value, ctx(w));
     if (fill.ok) {
       rec.filled = result.value;
@@ -235,6 +247,7 @@ async function blocked(
       rec.by = 'blank';
       return;
     }
+    await look(w);
     const fill = await fillField(f, reply.value, ctx(w));
     if (!fill.ok) {
       why = fill.reason;
@@ -269,12 +282,12 @@ function save(w: Walk, rec: QuestionRecord, value: AnswerValue): void {
   }
 }
 
-/** Every fill keeps to the form's `<dialog>`, whose content scrolls on its own. */
+/** Every fill keeps to the form's content, which scrolls on its own. */
 const ctx = (w: Walk) => ({
   pace: w.pace,
   page: w.page,
   resume: w.deps.resume,
-  within: FORM_DIALOG,
+  within: FORM_CONTENT,
 });
 
 function jobOf(w: Walk): Job {

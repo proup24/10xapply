@@ -4,9 +4,11 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { readDiscard, readDismiss, readPromptDialog } from './close.js';
 import { parsePage } from './dom.js';
+import { readStep } from './form-step.js';
 import { all } from './el.js';
 import {
   DISMISS,
+  FORM_CONTENT,
   FORM_DIALOG,
   FORM_HEADER,
   SAVE_PROMPT_DIALOG,
@@ -86,6 +88,31 @@ describe('close-out readers', () => {
       expect(all(dialogs[0], readDiscard(d) ?? '')).toHaveLength(1);
       expect(all(dialogs[0], FORM_HEADER)).toHaveLength(0);
     });
+  });
+
+  it('FORM_CONTENT is one element per form, holding the Next or Review button', () => {
+    for (const name of [
+      'step-contact.html',
+      'step-contact-email-phone.html',
+      'step-resume.html',
+      'step-questions.html',
+      'step-questions-2.html',
+      'step-questions-location.html',
+      'review-backdrop-prompt.html',
+    ]) {
+      const d = page(name);
+      const content = all(d, FORM_CONTENT);
+      expect(content).toHaveLength(1);
+      const r = readStep(d);
+      if (r.kind !== 'step' || !r.next) throw new Error(`${name}: no next`);
+      const next = all(d, r.next.selector);
+      expect(next).toHaveLength(1);
+      expect(all(content[0], r.next.selector).some((b) => b === next[0])).toBe(
+        true,
+      );
+      // The header's Dismiss is outside it.
+      expect(all(content[0], 'button[aria-label="Dismiss"]')).toHaveLength(0);
+    }
   });
 
   it('finds the prompt dialog only when the prompt shows', () => {

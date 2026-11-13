@@ -15,6 +15,7 @@ import { readStep } from '../linkedin/form-step.js';
 import {
   DISMISS,
   EASY_APPLY,
+  FORM_CONTENT,
   FORM_DIALOG,
   SAVE_PROMPT_DIALOG,
 } from '../linkedin/selectors.js';
@@ -369,14 +370,24 @@ function synth(o: Synth): string {
     (o.fields ?? []).join('') +
     (o.extra ?? '') +
     (o.errors ?? []).map((e) => `<div role="alert">${e}</div>`).join('') +
-    '</div><footer>' +
+    '<footer>' +
     (next ? `<button id="next" type="button">${next}</button>` : '') +
     (o.submit
       ? '<button id="send" type="button">Submit application</button>'
       : '') +
-    '</footer></dialog></body></html>'
+    '</footer></div></dialog></body></html>'
   );
 }
+
+/** `html` with a minimal "Save this application?" prompt dialog added. */
+const withPrompt = (html: string) =>
+  html.replace(
+    '</body>',
+    '<dialog data-testid="dialog" open><h2>Save this application?</h2>' +
+      '<button type="button" aria-label="Dismiss"></button>' +
+      '<button id="discard" type="button">Discard</button>' +
+      '<button id="save" type="button">Save</button></dialog></body>',
+  );
 
 const A = textField('qa', 'Question A');
 const B = textField('qb', 'Question B');
@@ -427,7 +438,7 @@ describe('runApply', () => {
     expect(run.startedAt).toMatch(/^\d{4}-\d\d-\d\dT/);
   });
 
-  it('every action inside the form keeps to the form dialog', async () => {
+  it('fills and Next keep to the form content; the header Dismiss to the dialog', async () => {
     const h = harness({ screens: fullFlow() });
     const run = await runApply('123', h.deps);
     expect(run.outcome).toBe('reached-review');
@@ -441,11 +452,15 @@ describe('runApply', () => {
       { op: 'click', sel: DISCARD, within: SAVE_PROMPT_DIALOG },
     ]);
     const inForm = acts.filter((c) => !outside.includes(c.sel));
-    // Fills, every Next and Review, and the close-out's Dismiss.
-    expect(inForm.length).toBeGreaterThan(5);
-    expect(inForm.map((c) => c.sel)).toContain(DISMISS);
-    expect(inForm.map((c) => c.sel)).toContain(nextOf(CONTACT));
-    expect(inForm.filter((c) => c.within !== FORM_DIALOG)).toEqual([]);
+    // Fills and every Next and Review: the scrolling content.
+    const content = inForm.filter((c) => c.sel !== DISMISS);
+    expect(content.length).toBeGreaterThan(5);
+    expect(content.map((c) => c.sel)).toContain(nextOf(CONTACT));
+    expect(content.filter((c) => c.within !== FORM_CONTENT)).toEqual([]);
+    // The close-out's Dismiss sits in the header: the whole dialog.
+    expect(inForm.filter((c) => c.sel === DISMISS)).toEqual([
+      { op: 'click', sel: DISMISS, within: FORM_DIALOG },
+    ]);
   });
 
   it('a guarded pace passes the form dialog through', async () => {
@@ -455,12 +470,12 @@ describe('runApply', () => {
       op: 'type',
       sel: '#qa',
       arg: 'ok',
-      within: FORM_DIALOG,
+      within: FORM_CONTENT,
     });
     expect(h.calls).toContainEqual({
       op: 'click',
       sel: '#next',
-      within: FORM_DIALOG,
+      within: FORM_CONTENT,
     });
   });
 
@@ -475,24 +490,78 @@ describe('runApply', () => {
     expect(h.closed()).toBe(true);
   });
 
-  it('a stop with the save prompt already open clicks Discard and never Dismiss', async () => {
+  it('a save prompt open over the form stops the run before any form action; Discard is first', async () => {
     const h = harness({
       screens: {
         job: { html: JOB, on: { [EASY_APPLY]: 'backdrop' } },
-        // Next on this page leaves it as it is: the step does not change.
         backdrop: { html: BACKDROP_PROMPT, on: { [BACKDROP_DISCARD]: 'gone' } },
         gone: { html: JOB },
       },
     });
     const run = await runApply('123', h.deps);
     expect(run.outcome).toBe('safety-stop');
-    const clicks = h.calls.filter((c) => c.op === 'click');
-    expect(clicks.map((c) => c.sel)).not.toContain(DISMISS);
-    expect(clicks.at(-1)).toEqual({
+    expect(run.stop).toMatchObject({
+      kind: 'unexpected-page',
+      detail: 'the save prompt is open',
+    });
+    // No fill, no Next, no Dismiss: after Easy Apply, only the Discard.
+    expect(h.acts()).toEqual([
+      `click ${EASY_APPLY}`,
+      `click ${BACKDROP_DISCARD}`,
+    ]);
+    expect(h.calls.filter((c) => c.op === 'click').at(-1)).toEqual({
       op: 'click',
       sel: BACKDROP_DISCARD,
       within: SAVE_PROMPT_DIALOG,
     });
+    expect(run.questions).toEqual([]);
+    expect(h.closed()).toBe(true);
+  });
+
+  it('a save prompt that opens mid-step stops the next fill', async () => {
+    const step = synth({ fields: [A, B] });
+    const h = harness({
+      screens: {
+        job: { html: JOB, on: { [EASY_APPLY]: 'step' } },
+        // Typing into A lands a press on the backdrop: the prompt opens.
+        step: { html: step, on: { '#qa': 'prompted' } },
+        prompted: { html: withPrompt(step), on: { '#discard': 'gone' } },
+        gone: { html: JOB },
+      },
+    });
+    const run = await runApply('123', h.deps);
+    expect(run.stop).toMatchObject({
+      kind: 'unexpected-page',
+      detail: 'the save prompt is open',
+    });
+    expect(h.acts()).toEqual([
+      `click ${EASY_APPLY}`,
+      'type #qa ok',
+      'click #discard',
+    ]);
+    expect(h.closed()).toBe(true);
+  });
+
+  it('a save prompt whose dialog cannot be pinned gets no press; the page just closes', async () => {
+    // A third open dialog: the prompt's own dialog is no longer unique.
+    const extra = SAVE_PROMPT.replace(
+      '</body>',
+      '<dialog data-testid="dialog" open></dialog></body>',
+    );
+    const h = harness({
+      screens: {
+        job: { html: JOB, on: { [EASY_APPLY]: 'contact' } },
+        contact: { html: CONTACT, on: { [nextOf(CONTACT)]: 'review' } },
+        review: { html: REVIEW, on: { [DISMISS]: 'prompt' } },
+        prompt: { html: extra, on: { [DISCARD]: 'gone' } },
+        gone: { html: JOB },
+      },
+    });
+    const run = await runApply('123', h.deps);
+    expect(run.outcome).toBe('reached-review');
+    const acts = h.acts();
+    expect(acts.at(-1)).toBe(`click ${DISMISS}`);
+    expect(acts).not.toContain(`click ${DISCARD}`);
     expect(h.closed()).toBe(true);
   });
 

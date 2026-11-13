@@ -39,6 +39,13 @@ export const FORM_HEADER = '#dialog-header';
  * (review-save-prompt.html).
  */
 export const FORM_DIALOG = 'dialog[aria-labelledby="dialog-header"]';
+/**
+ * The form's scrolling content: it holds the fields and the footer with
+ * Next, Review and Submit (step-contact.html, step-resume.html, review.html
+ * and every step and review fixture), so it is the visible box (`within`)
+ * for fills and the Next/Review click. The header's Dismiss is outside it.
+ */
+export const FORM_CONTENT = `${FORM_DIALOG} [data-testid="dialog-content"]`;
 /** The form header's `h2` reads "Apply to <company>" (step-contact.html). */
 export const FORM_COMPANY_PREFIX = 'Apply to ';
 /** The step buttons: Back, Next, Review, Submit application (step-resume.html). */
