@@ -307,4 +307,23 @@ describe('apply reports', () => {
     }
     expect(existsSync(dirs.privateRuns)).toBe(false);
   });
+
+  it("a pace refusal's message is in the full report, not the redacted copy", () => {
+    const bank = makeBank();
+    const message = 'pace: target is still off-screen after 40 wheel notches';
+    const run: ApplyRun = {
+      ...makeRun(bank),
+      stop: {
+        kind: 'unexpected-page',
+        step: 2,
+        detail: 'the page did not take an input',
+        error: message,
+        pathPrefix: '/jobs/',
+      },
+    };
+    expect(formatRunMarkdown(run, bank)).toContain(`Error: ${message}`);
+    const redacted = redactApplyRun(run, bank);
+    expect(JSON.stringify(redacted)).not.toContain(message);
+    expect(formatRedactedSummary(redacted)).not.toContain(message);
+  });
 });

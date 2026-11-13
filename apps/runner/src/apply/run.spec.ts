@@ -1192,9 +1192,19 @@ describe('runApply', () => {
       kind: 'unexpected-page',
       step: 2,
       detail: 'the page did not take an input',
+      error: 'pace: target has no box (hidden or detached)',
       pathPrefix: '/jobs/',
     });
     expect(h.closed()).toBe(true);
+  });
+
+  it("a pace refusal keeps its message's first line, at most 200 characters", async () => {
+    const long = `pace: target is off-screen ${'x'.repeat(300)}\nsecond line`;
+    const h = failingClick('#_r_3d_', new Error(long));
+    const run = await runApply('123', h.deps);
+    expect(run.stop?.kind).toBe('unexpected-page');
+    expect(run.stop?.error).toBe(long.split('\n')[0]?.slice(0, 200));
+    expect(run.stop?.error).toHaveLength(200);
   });
 
   it('a page that will not open is bridge-unavailable', async () => {

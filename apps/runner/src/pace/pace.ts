@@ -89,6 +89,13 @@ const REVEAL_MAX_NOTCHES = 40;
 const REVEAL_MAX_STUCK = 2;
 /** Wait after a burst for smooth scrolling to settle before re-reading the box. */
 const SCROLL_SETTLE_MS = 300;
+/**
+ * When scrolling stops moving a target, it is taken as revealed if at least
+ * this share of its height, and this many px, is inside the effective view
+ * (a Next button at the very bottom of a dialog's content).
+ */
+const REVEAL_END_SHARE = 0.6;
+const REVEAL_END_MIN_PX = 12;
 /** A revealed target sits at least this share of the window from its edge. */
 const REVEAL_MARGIN = 0.15;
 /** The `<select>` options after the checked one (plain CSS, no script). */
@@ -376,8 +383,13 @@ export function createPace(
     let stuck = 0;
     let lastY: number | null = null;
     for (;;) {
-      const box = await target.boundingBox();
-      if (!box) throw new Error('pace: target has no box (hidden or detached)');
+      let box = await boxOf(target);
+      if (lastY !== null && box.y === lastY) {
+        // Smooth scrolling can take longer than one settle: look again
+        // before counting the burst as one that moved nothing.
+        await wait(SCROLL_SETTLE_MS);
+        box = await boxOf(target);
+      }
       const view = await viewport();
       const area = await effectiveView(within, view);
       const distance = revealDistance(box, area);
@@ -385,6 +397,10 @@ export function createPace(
       if (lastY !== null) {
         stuck = box.y === lastY ? stuck + 1 : 0;
         if (stuck >= REVEAL_MAX_STUCK) {
+          // The end of the scroll: a target mostly in view is taken as is
+          // (the press lands in its visible part); anything less is refused.
+          const shown = mostlyShown(box, area);
+          if (shown) return shown;
           throw new Error(
             'pace: target is off-screen and scrolling does not move it',
           );
@@ -418,6 +434,26 @@ export function createPace(
       used += burst;
       await wait(SCROLL_SETTLE_MS);
     }
+  }
+
+  /** The target's box, or a refusal when it has none. */
+  async function boxOf(target: Locator): Promise<Box> {
+    const box = await target.boundingBox();
+    if (!box) throw new Error('pace: target has no box (hidden or detached)');
+    return box;
+  }
+
+  /**
+   * The part of `box` inside `area` when it covers at least
+   * REVEAL_END_SHARE of the box's height and REVEAL_END_MIN_PX, else null.
+   */
+  function mostlyShown(box: Box, area: Box): Box | null {
+    const shown = intersect(box, area);
+    if (!shown) return null;
+    const enough =
+      shown.height >= box.height * REVEAL_END_SHARE &&
+      shown.height >= REVEAL_END_MIN_PX;
+    return enough ? shown : null;
   }
 
   /**

@@ -39,8 +39,9 @@ const PACE_REFUSAL = 'pace: ';
 /**
  * Any other error mid-run. Once `stopReason()` is set it is that stop.
  * A pace refusal means the page didn't take an input: `unexpected-page`.
- * Anything else is `error`, named in `detail` and quoted (first line only)
- * in `error`, which only the full report shows.
+ * Anything else is `error`, named in `detail`. Either way the message's
+ * first line (at most 200 characters) is kept in `error`, which only the
+ * full report shows.
  */
 export function asRunEnd(e: unknown, deps: ApplyDeps): RunEnd {
   if (e instanceof RunEnd) return e;
@@ -49,13 +50,19 @@ export function asRunEnd(e: unknown, deps: ApplyDeps): RunEnd {
     return new RunEnd('stopped', { kind: 'bridge', detail: reason });
   }
   const message = e instanceof Error ? e.message : String(e);
+  const firstLine = (message.split('\n')[0] ?? '').slice(0, 200);
   if (message.startsWith(PACE_REFUSAL)) {
-    return safety('unexpected-page', 'the page did not take an input');
+    // Pace's own words, value-free; `error` stays full-report-only.
+    return new RunEnd('safety-stop', {
+      kind: 'unexpected-page',
+      detail: 'the page did not take an input',
+      error: firstLine,
+    });
   }
   return new RunEnd('stopped', {
     kind: 'error',
     detail: e instanceof Error ? e.name : typeof e,
-    error: (message.split('\n')[0] ?? '').slice(0, 200),
+    error: firstLine,
   });
 }
 

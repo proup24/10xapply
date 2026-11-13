@@ -180,11 +180,23 @@ function fake(opts: Opts = {}) {
     } as unknown as Locator;
   };
   /** A target on a page that scrolls by `pxPerPx` CSS px per wheel px. */
-  const scrolling = (box: Box, pxPerPx = 1) =>
+  const scrolling = (box: Box, pxPerPx = 1, maxScroll = Infinity) =>
     ({
       boundingBox: async () => {
         log.push({ kind: 'box', t });
-        return { ...box, y: box.y - scrolled * pxPerPx };
+        return { ...box, y: box.y - Math.min(scrolled, maxScroll) * pxPerPx };
+      },
+    }) as unknown as Locator;
+  /** A target whose page shows each wheel only `lag` ms after it was sent. */
+  const lagging = (box: Box, lag: number) =>
+    ({
+      boundingBox: async () => {
+        log.push({ kind: 'box', t });
+        const shown = log
+          .filter((e): e is Ev & { kind: 'wheel' } => e.kind === 'wheel')
+          .filter((w) => w.t + lag <= t)
+          .reduce((n, w) => n + w.dy, 0);
+        return { ...box, y: box.y - shown };
       },
     }) as unknown as Locator;
   /**
@@ -247,6 +259,7 @@ function fake(opts: Opts = {}) {
     clock,
     locator,
     scrolling,
+    lagging,
     select,
     uploadOnChooser,
     maxInFlight: () => maxInFlight,
@@ -488,6 +501,17 @@ describe('createPace', () => {
       expect(of(f.log, 'down')).toHaveLength(0);
     });
 
+    it('a target that moves only after a slow settle is not counted as stuck', async () => {
+      const f = setup();
+      // One burst of two notches brings it into view, but the page shows
+      // each wheel only 450 ms later: after the usual 300 ms settle it
+      // still looks unmoved.
+      const below: Box = { x: 600, y: 790, width: 120, height: 36 };
+      await f.pace.click(f.lagging(below, 450));
+      expect(of(f.log, 'wheel')).toHaveLength(2);
+      expect(of(f.log, 'down')).toHaveLength(1);
+    });
+
     it('stops after 40 notches when the target is still off-screen', async () => {
       const f = setup();
       // Each 100 px notch moves this page by only 10 px.
@@ -640,6 +664,36 @@ describe('createPace', () => {
         expect(of(f.log, 'down')).toHaveLength(0);
         expect(of(f.log, 'kdown')).toHaveLength(0);
       }
+    });
+
+    it('at the end of scroll, presses a target mostly inside the box, in its visible part', async () => {
+      const f = setup();
+      // 50 px tall; scrolling ends with its bottom 10 px (20%) below the box.
+      const target: Box = { x: 700, y: 700, width: 120, height: 50 };
+      await f.pace.click(f.scrolling(target, 1, 140), {
+        within: f.locator([DIALOG]),
+      });
+      const downs = of(f.log, 'down');
+      expect(downs).toHaveLength(1);
+      const press = of(f.log, 'move')
+        .filter((m) => m.t <= downs[0].t)
+        .at(-1);
+      // The visible part: y 560 to the dialog's bottom edge (600).
+      expect(press && inside(press, { ...target, y: 560, height: 40 })).toBe(
+        true,
+      );
+    });
+
+    it('at the end of scroll, refuses a target only 30% inside the box', async () => {
+      const f = setup();
+      const target: Box = { x: 700, y: 700, width: 120, height: 50 };
+      // Scrolling ends at y 585: 15 px of 50 inside the box.
+      await expect(
+        f.pace.click(f.scrolling(target, 1, 115), {
+          within: f.locator([DIALOG]),
+        }),
+      ).rejects.toThrow(/^pace: /);
+      expect(of(f.log, 'down')).toHaveLength(0);
     });
 
     it('without within, a click is the same as before', async () => {
