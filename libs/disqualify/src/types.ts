@@ -4,9 +4,12 @@ export const RULE_KINDS = [
   'no-sponsorship',
   'asks-authorization',
   'asks-sponsorship',
+  'offers-relocation',
+  'requires-location',
+  'asks-location',
 ] as const;
 export const LOG_KINDS = [
-  'location-requirement',
+  'location-preference',
   'language-requirement',
 ] as const;
 export type RuleKind = (typeof RULE_KINDS)[number];
@@ -23,7 +26,7 @@ export interface Claim {
   /** countryFrom 'job-description': the title or description text naming the place. */
   placeQuote: string | null;
   source: ClaimSource;
-  /** Language claims: the language. Location claims: the place as written. Else null. */
+  /** Location kinds: the place as written. Language: the language. Else null. */
   detail: string | null;
 }
 export interface CheckJob {

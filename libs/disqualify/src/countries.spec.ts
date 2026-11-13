@@ -47,6 +47,39 @@ describe('expandCountries', () => {
   });
 });
 
+describe('new regions', () => {
+  it('new regions expand', () => {
+    expect(expandCountries(['MENA']).has('MA')).toBe(true);
+    expect(expandCountries(['EMEA']).has('MA')).toBe(true);
+    expect(expandCountries(['AFRICA']).has('MA')).toBe(true);
+    const europe = expandCountries(['EUROPE']);
+    expect(europe.has('MA')).toBe(false);
+    for (const c of ['GB', 'CH', 'UA', 'TR', 'RU'])
+      expect(europe.has(c)).toBe(true);
+    expect(expandCountries(['NORTH_AMERICA'])).toEqual(
+      new Set(['US', 'CA', 'MX']),
+    );
+    const americas = expandCountries(['AMERICAS']);
+    for (const c of ['US', 'BR', 'AR']) expect(americas.has(c)).toBe(true);
+    const latam = expandCountries(['LATAM']);
+    expect(latam.has('BR')).toBe(true);
+    expect(latam.has('MX')).toBe(true);
+    expect(latam.has('US')).toBe(false);
+    const apac = expandCountries(['APAC']);
+    for (const c of ['JP', 'AU', 'IN']) expect(apac.has(c)).toBe(true);
+    expect(apac.has('MA')).toBe(false);
+  });
+  it('every region member is an ISO code', () => {
+    for (const [name, members] of Object.entries(REGIONS))
+      for (const m of members)
+        expect(ISO_CODES.has(m), `${name} ${m}`).toBe(true);
+  });
+  it('unknown region stays invalid', () => {
+    expect(isCountryToken('NORDICS')).toBe(false);
+    expect(() => expandCountries(['NORDICS'])).toThrow('invalid country token');
+  });
+});
+
 describe('isCountryToken', () => {
   it('accepts codes and regions, rejects names', () => {
     expect(isCountryToken('United States')).toBe(false);

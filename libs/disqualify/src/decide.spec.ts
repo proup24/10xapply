@@ -84,7 +84,7 @@ describe('decide', () => {
   });
   it('location and language claims alone pass', () => {
     expect(
-      disq([c('location-requirement', ['US']), c('language-requirement', [])]),
+      disq([c('location-preference', ['US']), c('language-requirement', [])]),
     ).toEqual({ kind: 'pass' });
   });
   it('ignores offers-sponsorship in the claims argument', () => {
@@ -93,7 +93,7 @@ describe('decide', () => {
   it('keeps every disqualifying claim in order', () => {
     const a = c('requires-authorization', ['US']);
     const b = c('asks-sponsorship', ['GB']);
-    const log = c('location-requirement', ['US']);
+    const log = c('location-preference', ['US']);
     expect(disq([a, log, b])).toEqual({
       kind: 'disqualified',
       reasons: [a, b],

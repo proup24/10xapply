@@ -22,7 +22,18 @@ export interface ValidateContext {
   place: string;
 }
 
-const ASKS = new Set(['asks-authorization', 'asks-sponsorship']);
+const ASKS = new Set([
+  'asks-authorization',
+  'asks-sponsorship',
+  'asks-location',
+]);
+const JOB_PAGE_ONLY = new Set(['offers-sponsorship', 'offers-relocation']);
+const NEEDS_DETAIL = new Set([
+  'requires-location',
+  'asks-location',
+  'location-preference',
+  'language-requirement',
+]);
 
 /**
  * Checks claims against the text they came from. Problems are in our own words
@@ -53,15 +64,11 @@ export function validateClaims(
       else if (!normalizeText(ctx.place).includes(pq))
         bad('placeQuote not found in the job title or description');
     }
-    if (claim.kind === 'offers-sponsorship' && claim.source !== 'job-page')
-      bad('offers-sponsorship must come from the job page');
+    if (JOB_PAGE_ONLY.has(claim.kind) && claim.source !== 'job-page')
+      bad(`${claim.kind} must come from the job page`);
     if (ASKS.has(claim.kind) && claim.source === 'job-page')
       bad(`${claim.kind} must come from a form question`);
-    if (
-      (claim.kind === 'location-requirement' ||
-        claim.kind === 'language-requirement') &&
-      (claim.detail ?? '').trim() === ''
-    )
+    if (NEEDS_DETAIL.has(claim.kind) && (claim.detail ?? '').trim() === '')
       bad('detail is missing');
   });
   return problems;

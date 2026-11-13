@@ -131,6 +131,84 @@ describe('validateClaims', () => {
     ]);
     expect(validateClaims([lang('German')], ctx())).toEqual([]);
   });
+  it('offers-relocation must come from the job page', () => {
+    expect(
+      validateClaims(
+        [
+          claim({
+            kind: 'offers-relocation',
+            source: 's1-q1',
+            quote: 'authorized to work in the uk',
+          }),
+        ],
+        ctx(),
+      ),
+    ).toEqual(['claim 0: offers-relocation must come from the job page']);
+  });
+  it('asks-location must come from a form question', () => {
+    expect(
+      validateClaims(
+        [claim({ kind: 'asks-location', detail: 'Texas' })],
+        ctx(),
+      ),
+    ).toEqual(['claim 0: asks-location must come from a form question']);
+  });
+  it('location kinds need a detail', () => {
+    for (const kind of [
+      'requires-location',
+      'asks-location',
+      'location-preference',
+    ] as const) {
+      const p = validateClaims(
+        [
+          claim({
+            kind,
+            source: kind === 'asks-location' ? 's1-q1' : 'job-page',
+            quote:
+              kind === 'asks-location'
+                ? 'authorized to work in the uk'
+                : 'based in austin',
+            detail: null,
+          }),
+        ],
+        ctx(),
+      );
+      expect(p, kind).toEqual(['claim 0: detail is missing']);
+    }
+    expect(
+      validateClaims(
+        [
+          claim({
+            kind: 'offers-relocation',
+            quote: 'based in austin',
+            detail: null,
+          }),
+        ],
+        ctx(),
+      ),
+    ).toEqual([]);
+  });
+  it('a closed-list question quotes its label', () => {
+    const label = 'Which country are you based in?';
+    const c = {
+      sources: new Map([['s1-q1', `${label}\nGermany\nAustria\nSwitzerland`]]),
+      place: '',
+    };
+    expect(
+      validateClaims(
+        [
+          claim({
+            kind: 'asks-location',
+            countries: ['DE', 'AT', 'CH'],
+            quote: label,
+            source: 's1-q1',
+            detail: 'Germany, Austria, Switzerland',
+          }),
+        ],
+        c,
+      ),
+    ).toEqual([]);
+  });
   it('names the claim index', () => {
     const p = validateClaims([claim(), claim({ source: 'nope' })], ctx());
     expect(p).toEqual(['claim 1: source is not in this check']);

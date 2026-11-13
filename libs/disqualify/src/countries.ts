@@ -61,7 +61,53 @@ const EU = [
   'SE',
 ] as const;
 
-/** Region names and aliases the model may use; expanded here, never by the model. */
+const codes = (list: string): string[] => list.split(/\s+/).filter(Boolean);
+
+// UN M49 Europe (all four sub-regions), plus TR and CY, which M49 puts in
+// Western Asia. XK (Kosovo) has no ISO code and is left out.
+const EUROPE = codes(`
+AL AD AT AX BA BE BG BY CH CY CZ DE DK EE ES FI FO FR GB GG GI GR HR HU
+IE IM IS IT JE LI LT LU LV MC MD ME MK MT NL NO PL PT RO RS RU SE SI SJ
+SK SM TR UA VA
+`);
+
+// UN M49 Africa (all five sub-regions), including the territories M49 lists.
+const AFRICA = codes(`
+AO BF BI BJ BW CD CF CG CI CM CV DJ DZ EG EH ER ET GA GH GM GN GQ GW KE
+KM LR LS LY MA MG ML MR MU MW MZ NA NE NG RE RW SC SD SH SL SN SO SS ST
+SZ TD TG TN TZ UG YT ZA ZM ZW IO TF
+`);
+
+// World Bank Middle East and North Africa list; West Bank and Gaza is PS.
+const MENA = codes(`
+AE BH DJ DZ EG IL IQ IR JO KW LB LY MA MT OM PS QA SA SY TN YE
+`);
+
+// North America as used in job posts: the three NAFTA/USMCA countries.
+const NORTH_AMERICA = ['US', 'CA', 'MX'];
+
+// UN M49 Latin America and the Caribbean.
+const LATAM = codes(`
+AG AI AR AW BB BL BO BQ BR BS BV BZ CL CO CR CU CW DM DO EC FK GD GF GP
+GS GT GY HN HT JM KN KY LC MF MQ MS MX NI PA PE PR PY SR SV SX TC TT UY
+VC VE VG VI
+`);
+
+// UN M49 Americas: Latin America and the Caribbean plus Northern America.
+const AMERICAS = [...LATAM, 'BM', 'CA', 'GL', 'PM', 'US'];
+
+// UN M49 Asia plus Oceania, without the Western Asia members already in
+// MENA, and without CY and TR, which are in EUROPE.
+const APAC = codes(`
+AF AM AU AS AZ BD BN BT CC CK CN CX FJ FM GE GU HK HM ID IN JP KG KH KI
+KP KR KZ LA LK MH MM MN MO MP MV MY NC NF NP NR NU NZ PF PG PH PK PN PW
+SB SG TH TJ TK TL TM TO TV TW UM UZ VN VU WF WS
+`);
+
+/**
+ * Region names and aliases the model may use; expanded here, never by the
+ * model. Keys are upper case; `_` stands for a space.
+ */
 export const REGIONS: Record<string, readonly string[]> = {
   EU,
   EEA: [...EU, 'IS', 'LI', 'NO'],
@@ -73,6 +119,15 @@ export const REGIONS: Record<string, readonly string[]> = {
     'CH',
   ],
   UK: ['GB'],
+  EUROPE,
+  // EUROPE, MENA and AFRICA together.
+  EMEA: [...new Set([...EUROPE, ...MENA, ...AFRICA])],
+  MENA,
+  AFRICA,
+  NORTH_AMERICA,
+  LATAM,
+  AMERICAS,
+  APAC,
 };
 
 export function isCountryToken(t: string): boolean {
