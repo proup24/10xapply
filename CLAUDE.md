@@ -59,7 +59,7 @@ Build in small slices, one per session: brainstorm, then spec (`docs/superpowers
 - `pnpm nx run runner:facts-check [-- <path>]` checks the fact bank file and the disqualify rules file (`disqualify.yaml` in the private folder) and prints counts and problems, never a value or a country code. The optional path is the bank's, resolved from the repo root. In a non-TTY shell add `--outputStyle=stream` to see its output.
 - `pnpm nx run runner:answers-eval [-- --set example|private --answer-model m --verify-model m --judge-model m --repeat n --case id]` runs the answerer's golden eval. It uses the subscription, never in CI. The default set is `example`. The private set prints and reports only ids and counts, and writes the full results under `private/answers-eval/`. The author runs the private set; see Guardrails.
 - `pnpm nx run runner:disqualify-eval [-- --model m --repeat n --case id]` runs the disqualification extractor's golden eval on the committed example set. It uses the subscription, never in CI, and never touches LinkedIn.
-- `pnpm nx run runner:apply -- <job-url> --dry-run` walks an Easy Apply form, answers and fills it, and stops on the review page. It needs the disqualify rules file and can end `disqualified` (on the job page or a form step) before filling anything. It never submits; without `--dry-run` it exits 2.
+- `pnpm nx run runner:apply -- <job-url> --dry-run` walks an Easy Apply form, answers and fills it, and stops on the review page. It needs the disqualify rules file and can end `disqualified` (on the job page or a form step, for a work authorization or a location requirement) before filling anything. It never submits; without `--dry-run` it exits 2.
 - Quote a long LinkedIn job URL given to `runner:apply`, or replace it with `https://www.linkedin.com/jobs/view/<id>/`: an unquoted `&` backgrounds the command.
 - `pnpm nx run runner:snapshot -- <job-url>` opens the job in a run window while the author drives by hand and presses Enter to save each page's DOM (shadow roots included) under the private folder's `snapshots/`. It touches LinkedIn.
 - `pnpm nx run runner:snapshot-scrub` turns the raw snapshots into scrubbed copies in `snapshots/`, printing counts only. It never touches LinkedIn.
@@ -83,7 +83,7 @@ See [docs/roadmap/README.md](docs/roadmap/README.md): phases, slice order and th
 - `pace-recordings/` holds timing-only recordings and the pace profile. It is git-ignored, Claude may read it, and it is never committed.
 - Known guard false positive: any Bash command whose text names the `pace-recordings/runner/` folder is blocked as a runner launch. Use a glob.
 - The author's fact bank is `fact-bank.yaml` in the private folder (`private/`). Claude may run the check but never reads the file.
-- The author's disqualification rules are `disqualify.yaml` in the private folder. Claude may check it through `facts-check` but never reads it.
+- The author's disqualification rules are `disqualify.yaml` in the private folder (`authorizedCountries` and `locatedIn`). Claude may check it through `facts-check` but never reads it.
 - Personal overrides go in `.claude/settings.local.json`.
 - Prettier runs automatically on files Claude edits or writes.
 
