@@ -7,7 +7,12 @@ import {
   extractFromQuestions,
   type ExtractContext,
 } from '../extract.js';
-import { OFFER_KINDS, type Claim, type CheckQuestion } from '../types.js';
+import {
+  OFFER_KINDS,
+  type Claim,
+  type ClaimKind,
+  type CheckQuestion,
+} from '../types.js';
 import {
   DisqualifyGoldenError,
   type DisqCase,
@@ -53,9 +58,9 @@ const sameCountries = (a: string[], b: string[]): boolean => {
   return x.size === y.size && [...x].every((c) => y.has(c));
 };
 
-const kindMatches = (expected: ExpectedClaim['kind'], kind: string) =>
+const kindMatches = (expected: ExpectedClaim['kind'], kind: ClaimKind) =>
   Array.isArray(expected)
-    ? (expected as string[]).includes(kind)
+    ? expected.some((k) => k === kind)
     : expected === kind;
 
 /**
@@ -90,9 +95,7 @@ async function runOnce(
       const r = await extractFromJob(job, ctx);
       calls.push(...r.calls);
       claims.push(...r.claims);
-      offers = r.claims.filter((x) =>
-        (OFFER_KINDS as readonly string[]).includes(x.kind),
-      );
+      offers = r.claims.filter((x) => OFFER_KINDS.some((k) => k === x.kind));
     }
     const q = await extractFromQuestions(questions, job, ctx);
     calls.push(...q.calls);

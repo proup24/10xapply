@@ -203,7 +203,7 @@ describe('runDisqualifyGolden', () => {
           claim({
             kind: 'offers-relocation',
             countries: ['DE'],
-            quote: 'We offer visa support.',
+            quote: 'Relocation package provided.',
             source: 'job-page',
           }),
         ],
@@ -222,7 +222,10 @@ describe('runDisqualifyGolden', () => {
     const r = await runDisqualifyGolden({
       golden: golden({
         checkJob: true,
-        job,
+        job: {
+          ...job,
+          description: 'Relocation package provided. Based in Berlin.',
+        },
         expect: {
           verdict: 'pass',
           claims: [{ kind: 'asks-location', countries: ['DE'] }],

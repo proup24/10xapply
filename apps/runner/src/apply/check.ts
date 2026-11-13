@@ -95,7 +95,7 @@ export async function awaitCheck(
 
 /** The job page's sponsorship and relocation offers, the only offers that count. */
 export const offersOf = (claims: Claim[]): Claim[] =>
-  claims.filter((c) => (OFFER_KINDS as readonly string[]).includes(c.kind));
+  claims.filter((c) => OFFER_KINDS.some((k) => k === c.kind));
 
 /** Ends the run as `disqualified` when the rules say so. */
 export function judge(w: Checked, claims: Claim[], offers: Claim[]): void {

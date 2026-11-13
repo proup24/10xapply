@@ -6,7 +6,8 @@
 # extractor must report. `expect.claims` lists only the rule-kind claims that
 # matter for the verdict and the country. A run passes when the verdict matches
 # and every expected claim has a returned claim of the same kind with the same
-# countries (regions and UK expanded). Extra claims are allowed.
+# countries (regions and UK expanded). An expected `kind` may be a list: any one
+# of those kinds matches. Extra claims are allowed.
 # Question ids are assigned s1-q1, s1-q2, ... in order.
 # `checkJob` defaults to true when a case gives its own `job`; the default job
 # is then only context for the questions check.
@@ -676,6 +677,22 @@ cases:
         - kind: [requires-location, requires-authorization]
           countries: [US]
 
+  - id: loc-q-onsite-office-job-place
+    group: location
+    job:
+      title: Embedded Engineer
+      company: Lindqvist Robotics
+      description: |
+        Write firmware for warehouse robots with our hardware team in Munich.
+    questions:
+      - label: Can you work on-site at our office?
+        type: radio
+        options: [Yes, 'No']
+    checkJob: false
+    expect:
+      verdict: disqualified
+      claims: [{ kind: asks-location, countries: [DE] }]
+
   # Mixed: one family's offer never covers the other family's requirement.
   - id: loc-mixed-relocation-no-sponsorship
     group: location
@@ -856,6 +873,23 @@ cases:
       description: |
         Write firmware for warehouse robots. On-site in Munich, relocation
         package provided.
+    expect:
+      verdict: pass
+      claims: []
+
+  - id: loc-pass-job-location-no-place
+    group: location
+    job:
+      title: Backend Engineer
+      company: Harbor Metrics
+      description: |
+        This role is fully remote. Build the ingestion services behind our
+        monitoring platform in Go.
+    questions:
+      - label: Are you located in the job's location?
+        type: radio
+        options: [Yes, 'No']
+    checkJob: false
     expect:
       verdict: pass
       claims: []

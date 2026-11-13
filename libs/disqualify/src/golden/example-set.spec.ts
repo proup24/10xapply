@@ -12,6 +12,7 @@ const group = (g: string) => golden.cases.filter((c) => c.group === g);
 describe('golden/example.yaml', () => {
   it('uses the example rules', () => {
     expect(golden.rules.authorizedCountries).toEqual(['MA']);
+    expect(golden.rules.locatedIn).toEqual(['MA']);
   });
 
   it.each([

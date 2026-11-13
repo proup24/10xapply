@@ -65,6 +65,7 @@ const codes = (list: string): string[] => list.split(/\s+/).filter(Boolean);
 
 // UN M49 Europe (all four sub-regions), plus TR and CY, which M49 puts in
 // Western Asia. XK (Kosovo) has no ISO code and is left out.
+// AM, AZ and GE are not here: they are in APAC.
 const EUROPE = codes(`
 AL AD AT AX BA BE BG BY CH CY CZ DE DK EE ES FI FO FR GB GG GI GR HR HU
 IE IM IS IT JE LI LT LU LV MC MD ME MK MT NL NO PL PT RO RS RU SE SI SJ

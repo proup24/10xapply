@@ -341,7 +341,7 @@ grep -l 'location-requirement' run-reports/apply-*.json | wc -l; ls run-reports/
 
 - [ ] **Step 5: Run the eval three times** (example set, allowed without asking)
 
-Run: `pnpm nx run runner:disqualify-eval -- --repeat 3 --outputStyle=stream`
+Run: `pnpm nx run runner:disqualify-eval --outputStyle=stream -- --repeat 3` (`--outputStyle` goes before the `--`; after it, the runner rejects the flag)
 Expected: every case passes on all three repeats, the 05b cases included. When a case fails, read its result under `run-reports/disqualify-eval/`. Fix the prompt (Task 4's file) rather than the case, unless the case contradicts the spec. Re-run until it passes, and commit the prompt fixes with this task.
 
 - [ ] **Step 6: Commit**

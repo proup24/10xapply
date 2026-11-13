@@ -1,14 +1,14 @@
 import { expandCountries } from './countries.js';
 import type { Rules } from './rules.js';
-import type { Claim } from './types.js';
+import type { Claim, RuleKind } from './types.js';
 
 export type Verdict =
   { kind: 'pass' } | { kind: 'disqualified'; reasons: Claim[] };
 
 interface Family {
-  deciding: readonly string[];
-  neverExempt: readonly string[];
-  offer: string;
+  deciding: readonly RuleKind[];
+  neverExempt: readonly RuleKind[];
+  offer: RuleKind;
   allowed: (r: Rules) => string[];
 }
 
@@ -47,12 +47,14 @@ export function decide(
 ): Verdict {
   const reasons: Claim[] = [];
   for (const claim of claims) {
-    const family = FAMILIES.find((f) => f.deciding.includes(claim.kind));
+    const family = FAMILIES.find((f) =>
+      f.deciding.some((k) => k === claim.kind),
+    );
     if (!family || claim.countries.length === 0) continue;
     const allowed = new Set(family.allowed(rules).map((c) => c.toUpperCase()));
     const codes = expandCountries(claim.countries);
     if ([...codes].some((c) => allowed.has(c))) continue;
-    if (family.neverExempt.includes(claim.kind)) {
+    if (family.neverExempt.some((k) => k === claim.kind)) {
       reasons.push(claim);
       continue;
     }

@@ -133,6 +133,18 @@ describe('decide', () => {
         'disqualified',
       );
     });
+    it('ignores offers-relocation in the claims argument', () => {
+      const k = c('requires-location', ['DE']);
+      expect(disq([reloc(['DE']), k])).toEqual({
+        kind: 'disqualified',
+        reasons: [k],
+      });
+    });
+    it('a relocation offer for a region exempts its countries', () => {
+      expect(disq([c('requires-location', ['DE'])], [reloc(['EU'])])).toEqual({
+        kind: 'pass',
+      });
+    });
     it('relocation offer with no country exempts all location', () => {
       expect(disq([c('asks-location', ['DE'])], [reloc([])])).toEqual({
         kind: 'pass',
