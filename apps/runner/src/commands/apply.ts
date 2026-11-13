@@ -51,6 +51,11 @@ const SUGGESTION_WAIT_MS = 5_000;
 const SUGGESTION_POLL_MS = 250;
 /** A read of one field: it is on the page already, so this is short. */
 const READ_TIMEOUT_MS = 5_000;
+/**
+ * Fill reads (values and checked state) give up after this: a selector the
+ * page re-rendered away should fail the fill fast, not wait 5 s.
+ */
+const FILL_READ_TIMEOUT_MS = 1_000;
 
 export interface ApplyCommandDeps {
   authorMode: boolean;
@@ -163,14 +168,35 @@ export function adaptApplyPage(
     html: () => bridge.pageHtml(),
     close: () => page.close(),
     locator: (sel) => page.locator(sel),
-    value: (sel) => page.locator(sel).inputValue({ timeout: READ_TIMEOUT_MS }),
-    checked: (sel) => page.locator(sel).isChecked({ timeout: READ_TIMEOUT_MS }),
+    value: (sel) =>
+      page.locator(sel).inputValue({ timeout: FILL_READ_TIMEOUT_MS }),
+    checked: (sel) =>
+      page.locator(sel).isChecked({ timeout: FILL_READ_TIMEOUT_MS }),
+    anyChecked: async (sel) => {
+      const inputs = page.locator(sel);
+      const n = await inputs.count();
+      if (n === 0) throw new Error('fill read: nothing matches');
+      for (let i = 0; i < n; i++) {
+        const on = await inputs
+          .nth(i)
+          .isChecked({ timeout: FILL_READ_TIMEOUT_MS });
+        if (on) return true;
+      }
+      return false;
+    },
+    checkedAt: async (sel, index, count) => {
+      const inputs = page.locator(sel);
+      if ((await inputs.count()) !== count) {
+        throw new Error('fill read: the inputs changed');
+      }
+      return inputs.nth(index).isChecked({ timeout: FILL_READ_TIMEOUT_MS });
+    },
     selectedText: async (sel) => {
       const chosen = page.locator(sel).locator('option:checked');
       if ((await chosen.count()) === 0) return null;
       const text = await chosen
         .first()
-        .textContent({ timeout: READ_TIMEOUT_MS });
+        .textContent({ timeout: FILL_READ_TIMEOUT_MS });
       return text === null ? null : clean(text);
     },
     suggestion: async (list, text) => {

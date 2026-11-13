@@ -15,14 +15,49 @@ export interface FillPage {
    * after 5 s. The string is that option's selector, for `pace.click`.
    */
   suggestion(listSelector: string, text: string): Promise<string | null>;
+  /** True when any input `selector` matches is checked; throws when none matches. */
+  anyChecked(selector: string): Promise<boolean>;
+  /**
+   * The checked state of the `index`th input `selector` matches; throws
+   * unless it still matches exactly `count` (the page changed under it).
+   */
+  checkedAt(selector: string, index: number, count: number): Promise<boolean>;
+}
+
+/** A page read that timed out or found nothing: the field did not take. */
+class ReadFailed extends Error {
+  constructor() {
+    super('a page read failed');
+    this.name = 'ReadFailed';
+  }
+}
+
+/** `page` with every read turned into a ReadFailed when it fails. */
+function guardReads(page: FillPage): FillPage {
+  const guard =
+    <A extends unknown[], R>(f: (...a: A) => Promise<R>) =>
+    (...a: A): Promise<R> =>
+      f(...a).catch(() => {
+        throw new ReadFailed();
+      });
+  return {
+    locator: (sel) => page.locator(sel),
+    value: guard((sel) => page.value(sel)),
+    checked: guard((sel) => page.checked(sel)),
+    selectedText: guard((sel) => page.selectedText(sel)),
+    suggestion: guard((list, text) => page.suggestion(list, text)),
+    anyChecked: guard((sel) => page.anyChecked(sel)),
+    checkedAt: guard((sel, i, n) => page.checkedAt(sel, i, n)),
+  };
 }
 export interface Resume {
   fileName: string;
   windowsPath: string;
 }
 /**
- * Why a fill failed. `not-taken`: after a clear the field was not empty, or
- * after typing it did not hold the typed text.
+ * Why a fill failed. `not-taken`: after a clear the field was not empty,
+ * after typing it did not hold the typed text, or a page read timed out or
+ * found nothing.
  */
 export type FillProblem =
   'not-typeable' | 'not-taken' | 'no-option' | 'no-suggestion' | 'no-resume';
@@ -108,6 +143,21 @@ const asMany = (v: AnswerValue) => (Array.isArray(v) ? v : [v]);
  * each clear and each typing).
  */
 export async function fillField(
+  f: ReadField,
+  value: AnswerValue,
+  ctx: Ctx,
+): Promise<FillResult> {
+  try {
+    return await fillGuarded(f, value, { ...ctx, page: guardReads(ctx.page) });
+  } catch (e) {
+    // A read that timed out or found nothing is a failed fill, never an
+    // error stop; pace refusals and other errors still propagate.
+    if (e instanceof ReadFailed) return fail('not-taken');
+    throw e;
+  }
+}
+
+async function fillGuarded(
   f: ReadField,
   value: AnswerValue,
   ctx: Ctx,
@@ -214,8 +264,22 @@ async function optionStates(
   const sels = f.optionSelectors;
   if (!sels || sels.length !== options.length) return null;
   const states: boolean[] = [];
-  for (const sel of sels) states.push(await page.checked(sel));
+  for (let i = 0; i < sels.length; i++) {
+    states.push(await stateOf(f, page, i));
+  }
   return states;
+}
+
+/**
+ * Option `i`'s (or a checkbox's) checked state, read live. Through the
+ * reader's stable identity (shared aria-label and position) when it found
+ * one, since LinkedIn's per-load ids change when it re-renders; else
+ * through the id selector.
+ */
+function stateOf(f: ReadField, page: FillPage, i: number): Promise<boolean> {
+  const g = f.stableGroup;
+  if (g) return page.checkedAt(g.selector, i, g.count);
+  return page.checked(f.optionSelectors?.[i] ?? f.selector);
 }
 
 async function fillRadio(
@@ -240,7 +304,7 @@ async function fillRadio(
     return done(false);
   }
   await pace.click(page.locator(press), opts(ctx));
-  if (!(await page.checked(sel))) return fail('no-option');
+  if (!(await stateOf(f, page, index))) return fail('no-option');
   return done(states.some(Boolean));
 }
 
@@ -267,7 +331,7 @@ async function fillGroup(
     if (!differs[i]) continue;
     const press = f.optionPressSelectors?.[i] ?? sel;
     await pace.click(page.locator(press), opts(ctx));
-    if ((await page.checked(sel)) !== want[i]) return fail('no-option');
+    if ((await stateOf(f, page, i)) !== want[i]) return fail('no-option');
   }
   return done(states.some(Boolean));
 }
@@ -288,39 +352,54 @@ async function fillCheckbox(
   if (want === null) return fail('no-option');
   // Pressed on its label; state read from the input, live.
   const press = page.locator(f.pressSelector ?? f.selector);
-  const ticked = await page.checked(f.selector);
+  const ticked = await stateOf(f, page, 0);
   if (ticked === want) {
     await pace.glance(press, opts(ctx));
     return done(false);
   }
   await pace.click(press, opts(ctx));
-  if ((await page.checked(f.selector)) !== want) return fail('no-option');
+  if ((await stateOf(f, page, 0)) !== want) return fail('no-option');
   return done(ticked);
 }
 
 /**
  * A resume LinkedIn lists under the bank's file name is picked from the
- * list; otherwise the bank's file is uploaded. Checked state is read live
- * from each input. Among same-name entries the checked one is glanced at;
- * with none checked, the first is pressed and must read checked after.
+ * list; otherwise the bank's file is uploaded. State is read live by file
+ * name (`stateSelector`), never by the per-load ids, which change when
+ * LinkedIn re-renders the list on a selection. Among same-name entries the
+ * checked one is glanced at; with none checked, the first is pressed and
+ * must read checked after. Another file checked means LinkedIn's choice
+ * changed.
  */
 async function fillResume(f: ReadField, ctx: Ctx): Promise<FillResult> {
   const { pace, page, resume } = ctx;
   const choices = f.resumeChoices ?? [];
-  const checked: boolean[] = [];
-  for (const c of choices) checked.push(await page.checked(c.selector));
-  const isMine = (i: number) => choices[i]?.fileName === resume.fileName;
-  const otherChecked = checked.some((on, i) => on && !isMine(i));
-  const mine = choices.filter((_, i) => isMine(i));
-  const on = choices.find((_, i) => isMine(i) && checked[i]);
-  if (on) {
-    await pace.glance(page.locator(on.pressSelector), opts(ctx));
-    return done(false);
+  /** A choice's position among the choices sharing its state selector. */
+  const slot = (c: (typeof choices)[number]) => {
+    const peers = choices.filter((o) => o.stateSelector === c.stateSelector);
+    return { index: peers.indexOf(c), count: peers.length };
+  };
+  const checkedOf = (c: (typeof choices)[number]) => {
+    const { index, count } = slot(c);
+    return page.checkedAt(c.stateSelector, index, count);
+  };
+  const mine = choices.filter((c) => c.fileName === resume.fileName);
+  const mineStates = new Set(mine.map((c) => c.stateSelector));
+  let otherChecked = false;
+  for (const sel of new Set(choices.map((c) => c.stateSelector))) {
+    if (mineStates.has(sel)) continue;
+    if (await page.anyChecked(sel)) otherChecked = true;
+  }
+  for (const c of mine) {
+    if (await checkedOf(c)) {
+      await pace.glance(page.locator(c.pressSelector), opts(ctx));
+      return done(false);
+    }
   }
   const [first] = mine;
   if (first) {
     await pace.click(page.locator(first.pressSelector), opts(ctx));
-    if (!(await page.checked(first.selector))) return fail('no-option');
+    if (!(await checkedOf(first))) return fail('no-option');
     return done(otherChecked);
   }
   if (!resume.windowsPath) return fail('no-resume');

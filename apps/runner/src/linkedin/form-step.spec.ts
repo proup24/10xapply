@@ -166,6 +166,12 @@ describe('readStep on the fixtures', () => {
     );
     expect(spain?.question.options).toEqual(['Yes', 'No']);
     expect(spain?.optionSelectors).toEqual(['#_r_4c_', '#_r_4e_']);
+    // Read by the question and position: ids change on a re-render.
+    expect(spain?.stableGroup).toEqual({
+      selector:
+        'input[type="radio"][aria-label="Are you legally authorized to work in Spain?"]',
+      count: 2,
+    });
     expect(spain?.optionPressSelectors).toEqual([
       'label[for="_r_4c_"]',
       'label[for="_r_4e_"]',
@@ -177,6 +183,18 @@ describe('readStep on the fixtures', () => {
       'easyApplyFieldFocus_ea_validation_p2_0_32633232164',
     );
     expect(r.next?.label).toBe('review');
+  });
+
+  it('every resume state selector matches its same-name radios, in order', () => {
+    const doc = load('step-resume.html');
+    const [f] = step(readStep(doc)).fields;
+    const choices = f?.resumeChoices ?? [];
+    expect(choices.length).toBeGreaterThan(0);
+    for (const c of choices) {
+      expect(c.stateSelector).toMatch(/^input\[type="radio"\]\[aria-label=/);
+      const same = choices.filter((o) => o.stateSelector === c.stateSelector);
+      expect(doc.querySelectorAll(c.stateSelector)).toHaveLength(same.length);
+    }
   });
 
   it('every radio and resume press target is its one label[for]', () => {
@@ -238,6 +256,8 @@ describe('readStep on the fixtures', () => {
       fileName: 'resume.2026.fs.pdf',
       selector: '#_r_25_',
       pressSelector: 'label[for="_r_25_"]',
+      // Read by file name: per-load ids change when the list re-renders.
+      stateSelector: 'input[type="radio"][aria-label="resume.2026.fs.pdf"]',
     });
     // pace.upload clicks the button that opens the file chooser.
     expect(textOf(doc, resume?.selector ?? '')).toMatch(/upload resume/i);

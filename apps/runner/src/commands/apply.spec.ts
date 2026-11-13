@@ -451,3 +451,64 @@ describe('adaptApplyPage suggestion', () => {
     expect(sel).toBe(`${LIST} [role="option"]:text-is("A \\"B\\" \\\\ C")`);
   });
 });
+
+describe('adaptApplyPage reads', () => {
+  const bridge = { pageHtml: async () => '' };
+
+  /** A fake page whose inputs are `states`; records each read's timeout. */
+  function fakeReads(states: boolean[]) {
+    const timeouts: (number | undefined)[] = [];
+    const page = {
+      locator: () => ({
+        count: async () => states.length,
+        nth: (i: number) => ({
+          isChecked: async (o?: { timeout?: number }) => {
+            timeouts.push(o?.timeout);
+            return states[i] ?? false;
+          },
+        }),
+        isChecked: async (o?: { timeout?: number }) => {
+          timeouts.push(o?.timeout);
+          return states[0] ?? false;
+        },
+        inputValue: async (o?: { timeout?: number }) => {
+          timeouts.push(o?.timeout);
+          return 'v';
+        },
+      }),
+    };
+    return { page: page as unknown as Page, timeouts };
+  }
+
+  it('anyChecked: any match checked; nothing matching is an error', async () => {
+    expect(
+      await adaptApplyPage(fakeReads([false, true]).page, bridge).anyChecked(
+        'x',
+      ),
+    ).toBe(true);
+    expect(
+      await adaptApplyPage(fakeReads([false, false]).page, bridge).anyChecked(
+        'x',
+      ),
+    ).toBe(false);
+    await expect(
+      adaptApplyPage(fakeReads([]).page, bridge).anyChecked('x'),
+    ).rejects.toThrow();
+  });
+
+  it('checkedAt: the nth match, only while the count still holds', async () => {
+    const p = adaptApplyPage(fakeReads([false, true]).page, bridge);
+    expect(await p.checkedAt('x', 1, 2)).toBe(true);
+    await expect(p.checkedAt('x', 1, 3)).rejects.toThrow();
+  });
+
+  it('reads time out after 1 s', async () => {
+    const { page, timeouts } = fakeReads([true]);
+    const p = adaptApplyPage(page, bridge);
+    await p.checked('x');
+    await p.value('x');
+    await p.anyChecked('x');
+    await p.checkedAt('x', 0, 1);
+    expect(timeouts).toEqual([1000, 1000, 1000, 1000]);
+  });
+});

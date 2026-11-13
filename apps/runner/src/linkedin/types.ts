@@ -33,20 +33,32 @@ export interface ReadField {
    */
   pressSelector?: string;
   /**
+   * radio, checkbox-group, checkbox: the inputs by an identity LinkedIn
+   * keeps when it re-renders (the shared `aria-label`, not the per-load
+   * React ids). `selector` matched exactly `count` inputs at read time, in
+   * option order, so option i is its nth(i). State is read through this
+   * when present, before and after a press.
+   */
+  stableGroup?: { selector: string; count: number };
+  /**
    * select: the page's own option index of each `question.options` entry,
    * so a placeholder left out of `options` doesn't shift picks.
    */
   pageIndexes?: number[];
   /**
-   * file: resumes LinkedIn already lists. `selector` is the radio input,
-   * for reading its checked state live; `pressSelector` is where to press
-   * it (its `label[for]`, else the input). The captures carry no checked
-   * state, so none is read here.
+   * file: resumes LinkedIn already lists. `selector` is the radio input by
+   * its per-load id; `pressSelector` is where to press it (its
+   * `label[for]`, else the input). `stateSelector` reads its state by file
+   * name (`input[type="radio"][aria-label=…]`), which survives the list's
+   * re-render: it matches exactly the choices that share it, in list order
+   * (the id selector when the radio has no aria-label). The captures carry
+   * no checked state, so none is read here.
    */
   resumeChoices?: {
     fileName: string;
     selector: string;
     pressSelector: string;
+    stateSelector: string;
   }[];
   /** typeahead: where suggestions appear once typed. */
   suggestions?: string;

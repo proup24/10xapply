@@ -147,6 +147,29 @@ export function pressSelectorFor(
  * name, aria-label or aria-describedby. Null when none is unique, so the
  * control is never aimed at through an ambiguous selector.
  */
+/**
+ * The inputs by their shared `aria-label` (which LinkedIn keeps when it
+ * re-renders, unlike the React ids): only when every input has the same
+ * one and the selector matches exactly these inputs, in this order.
+ */
+export function stableGroupFor(
+  doc: Document,
+  inputs: El[],
+): { selector: string; count: number } | undefined {
+  const [first] = inputs;
+  const aria = first?.getAttribute('aria-label') ?? '';
+  const type = first?.getAttribute('type') ?? '';
+  if (!first || aria === '' || type === '') return undefined;
+  if (inputs.some((i) => i.getAttribute('aria-label') !== aria)) {
+    return undefined;
+  }
+  const selector = `input${attr('type', type)}${attr('aria-label', aria)}`;
+  const found = all(doc, selector);
+  const same =
+    found.length === inputs.length && found.every((f, i) => f === inputs[i]);
+  return same ? { selector, count: inputs.length } : undefined;
+}
+
 export function selectorFor(doc: Document, el: El): string | null {
   const tag = el.tagName.toLowerCase();
   const candidates: string[] = [];
@@ -386,6 +409,12 @@ function readFields(
     }
     if (q.type === 'checkbox' && target) {
       field.pressSelector = pressSelectorFor(doc, target, selector);
+      const stable = stableGroupFor(doc, [target]);
+      if (stable) field.stableGroup = stable;
+    }
+    if ((q.type === 'radio' || q.type === 'checkbox-group') && options) {
+      const stable = stableGroupFor(doc, options);
+      if (stable) field.stableGroup = stable;
     }
     fields.push(field);
   };
@@ -586,10 +615,15 @@ function readFields(
       question: { label: 'Resume', type: 'file', required: true },
       resumeChoices: resumeChoices.map((c) => {
         const selector = c.selector as string;
+        const aria = c.el.getAttribute('aria-label');
+        const sameName = radios.filter(
+          (r) => r.getAttribute('aria-label') === aria,
+        );
         return {
           fileName: c.fileName,
           selector,
           pressSelector: pressSelectorFor(doc, c.el, selector),
+          stateSelector: stableGroupFor(doc, sameName)?.selector ?? selector,
         };
       }),
     });

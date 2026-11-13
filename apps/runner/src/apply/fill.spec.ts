@@ -78,17 +78,47 @@ interface PageState {
   pressFor?: Record<string, string>;
   /** Selectors typing doesn't change. */
   deaf?: string[];
+  /** Selectors no longer on the page: a read times out. */
+  missing?: string[];
+  /** Stable selectors -> how many inputs match. */
+  counts?: Record<string, number>;
   /** Selectors clearing doesn't empty. */
   sticky?: string[];
 }
 
+/** A read of a selector the page no longer has: Patchright times out. */
+const timeout = (sel: string) =>
+  Object.assign(
+    new Error(`locator.isChecked: Timeout 1000ms exceeded (${sel})`),
+    {
+      name: 'TimeoutError',
+    },
+  );
+
 function fakePage(s: PageState): FillPage {
+  const gone = (sel: string) => {
+    if (s.missing?.includes(sel)) throw timeout(sel);
+  };
   return {
     locator: loc,
-    value: async (sel) => s.values?.[sel] ?? '',
-    checked: async (sel) => s.checked?.[sel] ?? false,
-    selectedText: async (sel) => s.selected?.[sel] ?? null,
+    value: async (sel) => (gone(sel), s.values?.[sel] ?? ''),
+    checked: async (sel) => (gone(sel), s.checked?.[sel] ?? false),
+    selectedText: async (sel) => (gone(sel), s.selected?.[sel] ?? null),
     suggestion: async (list, text) => s.suggestions?.[list]?.[text] ?? null,
+    // Stable reads: `sel@i` is the nth match's state; `counts` the matches.
+    anyChecked: async (sel) => {
+      gone(sel);
+      const n = s.counts?.[sel] ?? 1;
+      return Array.from(
+        { length: n },
+        (_, i) => s.checked?.[`${sel}@${i}`],
+      ).some(Boolean);
+    },
+    checkedAt: async (sel, i, count) => {
+      gone(sel);
+      if ((s.counts?.[sel] ?? 1) !== count) throw new Error('count changed');
+      return s.checked?.[`${sel}@${i}`] ?? false;
+    },
   };
 }
 
@@ -602,43 +632,61 @@ describe('fillField', () => {
     expect(result).toEqual({ ok: true, changedFromLinkedIn: true });
   });
 
-  /** A resume choice: input `#<id>`, pressed on `label[for="<id>"]`. */
+  /**
+   * A resume choice: input `#<id>` (a per-load id, gone after the list
+   * re-renders), pressed on `label[for="<id>"]`, read by its file name.
+   */
+  const RADIO = (name: string) => `input[type="radio"][aria-label="${name}"]`;
   const choice = (fileName: string, id: string) => ({
     fileName,
     selector: `#${id}`,
     pressSelector: `label[for="${id}"]`,
+    stateSelector: RADIO(fileName),
   });
-  const presses = (...ids: string[]): Record<string, string> =>
-    Object.fromEntries(ids.map((id) => [`label[for="${id}"]`, `#${id}`]));
+  /** Ids the reads must never use: they change when LinkedIn re-renders. */
+  const stale = (...ids: string[]) => ids.map((id) => `#${id}`);
 
-  it('a different resume checked live: presses the same-name label, verifies, changed', async () => {
+  it("LinkedIn's default is a different resume: press the bank's label, verify by name, changed", async () => {
     const f = field('file', {
       resumeChoices: [choice('old.pdf', 'old'), choice('cv.pdf', 'cv')],
     });
     const { calls, result } = await run(f, 'cv.pdf', {
-      checked: { '#old': true },
-      pressFor: presses('old', 'cv'),
+      checked: { [`${RADIO('old.pdf')}@0`]: true },
+      pressFor: { 'label[for="cv"]': `${RADIO('cv.pdf')}@0` },
+      missing: stale('old', 'cv'),
     });
     expect(calls).toEqual(['click label[for="cv"]']);
     expect(result).toEqual({ ok: true, changedFromLinkedIn: true });
   });
 
+  it('ids change after the press: verification still sees it through the file name', async () => {
+    const f = field('file', { resumeChoices: [choice('cv.pdf', 'cv')] });
+    const { result } = await run(f, 'cv.pdf', {
+      pressFor: { 'label[for="cv"]': `${RADIO('cv.pdf')}@0` },
+      // The old id matches nothing after the re-render.
+      missing: ['#cv'],
+    });
+    expect(result).toEqual({ ok: true, changedFromLinkedIn: false });
+  });
+
   it('glances at the same-name resume checked live', async () => {
     const f = field('file', { resumeChoices: [choice('cv.pdf', 'cv')] });
     const { calls, result } = await run(f, 'cv.pdf', {
-      checked: { '#cv': true },
+      checked: { [`${RADIO('cv.pdf')}@0`]: true },
+      missing: stale('cv'),
     });
     expect(calls).toEqual(['glance label[for="cv"]']);
     expect(result).toEqual({ ok: true, changedFromLinkedIn: false });
   });
 
-  it('with duplicate names, glances at the second when it is the checked one', async () => {
+  it('with duplicate names, the second checked: counts as checked and glances at it', async () => {
     const f = field('file', {
       resumeChoices: [choice('cv.pdf', 'cv1'), choice('cv.pdf', 'cv2')],
     });
     const { calls, result } = await run(f, 'cv.pdf', {
-      checked: { '#cv2': true },
-      pressFor: presses('cv1', 'cv2'),
+      checked: { [`${RADIO('cv.pdf')}@1`]: true },
+      counts: { [RADIO('cv.pdf')]: 2 },
+      missing: stale('cv1', 'cv2'),
     });
     expect(calls).toEqual(['glance label[for="cv2"]']);
     expect(result).toEqual({ ok: true, changedFromLinkedIn: false });
@@ -649,7 +697,9 @@ describe('fillField', () => {
       resumeChoices: [choice('cv.pdf', 'cv1'), choice('cv.pdf', 'cv2')],
     });
     const { calls, result } = await run(f, 'cv.pdf', {
-      pressFor: presses('cv1', 'cv2'),
+      counts: { [RADIO('cv.pdf')]: 2 },
+      pressFor: { 'label[for="cv1"]': `${RADIO('cv.pdf')}@0` },
+      missing: stale('cv1', 'cv2'),
     });
     expect(calls).toEqual(['click label[for="cv1"]']);
     expect(result).toEqual({ ok: true, changedFromLinkedIn: false });
@@ -657,16 +707,25 @@ describe('fillField', () => {
 
   it('a resume press that does not check its input → no-option', async () => {
     const f = field('file', { resumeChoices: [choice('cv.pdf', 'cv')] });
-    // No pressFor: the label press leaves the input unchecked.
-    const { calls, result } = await run(f, 'cv.pdf');
+    const { calls, result } = await run(f, 'cv.pdf', { missing: stale('cv') });
     expect(calls).toEqual(['click label[for="cv"]']);
     expect(result).toEqual({ ok: false, reason: 'no-option' });
+  });
+
+  it('a resume read that times out is not-taken, not a thrown error', async () => {
+    const f = field('file', { resumeChoices: [choice('cv.pdf', 'cv')] });
+    const { calls, result } = await run(f, 'cv.pdf', {
+      missing: [RADIO('cv.pdf')],
+    });
+    expect(calls).toEqual([]);
+    expect(result).toEqual({ ok: false, reason: 'not-taken' });
   });
 
   it('uploads when no listed resume matches, changed when another was checked live', async () => {
     const f = field('file', { resumeChoices: [choice('old.pdf', 'old')] });
     const { calls, result } = await run(f, 'cv.pdf', {
-      checked: { '#old': true },
+      checked: { [`${RADIO('old.pdf')}@0`]: true },
+      missing: stale('old'),
     });
     expect(calls).toEqual(['upload #f C:\\x\\cv.pdf']);
     expect(result).toEqual({ ok: true, changedFromLinkedIn: true });
@@ -674,9 +733,63 @@ describe('fillField', () => {
 
   it('uploads unchanged when the listed resume is not checked live', async () => {
     const f = field('file', { resumeChoices: [choice('old.pdf', 'old')] });
-    const { calls, result } = await run(f, 'cv.pdf');
+    const { calls, result } = await run(f, 'cv.pdf', { missing: stale('old') });
     expect(calls).toEqual(['upload #f C:\\x\\cv.pdf']);
     expect(result).toEqual({ ok: true, changedFromLinkedIn: false });
+  });
+
+  describe('stable identity for radios and checkboxes', () => {
+    const Q = 'input[type="radio"][aria-label="Relocate?"]';
+    const radio = () =>
+      field('radio', {
+        options: ['Yes', 'No'],
+        optionSelectors: ['#r1', '#r2'],
+        optionPressSelectors: ['label[for="r1"]', 'label[for="r2"]'],
+        stableGroup: { selector: Q, count: 2 },
+      });
+
+    it('ids change after a radio press: verified by question and position', async () => {
+      const { calls, result } = await run(radio(), 'No', {
+        counts: { [Q]: 2 },
+        checked: { [`${Q}@0`]: true },
+        pressFor: { 'label[for="r2"]': `${Q}@1` },
+        missing: ['#r1', '#r2'],
+      });
+      expect(calls).toEqual(['click label[for="r2"]']);
+      expect(result).toEqual({ ok: true, changedFromLinkedIn: true });
+    });
+
+    it('a radio group whose inputs no longer match its count is not-taken', async () => {
+      const { result } = await run(radio(), 'No', { counts: { [Q]: 3 } });
+      expect(result).toEqual({ ok: false, reason: 'not-taken' });
+    });
+
+    it('ids change after a checkbox press: verified by its stable selector', async () => {
+      const C = 'input[type="checkbox"][aria-label="I agree"]';
+      const f = field('checkbox', {
+        pressSelector: 'label[for="f"]',
+        stableGroup: { selector: C, count: 1 },
+      });
+      const { calls, result } = await run(f, 'Yes', {
+        pressFor: { 'label[for="f"]': `${C}@0` },
+        missing: ['#f'],
+      });
+      expect(calls).toEqual(['click label[for="f"]']);
+      expect(result).toEqual({ ok: true, changedFromLinkedIn: false });
+    });
+
+    it('a checkbox read that times out is not-taken', async () => {
+      const { calls, result } = await run(field('checkbox'), 'Yes', {
+        missing: ['#f'],
+      });
+      expect(calls).toEqual([]);
+      expect(result).toEqual({ ok: false, reason: 'not-taken' });
+    });
+
+    it('a text read that times out is not-taken', async () => {
+      const { result } = await run(field('text'), 'Ada', { missing: ['#f'] });
+      expect(result).toEqual({ ok: false, reason: 'not-taken' });
+    });
   });
 
   it('uploads when LinkedIn lists no resume', async () => {
@@ -734,7 +847,12 @@ describe('fillField', () => {
         'clicks a listed resume',
         field('file', {
           resumeChoices: [
-            { fileName: 'cv.pdf', selector: '#cv', pressSelector: '#cv' },
+            {
+              fileName: 'cv.pdf',
+              selector: '#cv',
+              pressSelector: '#cv',
+              stateSelector: '#cv',
+            },
           ],
         }),
         'cv.pdf',

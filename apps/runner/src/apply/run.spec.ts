@@ -219,6 +219,17 @@ function harness(s: Setup): Harness {
     locator: loc,
     value: async (sel) => values[sel] ?? '',
     checked: async (sel) => checked[sel] ?? false,
+    // Stable reads go through the screen's own DOM to the inputs' ids.
+    anyChecked: async (sel) => {
+      const els = [...docOf(screen().html).querySelectorAll(sel)];
+      if (els.length === 0) throw new Error(`nothing matches ${sel}`);
+      return els.some((el) => checked[byId(el.getAttribute('id') ?? '')]);
+    },
+    checkedAt: async (sel, i, count) => {
+      const els = [...docOf(screen().html).querySelectorAll(sel)];
+      if (els.length !== count) throw new Error(`count changed for ${sel}`);
+      return checked[byId(els[i]?.getAttribute('id') ?? '')] ?? false;
+    },
     selectedText: async () => null,
     suggestion: async () => null,
     goto: async (url) => {
