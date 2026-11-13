@@ -95,6 +95,26 @@ function problemsOf(error: z.ZodError, raw: unknown): string[] {
   return out;
 }
 
+/** Checks an already-parsed value against the rules schema. Problems are fixed text, never file text. */
+export function parseRules(
+  raw: unknown,
+): { ok: true; rules: Rules } | { ok: false; problems: string[] } {
+  const parsed = schema.safeParse(raw);
+  if (!parsed.success) {
+    const problems = problemsOf(parsed.error, raw);
+    return {
+      ok: false,
+      problems: problems.length > 0 ? problems : ['file: is not valid'],
+    };
+  }
+  return {
+    ok: true,
+    rules: {
+      authorizedCountries: [...new Set(parsed.data.authorizedCountries)],
+    },
+  };
+}
+
 export function checkRules(path: string = DEFAULT_RULES_PATH): RulesCheck {
   const result: RulesCheck = {
     ok: false,
@@ -135,17 +155,13 @@ export function checkRules(path: string = DEFAULT_RULES_PATH): RulesCheck {
   }
 
   const raw: unknown = doc.toJS() ?? undefined;
-  const parsed = schema.safeParse(raw);
-  if (!parsed.success) {
-    result.problems.push(...problemsOf(parsed.error, raw));
-    if (result.problems.length === 0)
-      result.problems.push('file: is not valid');
+  const parsed = parseRules(raw);
+  if (!parsed.ok) {
+    result.problems.push(...parsed.problems);
     return result;
   }
 
-  const rules: Rules = {
-    authorizedCountries: [...new Set(parsed.data.authorizedCountries)],
-  };
+  const rules = parsed.rules;
   result.ok = true;
   result.rules = rules;
   result.counts.authorizedCountries = rules.authorizedCountries.length;

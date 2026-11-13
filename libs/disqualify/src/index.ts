@@ -10,6 +10,7 @@ export {
   RulesError,
   checkRules,
   loadRules,
+  parseRules,
   type Rules,
   type RulesCheck,
 } from './rules.js';
@@ -22,3 +23,17 @@ export {
   type ExtractContext,
   type ExtractResult,
 } from './extract.js';
+export {
+  DisqualifyGoldenError,
+  loadDisqualifyGolden,
+  type DisqCase,
+  type DisqualifyGolden,
+  type ExpectedClaim,
+} from './golden/format.js';
+export {
+  runDisqualifyGolden,
+  type DisqCaseReport,
+  type DisqEvalReport,
+  type DisqRun,
+  type RunDisqualifyGoldenOptions,
+} from './golden/run.js';
