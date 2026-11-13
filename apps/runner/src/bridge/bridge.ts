@@ -11,6 +11,8 @@ export interface Bridge {
   crashRunTab(): Promise<void>;
   /** The run tab's viewport in CSS px, for the pace module. Runs no script. */
   viewport(): Promise<{ width: number; height: number } | null>;
+  /** The run tab's full document as HTML, shadow roots included. Runs no script. */
+  pageHtml(): Promise<string>;
   /**
    * Runs `open` (pace's click on an upload button), awaits `choose` once the
    * chooser has opened, then sets `file`, a path on the Windows side,
@@ -106,6 +108,7 @@ export async function connectBridge(
     stopReason: () => reason,
     crashRunTab: () => relay.crashRunTab(),
     viewport: () => relay.viewport(),
+    pageHtml: () => relay.pageHtml(),
     uploadOnChooser: (file, open, choose) =>
       relay.uploadOnChooser([file], open, choose),
     startRecording: (salt) => relay.startRecording(salt, { mode: 'runner' }),

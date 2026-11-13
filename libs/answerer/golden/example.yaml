@@ -1,0 +1,535 @@
+# The committed golden set, run against the example bank (made-up data).
+# Each case says which rule from the spec's "What counts as backed" it tests.
+# Facts are given by bank index, never quoted:
+#   0 British citizen, 1 UK work authorization only, 2 willing to relocate,
+#   3 notice period one week, 4 current job, 5 Kubernetes since March 2021,
+#   6 TypeScript since 2019, 7 leading code reviews for a team of five.
+# Where a blocked case's reason could fairly be one of two values (the
+# generator's own cannot-answer, or a code check or verifier catching a wrong
+# answer), it gives only the status.
+bank: ../../fact-bank/fact-bank.example.yaml
+runDate: '2026-11-12'
+
+jobs:
+  default:
+    title: Backend Engineer
+    company: Acme Payments
+    location: London, United Kingdom
+    source: LinkedIn
+    description: |
+      Acme Payments builds card payment services for small online shops across
+      the United Kingdom. Our platform handles authorisation, refunds and payouts.
+
+      As a Backend Engineer you will build and run TypeScript services on
+      Kubernetes, own features from design to production, and take part in code
+      review every day.
+
+      We value clear written communication, careful ownership of production
+      systems, and engineers who tell the team early when a plan is at risk.
+
+cases:
+  # ---------------------------------------------------------------- Fields
+  # Every field key is filled by code from the bank, as written, with no model.
+
+  # Field: firstName, filled as written.
+  - id: field-first-name
+    question: { label: First name, type: text, required: true }
+    expect:
+      status: backed
+      valueFrom: { field: firstName }
+      sources: [{ field: firstName }]
+      derivation: field
+
+  # Field: lastName, filled as written.
+  - id: field-last-name
+    question: { label: Last name, type: text, required: true }
+    expect:
+      status: backed
+      valueFrom: { field: lastName }
+      sources: [{ field: lastName }]
+      derivation: field
+
+  # Field: fullName, derived from first and last name.
+  - id: field-full-name
+    question: { label: Full name, type: text, required: true }
+    expect:
+      status: backed
+      valueFrom: { field: fullName }
+      sources: [{ field: fullName }]
+      derivation: field
+
+  # Field: email, with a required-marker asterisk the label normalizer drops.
+  - id: field-email
+    question: { label: Email address*, type: text, required: true }
+    expect:
+      status: backed
+      valueFrom: { field: email }
+      sources: [{ field: email }]
+      derivation: field
+
+  # Field: phone, the full number with its country code.
+  - id: field-phone
+    question: { label: Mobile phone number, type: text, required: true }
+    expect:
+      status: backed
+      valueFrom: { field: phone }
+      sources: [{ field: phone }]
+      derivation: field
+
+  # Field: phoneCountryCode on a dropdown whose options join country and code.
+  - id: field-phone-country-code
+    question:
+      label: Phone country code
+      type: select
+      options: [United States (+1), United Kingdom (+44), Ireland (+353)]
+      required: true
+    expect:
+      status: backed
+      value: United Kingdom (+44)
+      sources: [{ field: phoneCountryCode }]
+      derivation: field
+
+  # Field: phoneCountry, an option matched exactly.
+  - id: field-phone-country
+    question:
+      label: Phone country
+      type: select
+      options: [Ireland, United Kingdom, United States]
+      required: true
+    expect:
+      status: backed
+      valueFrom: { field: phoneCountry }
+      sources: [{ field: phoneCountry }]
+      derivation: field
+
+  # Field: city.
+  - id: field-city
+    question: { label: City, type: typeahead, required: true }
+    expect:
+      status: backed
+      valueFrom: { field: city }
+      sources: [{ field: city }]
+      derivation: field
+
+  # Field: location, derived from city and country.
+  - id: field-location
+    question: { label: Location (city), type: typeahead, required: true }
+    expect:
+      status: backed
+      valueFrom: { field: location }
+      sources: [{ field: location }]
+      derivation: field
+
+  # Field: country, an option matched exactly.
+  - id: field-country
+    question:
+      label: Country of residence
+      type: select
+      options: [France, Ireland, United Kingdom]
+      required: true
+    expect:
+      status: backed
+      valueFrom: { field: country }
+      sources: [{ field: country }]
+      derivation: field
+
+  # Field: linkedin.
+  - id: field-linkedin
+    question: { label: LinkedIn profile URL, type: text, required: false }
+    expect:
+      status: backed
+      valueFrom: { field: linkedin }
+      sources: [{ field: linkedin }]
+      derivation: field
+
+  # Field: github, the optional second link.
+  - id: field-github
+    question: { label: GitHub, type: text, required: false }
+    expect:
+      status: backed
+      valueFrom: { field: github }
+      sources: [{ field: github }]
+      derivation: field
+
+  # Field: portfolio, the optional third link.
+  - id: field-portfolio
+    question: { label: Portfolio website, type: text, required: false }
+    expect:
+      status: backed
+      valueFrom: { field: portfolio }
+      sources: [{ field: portfolio }]
+      derivation: field
+
+  # Field: website. The example bank has no website link, so code blocks it as
+  # bank-silent and never fills another link in its place.
+  - id: field-website-empty
+    question: { label: Personal website, type: text, required: false }
+    expect: { status: blocked, reason: bank-silent }
+
+  # Field: resume, a file upload asking for the resume.
+  - id: field-resume
+    question: { label: Upload resume, type: file, required: true }
+    expect:
+      status: backed
+      valueFrom: { field: resume }
+      sources: [{ field: resume }]
+      derivation: field
+
+  # A label that only contains a field word is not that field: code must not
+  # fill the city. The bank says where the author lives, never where they
+  # studied, so it is silent. (The spec's "city you'd like to work in" label
+  # is left out on purpose: with "willing to relocate" in the bank and a
+  # London job, whether "London" is backed is arguable either way.)
+  - id: field-word-in-other-question
+    question:
+      label: In which city did you complete your degree?
+      type: text
+      required: true
+    expect: { status: blocked, reason: bank-silent }
+
+  # ---------------------------------------------------------- Known answers
+
+  # A short known answer used as written: the same question, a text box, so
+  # there is no option to pick and no unit to strip.
+  - id: answer-as-written
+    question:
+      label: Will you now or in the future require visa sponsorship to work in a country other than the United Kingdom?
+      type: text
+      required: true
+    expect:
+      status: backed
+      valueFrom: { answer: sponsorship-future }
+      sources: [{ answer: sponsorship-future }]
+      derivation: as-written
+
+  # A known answer fitted to a dropdown: the per-hour variant's 30 USD matches
+  # the "30 USD/hour" option, whose text differs from the answer's.
+  - id: answer-fitted-dropdown
+    question:
+      label: Expected hourly rate as a contractor (USD gross)
+      type: select
+      options: [20 USD/hour, 30 USD/hour, 40 USD/hour, 50 USD/hour]
+      required: true
+    expect:
+      status: backed
+      value: 30 USD/hour
+      sources: [{ answer: contractor-rate }]
+      derivation: fitted
+
+  # A known answer fitted to a number box: "5000 USD per month" becomes 5000.
+  - id: answer-fitted-number
+    question:
+      label: Expected monthly salary (USD)
+      type: number
+      required: true
+    expect:
+      status: backed
+      value: '5000'
+      sources: [{ answer: salary-expectation-monthly-usd }]
+      derivation: fitted
+
+  # The wrong-period entry: a yearly question must not cite the monthly
+  # salary, and amounts are never converted (x12 is a number in no source).
+  # No reason: bank-silent from the generator, or a check or the verifier
+  # catching a converted or monthly value.
+  - id: answer-yearly-not-monthly
+    question:
+      label: What is your expected annual salary in USD?
+      type: number
+      required: true
+    expect: { status: blocked }
+
+  # A variant picked by its when: a per-month contractor question takes the
+  # per-month variant as written, not the per-hour one, the no-period one or
+  # the employee salary answer.
+  - id: answer-variant-by-when
+    question:
+      label: What monthly rate (USD gross) would you expect on a contractor contract?
+      type: text
+      required: true
+    expect:
+      status: backed
+      value: 5000 USD per month
+      sources: [{ answer: contractor-rate }]
+      derivation: as-written
+
+  # Placeholder {source}: the answer is the placeholder alone, filled from the
+  # job's source.
+  - id: placeholder-source
+    question:
+      { label: How did you hear about this role?, type: text, required: true }
+    expect:
+      status: backed
+      valueFrom: { answer: heard-from }
+      sources: [{ answer: heard-from }]
+      derivation: as-written
+
+  # Placeholders {company} and {jobTitle}: the known answer for this exact
+  # question carries both (and {source}). Text may be reworded only to fit how
+  # the question is asked, and this one is asked word for word as the known
+  # answer's question, so there is nothing to fit: the rules give the author's
+  # own answer as written, with every placeholder filled. valueFrom pins that
+  # filled text, so code checks it character for character (the judge reads
+  # only composed text, so an unpinned as-written answer would go unchecked).
+  - id: placeholder-company-and-title
+    question:
+      {
+        label: Why do you want to work at this company?,
+        type: textarea,
+        required: true,
+      }
+    expect:
+      status: backed
+      valueFrom: { answer: why-this-role }
+      sources: [{ answer: why-this-role }]
+      derivation: as-written
+
+  # ------------------------------------------------------------------ Text
+
+  # A known answer adapted to a differently worded question.
+  - id: text-adapted-answer
+    question:
+      label: How do you use AI tools in your day-to-day engineering work?
+      type: textarea
+      required: true
+    expect:
+      status: backed
+      sources: [{ answer: ai-perspective }]
+      derivation: composed
+      mustNotClaim:
+        - an AI tool or product named by brand
+        - a percentage or amount of time saved
+        - a team, company or project not in the bank
+
+  # A fair inference: being comfortable leading code reviews plainly supports
+  # being comfortable giving feedback on other engineers' code.
+  - id: text-fair-inference
+    question:
+      label: Are you comfortable giving feedback on other engineers' code?
+      type: textarea
+      required: true
+    expect:
+      status: backed
+      sources: [{ fact: 7 }]
+      derivation: composed
+      mustNotClaim:
+        - managing, hiring or line-managing engineers
+        - a job title such as tech lead or team lead
+        - a number of reviews, or years spent reviewing
+
+  # A claim that is not a fair inference: running Kubernetes in production
+  # does not mean administering clusters, holding a certification or using
+  # tools the bank does not name.
+  - id: text-not-an-inference
+    question:
+      label: Describe your experience with Kubernetes.
+      type: textarea
+      required: true
+    expect:
+      status: backed
+      sources: [{ fact: 5 }]
+      derivation: composed
+      mustNotClaim:
+        - a Kubernetes certification
+        - Helm, Docker, Terraform or another tool by name
+        - a number of clusters, nodes or services
+        - being an expert or a cluster administrator
+
+  # An added number: the bank says how the author uses AI, never how much it
+  # saved, so no percentage or time saving may appear.
+  - id: text-no-added-number
+    question:
+      label: How has AI changed the way you review code?
+      type: textarea
+      required: true
+    expect:
+      status: backed
+      sources: [{ answer: ai-perspective }]
+      derivation: composed
+      mustNotClaim:
+        - a percentage or time saved
+        - a tool not in the bank
+        - a team or company not in the bank
+
+  # A story reworded for the question; no event, person, number or result added.
+  - id: text-story-reworded
+    question:
+      label: Tell us about a time you had to tell your manager that a deadline would slip.
+      type: textarea
+      required: true
+    expect:
+      status: backed
+      sources: [{ story: missed-launch-date }]
+      derivation: composed
+      mustNotClaim:
+        - a number of customers, payments or money affected
+        - a person or role besides the manager and a teammate
+        - a postmortem, process change or lesson the story does not state
+
+  # Two stories combined: the question asks for two examples, and both stories
+  # are about ownership.
+  - id: text-two-stories
+    question:
+      label: Give two examples of times you took ownership of a problem.
+      type: textarea
+      required: true
+    expect:
+      status: backed
+      sources:
+        [{ story: missed-launch-date }, { story: intermittent-queue-bug }]
+      derivation: composed
+      mustNotClaim:
+        - a number not in either story
+        - a person or team not in either story
+        - an outcome or result not in either story
+
+  # A scenario no story fits: neither story is about a conflict between
+  # teammates.
+  - id: text-no-story-fits
+    question:
+      label: Tell us about a time you resolved a conflict between two teammates.
+      type: textarea
+      required: true
+    expect: { status: blocked, reason: no-story-fits }
+
+  # About the role, with no known answer for the question: the post's
+  # Kubernetes, TypeScript and code review combined with the author's facts.
+  # The question asks which of the role's responsibilities match, so naming a
+  # responsibility (a claim about the role, which only the post backs) is
+  # unavoidable: jobPost stays required. The post never backs a claim about
+  # the author.
+  - id: text-role-fit-from-post
+    question:
+      label: Which of this role's responsibilities match your experience?
+      type: textarea
+      required: true
+    expect:
+      status: backed
+      sources: [{ fact: 5 }, { jobPost: true }]
+      derivation: composed
+      mustNotClaim:
+        - a technology the bank does not name, such as Go, Kafka or AWS
+        - a number of years not computed from a fact
+        - a claim about Acme Payments that the job post does not make
+
+  # A company claim not in the post: a good answer needs facts about an
+  # engineering blog the post never mentions, and only the post backs a claim
+  # about the company. No reason: bank-silent from the generator, or the
+  # verifier rejecting an invented company claim.
+  - id: text-company-claim-not-in-post
+    question:
+      label: What do you admire about the Acme Payments engineering blog?
+      type: textarea
+      required: true
+    expect: { status: blocked }
+
+  # Silence on a text question: adjacent skill is not the skill asked. The
+  # bank names Kubernetes, never Terraform, so "partial is not silent" does
+  # not apply and the generator must not answer from the Kubernetes fact.
+  - id: text-adjacent-skill-silent
+    question:
+      label: Describe your experience with Terraform.
+      type: textarea
+      required: true
+    expect: { status: blocked, reason: bank-silent }
+
+  # ------------------------------------------------------ Math and choices
+
+  # Math from a "since" fact with a month: March 2021 to 2026-11-12 is 5 whole years.
+  - id: math-since-month
+    question:
+      label: How many years of Kubernetes experience do you have?
+      type: number
+      required: true
+    expect:
+      status: backed
+      value: '5'
+      sources: [{ fact: 5 }]
+      derivation: math
+
+  # Math from a "since" fact with only a year: 1 January 2019 to 2026-11-12 is 7.
+  - id: math-since-year-only
+    question:
+      label: How many years of professional TypeScript experience do you have?
+      type: number
+      required: true
+    expect:
+      status: backed
+      value: '7'
+      sources: [{ fact: 6 }]
+      derivation: math
+
+  # A bucket: one week falls inside exactly one option (the spec's example).
+  - id: notice-bucket-under-two-weeks
+    question:
+      label: What is your notice period?
+      type: select
+      options: [Immediate, Less than 2 weeks, One month, More than one month]
+      required: true
+    expect:
+      status: backed
+      value: Less than 2 weeks
+      sources: [{ fact: 3 }]
+      derivation: bucket
+
+  # A boundary: one week is inside both "Up to 1 week" and "1 to 2 weeks",
+  # so it fits more than one option and never picks the nearer one.
+  - id: notice-boundary
+    question:
+      label: What is your notice period?
+      type: radio
+      options: [Up to 1 week, 1 to 2 weeks, More than 2 weeks]
+      required: true
+    expect: { status: blocked, reason: boundary }
+
+  # Silence on a yes/no is not "No": Terraform appears nowhere in the bank.
+  - id: terraform-silent
+    question:
+      label: Do you have experience with Terraform?
+      type: radio
+      options: ['Yes', 'No']
+      required: true
+    expect: { status: blocked, reason: bank-silent }
+
+  # A multi-select with one silent option: Kubernetes and TypeScript are
+  # backed, but leaving Terraform unticked would claim "no", so the whole
+  # question blocks.
+  - id: multi-select-one-silent
+    question:
+      label: Which of these have you used?
+      type: checkbox-group
+      options: [Kubernetes, TypeScript, Terraform]
+      required: true
+    expect: { status: blocked, reason: bank-silent }
+
+  # A consent box with no consent fact in the bank blocks.
+  - id: consent-no-fact
+    question:
+      label: I agree to the Acme Payments privacy policy
+      type: checkbox
+      options: [I agree to the Acme Payments privacy policy]
+      required: true
+    expect: { status: blocked, reason: bank-silent }
+
+  # ---------------------------------------------------------- Other blocks
+
+  # A file that is not the resume: code blocks a cover letter upload.
+  - id: cover-letter-upload
+    question: { label: Cover letter, type: file, required: false }
+    expect: { status: blocked, reason: unsupported-field }
+
+  # A field type the answerer does not handle.
+  - id: date-field-type
+    question: { label: Earliest start date, type: date, required: true }
+    expect: { status: blocked, reason: unsupported-field }
+
+  # A maxLength too short for a field value: code fills fields as written
+  # and never cuts one short, so an email in 5 characters blocks as
+  # check-failed with no model call.
+  - id: max-length-too-short
+    question:
+      label: Email address
+      type: text
+      maxLength: 5
+      required: true
+    expect: { status: blocked, reason: check-failed }

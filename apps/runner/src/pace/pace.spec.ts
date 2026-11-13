@@ -180,11 +180,23 @@ function fake(opts: Opts = {}) {
     } as unknown as Locator;
   };
   /** A target on a page that scrolls by `pxPerPx` CSS px per wheel px. */
-  const scrolling = (box: Box, pxPerPx = 1) =>
+  const scrolling = (box: Box, pxPerPx = 1, maxScroll = Infinity) =>
     ({
       boundingBox: async () => {
         log.push({ kind: 'box', t });
-        return { ...box, y: box.y - scrolled * pxPerPx };
+        return { ...box, y: box.y - Math.min(scrolled, maxScroll) * pxPerPx };
+      },
+    }) as unknown as Locator;
+  /** A target whose page shows each wheel only `lag` ms after it was sent. */
+  const lagging = (box: Box, lag: number) =>
+    ({
+      boundingBox: async () => {
+        log.push({ kind: 'box', t });
+        const shown = log
+          .filter((e): e is Ev & { kind: 'wheel' } => e.kind === 'wheel')
+          .filter((w) => w.t + lag <= t)
+          .reduce((n, w) => n + w.dy, 0);
+        return { ...box, y: box.y - shown };
       },
     }) as unknown as Locator;
   /**
@@ -247,6 +259,7 @@ function fake(opts: Opts = {}) {
     clock,
     locator,
     scrolling,
+    lagging,
     select,
     uploadOnChooser,
     maxInFlight: () => maxInFlight,
@@ -488,6 +501,17 @@ describe('createPace', () => {
       expect(of(f.log, 'down')).toHaveLength(0);
     });
 
+    it('a target that moves only after a slow settle is not counted as stuck', async () => {
+      const f = setup();
+      // One burst of two notches brings it into view, but the page shows
+      // each wheel only 450 ms later: after the usual 300 ms settle it
+      // still looks unmoved.
+      const below: Box = { x: 600, y: 790, width: 120, height: 36 };
+      await f.pace.click(f.lagging(below, 450));
+      expect(of(f.log, 'wheel')).toHaveLength(2);
+      expect(of(f.log, 'down')).toHaveLength(1);
+    });
+
     it('stops after 40 notches when the target is still off-screen', async () => {
       const f = setup();
       // Each 100 px notch moves this page by only 10 px.
@@ -507,6 +531,202 @@ describe('createPace', () => {
       );
       expect(of(f.log, 'wheel')).toHaveLength(0);
     });
+  });
+
+  describe('a target inside a scrolling box (within)', () => {
+    /** A dialog whose visible bottom edge is 200 px above the window's. */
+    const DIALOG: Box = { x: 340, y: 100, width: 600, height: 500 };
+    const bottom = (b: Box) => b.y + b.height;
+    const right = (b: Box) => b.x + b.width;
+    const inBox = (inner: Box, outer: Box) =>
+      inner.x >= outer.x &&
+      inner.y >= outer.y &&
+      right(inner) <= right(outer) &&
+      bottom(inner) <= bottom(outer);
+
+    it('wheels over the box until the target is inside it, then presses', async () => {
+      const f = setup();
+      // In the window (800 px tall), below the dialog's visible bottom.
+      const below: Box = { x: 700, y: 650, width: 120, height: 36 };
+      await f.pace.click(f.scrolling(below), {
+        within: f.locator([DIALOG]),
+      });
+      const wheels = of(f.log, 'wheel');
+      expect(wheels.length).toBeGreaterThan(0);
+      expect(wheels.every((w) => w.dy > 0)).toBe(true);
+      // The pointer rests inside the dialog while wheeling.
+      const moves = of(f.log, 'move');
+      for (const w of wheels) {
+        const at = moves.filter((m) => m.t <= w.t).at(-1);
+        expect(at && inside(at, DIALOG)).toBe(true);
+      }
+      // One press, after the last wheel, with the whole target in the dialog.
+      const downs = of(f.log, 'down');
+      expect(downs).toHaveLength(1);
+      const down = downs[0];
+      expect(f.log.indexOf(down)).toBeGreaterThan(
+        f.log.indexOf(wheels.at(-1) as Ev),
+      );
+      const scrolled = wheels.reduce((n, w) => n + w.dy, 0);
+      const final = { ...below, y: below.y - scrolled };
+      expect(inBox(final, DIALOG)).toBe(true);
+      const press = moves.filter((m) => m.t <= down.t).at(-1);
+      expect(press && inside(press, final)).toBe(true);
+      expect(press && inside(press, DIALOG)).toBe(true);
+    });
+
+    it('re-reads the box on every reveal iteration', async () => {
+      const f = setup();
+      const within = f.locator([DIALOG]);
+      const reads = vi.spyOn(within, 'boundingBox');
+      const below: Box = { x: 700, y: 900, width: 120, height: 36 };
+      await f.pace.click(f.scrolling(below), { within });
+      const bursts = of(f.log, 'wheel').length;
+      expect(bursts).toBeGreaterThan(1);
+      // At least once per reveal iteration (a burst and the final check).
+      expect(reads.mock.calls.length).toBeGreaterThan(2);
+    });
+
+    for (const [name, stuck] of [
+      ['below the box', { x: 700, y: 650, width: 120, height: 36 }],
+      ['across its bottom edge', { x: 700, y: 590, width: 120, height: 36 }],
+    ] as const) {
+      it(`throws a pace: error and never presses a target stuck ${name}`, async () => {
+        const f = setup();
+        await expect(
+          f.pace.click(f.locator([stuck]), { within: f.locator([DIALOG]) }),
+        ).rejects.toThrow(/^pace: /);
+        expect(of(f.log, 'wheel').length).toBeGreaterThan(0);
+        expect(of(f.log, 'wheel').length).toBeLessThanOrEqual(6);
+        expect(of(f.log, 'down')).toHaveLength(0);
+      });
+    }
+
+    it('stops after 40 notches when the target is still outside the box', async () => {
+      const f = setup();
+      const far: Box = { x: 700, y: 5000, width: 80, height: 30 };
+      await expect(
+        f.pace.click(f.scrolling(far, 0.1), { within: f.locator([DIALOG]) }),
+      ).rejects.toThrow(/^pace: /);
+      expect(of(f.log, 'wheel')).toHaveLength(40);
+      expect(of(f.log, 'down')).toHaveLength(0);
+    });
+
+    it('does not press when the press-time read finds the target outside the box', async () => {
+      const f = setup();
+      const target: Box = { x: 700, y: 500, width: 120, height: 36 };
+      // The dialog shrinks after the approach: the target is now below it.
+      const shrunk: Box = { ...DIALOG, height: 300 };
+      await expect(
+        f.pace.click(f.locator([target]), {
+          within: f.locator([DIALOG, DIALOG, shrunk]),
+        }),
+      ).rejects.toThrow(/^pace: /);
+      expect(of(f.log, 'down')).toHaveLength(0);
+    });
+
+    it('a within with no bounding box is refused and nothing is pressed or wheeled', async () => {
+      const f = setup();
+      const gone = {
+        boundingBox: async () => null,
+      } as unknown as Locator;
+      await expect(
+        f.pace.click(f.locator([BOX]), { within: gone }),
+      ).rejects.toThrow(/^pace: /);
+      expect(of(f.log, 'down')).toHaveLength(0);
+      expect(of(f.log, 'wheel')).toHaveLength(0);
+    });
+
+    it('every targeted action keeps to the box', async () => {
+      const stuck: Box = { x: 700, y: 650, width: 120, height: 36 };
+      const acts: ((
+        p: ReturnType<typeof setup>,
+        within: Locator,
+      ) => Promise<void>)[] = [
+        (f, within) => f.pace.click(f.locator([stuck]), { within }),
+        (f, within) => f.pace.type(f.locator([stuck]), 'x', { within }),
+        (f, within) => f.pace.clear(f.locator([stuck]), { within }),
+        (f, within) => f.pace.glance(f.locator([stuck]), { within }),
+        (f, within) =>
+          f.pace.pick(
+            f.select({ disabled: [false, false], checked: 0 }).loc,
+            1,
+            { within },
+          ),
+        (f, within) =>
+          f.pace.upload(f.locator([stuck]), 'C:\\r.pdf', { within }),
+      ];
+      // The select fake sits at BOX (y 500–536): shrink the dialog above it.
+      const box: Box = { ...DIALOG, height: 350 };
+      for (const act of acts) {
+        const f = setup();
+        await expect(act(f, f.locator([box]))).rejects.toThrow(/^pace: /);
+        expect(of(f.log, 'down')).toHaveLength(0);
+        expect(of(f.log, 'kdown')).toHaveLength(0);
+      }
+    });
+
+    it('at the end of scroll, presses a target mostly inside the box, in its visible part', async () => {
+      const f = setup();
+      // 50 px tall; scrolling ends with its bottom 10 px (20%) below the box.
+      const target: Box = { x: 700, y: 700, width: 120, height: 50 };
+      await f.pace.click(f.scrolling(target, 1, 140), {
+        within: f.locator([DIALOG]),
+      });
+      const downs = of(f.log, 'down');
+      expect(downs).toHaveLength(1);
+      const press = of(f.log, 'move')
+        .filter((m) => m.t <= downs[0].t)
+        .at(-1);
+      // The visible part: y 560 to the dialog's bottom edge (600).
+      expect(press && inside(press, { ...target, y: 560, height: 40 })).toBe(
+        true,
+      );
+    });
+
+    it('at the end of scroll, refuses a target only 30% inside the box', async () => {
+      const f = setup();
+      const target: Box = { x: 700, y: 700, width: 120, height: 50 };
+      // Scrolling ends at y 585: 15 px of 50 inside the box.
+      await expect(
+        f.pace.click(f.scrolling(target, 1, 115), {
+          within: f.locator([DIALOG]),
+        }),
+      ).rejects.toThrow(/^pace: /);
+      expect(of(f.log, 'down')).toHaveLength(0);
+    });
+
+    it('without within, a click is the same as before', async () => {
+      const a = setup();
+      const b = setup();
+      await a.pace.click(a.locator([BOX]));
+      await b.pace.click(b.locator([BOX]), {});
+      expect(b.log).toEqual(a.log);
+    });
+  });
+
+  it('refuses a target under 4 px (a visually hidden input) as unusable, not off-screen', async () => {
+    for (const tiny of [
+      { x: 700, y: 500, width: 0.5, height: 20 },
+      { x: 700, y: 500, width: 20, height: 0.9 },
+      { x: 700, y: 1500, width: 0.5, height: 0.5 },
+      { x: 700, y: 500, width: 1, height: 1 },
+      { x: 700, y: 500, width: 3, height: 20 },
+      { x: 700, y: 1500, width: 1, height: 1 },
+    ]) {
+      const f = setup();
+      await expect(f.pace.click(f.locator([tiny]))).rejects.toThrow(
+        'pace: target has no usable box (hidden or zero-size)',
+      );
+      expect(of(f.log, 'down')).toHaveLength(0);
+      expect(of(f.log, 'wheel')).toHaveLength(0);
+    }
+  });
+
+  it('accepts a 4×4 px target', async () => {
+    const f = setup();
+    await f.pace.click(f.locator([{ x: 700, y: 500, width: 4, height: 4 }]));
+    expect(of(f.log, 'down')).toHaveLength(1);
   });
 
   it('never sends a move to where the pointer already is (Chrome reports it as a zero-movement pointermove)', async () => {
@@ -732,6 +952,79 @@ describe('createPace', () => {
     expect(of(log, 'kdown')).toHaveLength(0);
     expect(of(log, 'kup')).toHaveLength(0);
     expect(of(log, 'text')).toHaveLength(0);
+  });
+
+  it('clear selects all then deletes', async () => {
+    const { pace, log, locator } = setup();
+    await pace.clear(locator([BOX]));
+    expect(of(log, 'up')).toHaveLength(1);
+    const keys = log
+      .filter((e) => e.kind === 'kdown' || e.kind === 'kup')
+      .map((e) => `${e.kind}:${(e as { key: string }).key}`);
+    expect(keys).toEqual([
+      'kdown:Control',
+      'kdown:a',
+      'kup:a',
+      'kup:Control',
+      'kdown:Backspace',
+      'kup:Backspace',
+    ]);
+    expect(of(log, 'text')).toHaveLength(0);
+  });
+
+  it('clear sends nothing without focus', async () => {
+    const { pace, log, locator } = setup();
+    const unfocused = locator([BOX], {
+      and: () => ({ count: async () => 0 }),
+    });
+    await expect(pace.clear(unfocused)).rejects.toThrow(
+      'pace: the field did not take focus; no keys sent',
+    );
+    expect(of(log, 'kdown')).toHaveLength(0);
+    expect(of(log, 'kup')).toHaveLength(0);
+  });
+
+  it('clear still tries to release Control when its keyup fails', async () => {
+    const { pace, page, locator } = setup();
+    const ups: string[] = [];
+    const real = page.keyboard.up.bind(page.keyboard);
+    let failed = false;
+    page.keyboard.up = async (key: string) => {
+      ups.push(key);
+      if (key === 'Control' && !failed) {
+        failed = true;
+        throw new Error('relay gone');
+      }
+      await real(key);
+    };
+    await expect(pace.clear(locator([BOX]))).rejects.toThrow('relay gone');
+    expect(ups.filter((k) => k === 'Control')).toHaveLength(2);
+  });
+
+  it('type sends Enter for a newline in a textarea', async () => {
+    const { pace, log, locator } = setup();
+    const asked: string[] = [];
+    const area = locator([BOX], {
+      locator: (sel: string) => {
+        asked.push(sel);
+        return { count: async () => 1 };
+      },
+    });
+    await pace.type(area, 'a\nb');
+    expect(asked).toEqual(['xpath=self::textarea']);
+    const downs = of(log, 'kdown').map((e) => e.key);
+    expect(downs).toEqual(['a', 'Enter', 'b']);
+    const ups = of(log, 'kup').map((e) => e.key);
+    expect(ups).toEqual(['a', 'Enter', 'b']);
+  });
+
+  it('type throws on a newline in an input before moving', async () => {
+    const { pace, log, locator } = setup();
+    const input = locator([BOX], {
+      locator: () => ({ count: async () => 0 }),
+    });
+    await expect(pace.type(input, 'a\nb')).rejects.toThrow(/1 newline/);
+    expect(log).toEqual([]);
   });
 
   it('type checks focus on the field itself, after the click', async () => {

@@ -8,14 +8,20 @@ import {
   recordCommand,
   summaryCommand,
 } from './commands/pace.js';
+import { answersEvalCommand } from './commands/answers.js';
+import { applyCommand } from './commands/apply.js';
 import { factsCheckCommand } from './commands/facts.js';
 import { sessionCommand } from './commands/session.js';
+import { snapshotCommand, snapshotScrubCommand } from './commands/snapshot.js';
 import { ConfigError } from './config.js';
 import { redact } from './redact.js';
 import { RelayPortInUseError } from './relay/relay.js';
 
 const USAGE = `usage: runner <command>
   session          sign in to LinkedIn through the bridge
+  apply <job-url> --dry-run   walk an Easy Apply form to the review page; never submits
+  snapshot <url>   save pages of a job's apply flow by hand (Enter = save, q = finish)
+  snapshot scrub   scrub the raw saves into snapshots/
   bot-check        run the bot-detection check (--repeat N: repeat the behaviour pages; --record: record the run)
   bridge install   install the bridge extension
   pace record      record your own timing in Chrome (--typing: also print the typing page URL)
@@ -24,7 +30,8 @@ const USAGE = `usage: runner <command>
   pace summary     count the recorded samples per measure against the minimums
   pace compare     compare the runner's recordings with yours (shape, timing, variety)
   bridge check     check the bridge extension (--crash: also check the crash stop)
-  facts check      check the fact bank file (optional path; prints no values)`;
+  facts check      check the fact bank file (optional path; prints no values)
+  answers eval     run the answerer's golden eval (--set example|private, --answer-model, --verify-model, --judge-model, --repeat N, --case ID)`;
 
 /** The value after `--flag`, as a positive integer, or undefined. */
 function intFlag(argv: string[], flag: string): number | undefined {
@@ -37,10 +44,42 @@ function intFlag(argv: string[], flag: string): number | undefined {
   return n;
 }
 
+/** The value after `--flag`, or undefined. */
+function stringFlag(argv: string[], flag: string): string | undefined {
+  const i = argv.indexOf(flag);
+  if (i < 0) return undefined;
+  const v = argv[i + 1];
+  if (v === undefined || v.startsWith('--')) {
+    throw new ConfigError(`${flag} needs a value`);
+  }
+  return v;
+}
+
+/** Flags are `--flag value`. A `--flag=value` form would be silently ignored, so it is refused. */
+function refuseEqualsForms(argv: string[]): void {
+  const bad = argv.find((a) => a.startsWith('--') && a.includes('='));
+  if (bad !== undefined) {
+    throw new ConfigError(
+      `flags take a space, not "=": write ${bad.split('=')[0]} <value> (see usage)`,
+    );
+  }
+}
+
+function setFlag(argv: string[]): 'example' | 'private' | undefined {
+  const v = stringFlag(argv, '--set');
+  if (v !== undefined && v !== 'example' && v !== 'private') {
+    throw new ConfigError('--set must be example or private');
+  }
+  return v;
+}
+
 export async function main(argv: string[]): Promise<number> {
   try {
     const [a, b] = argv;
     if (a === 'session') return await sessionCommand();
+    if (a === 'apply') return await applyCommand(argv.slice(1));
+    if (a === 'snapshot' && b === 'scrub') return await snapshotScrubCommand();
+    if (a === 'snapshot') return await snapshotCommand(argv.slice(1));
     if (a === 'bot-check')
       return await botCheckCommand({
         repeat: intFlag(argv, '--repeat'),
@@ -61,6 +100,17 @@ export async function main(argv: string[]): Promise<number> {
     if (a === 'pace' && b === 'compare') return compareCommand();
     if (a === 'facts' && b === 'check')
       return factsCheckCommand({ path: argv[2] });
+    if (a === 'answers' && b === 'eval') {
+      refuseEqualsForms(argv);
+      return await answersEvalCommand({
+        set: setFlag(argv),
+        answerModel: stringFlag(argv, '--answer-model'),
+        verifyModel: stringFlag(argv, '--verify-model'),
+        judgeModel: stringFlag(argv, '--judge-model'),
+        repeat: intFlag(argv, '--repeat'),
+        caseId: stringFlag(argv, '--case'),
+      });
+    }
   } catch (e) {
     if (e instanceof ConfigError || e instanceof RelayPortInUseError) {
       console.error(redact(e.message));

@@ -18,6 +18,9 @@
   ],
   "references": [
     {
+      "path": "../../libs/answerer/tsconfig.lib.json"
+    },
+    {
       "path": "../../libs/fact-bank/tsconfig.lib.json"
     }
   ]

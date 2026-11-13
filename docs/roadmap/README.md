@@ -34,7 +34,7 @@ Decision marks: _(user)_ means the user decided it; _(my call)_ means Claude pro
 - **Stream for the author before friends** _(user)_. Phase 2 (webhook intake, approval, unattended runs for one user) comes before Phase 3 (hosted browsers for several users).
 - **Build infrastructure only when a slice needs it** _(my call)_. Supabase, the web app and the hosted API enter in Phase 2, when the stream needs them, not in Phase 0.
 - **Redis waits until Phase 3** _(my call)_. In Phase 2 a single local runner reads approved jobs from Postgres. Redis queues arrive with hosted workers, when several accounts run on our servers.
-- **Mirror 10xjobs wherever it already decided** _(user, from the original brief)_. That covers the Claude harness, CI, the Prisma contract as the only schema source (RLS included), the Supabase CLI locally and Supabase Cloud hosted, Next.js on Vercel, NestJS on a Hetzner server with Docker Compose and Caddy, deploys on merge, and LLMs through OpenRouter with the model per role set in configuration. Paths to copy from are named in each slice.
+- **Mirror 10xjobs wherever it already decided** _(user, from the original brief)_. That covers the Claude harness, CI, the Prisma contract as the only schema source (RLS included), the Supabase CLI locally and Supabase Cloud hosted, Next.js on Vercel, NestJS on a Hetzner server with Docker Compose and Caddy, deploys on merge, and LLM calls through `claude -p` on the author's subscription _(user)_, with the model per role set in configuration. Paths to copy from are named in each slice.
 - **Who may run things against the real LinkedIn account, widening over time** _(user wants Claude to run everything eventually; the stages are my call)_. The risk to the account comes from how often and how fast the account is used. Who starts a run matters less. So Claude's access widens as the runner's own limits are built:
   - **Phases 0–1:** Claude may run `--dry-run` only, against at most a small number of jobs a day, and only when the author asked for it in that session. Real submits are run by the author. Run reports go under `private/` but also have a redacted copy (no personal facts, no cookies) in a git-ignored, Claude-readable folder so Claude can debug from them. Saved page snapshots are committed as test fixtures only after being scrubbed of personal data.
   - **From slice 14:** once the runner itself enforces pacing, the daily cap and the safety stops, Claude may start the runner, real submits included, because every run goes through those limits whoever started it.
@@ -76,17 +76,17 @@ The author gives the runner one LinkedIn job URL. A real Chrome window on the au
 
 **Exit criteria:** from a terminal command with one job URL, a real Easy Apply application is submitted from the author's account with every answer correct and none invented. A question the facts can't answer stops the run and asks in the terminal. A second command on the same job refuses to apply. Each safety stop (captcha, security check, signed out, unfamiliar field) ends the run without submitting.
 
-| #   | Slice                                         | Depends on       |
-| --- | --------------------------------------------- | ---------------- |
-| 03  | Local browser and the LinkedIn session        | 02               |
-| 03b | Human pace from the author's own applications | 03               |
-| 04  | Fact bank file                                | 02               |
-| 05  | Answering form questions                      | 04               |
-| 05b | Disqualification                              | 05               |
-| 06  | Walk the form without submitting              | 03, 03b, 05, 05b |
-| 07  | Submit, and never twice                       | 06               |
+| #   | Slice                                         | Depends on  |
+| --- | --------------------------------------------- | ----------- |
+| 03  | Local browser and the LinkedIn session        | 02          |
+| 03b | Human pace from the author's own applications | 03          |
+| 04  | Fact bank file                                | 02          |
+| 05  | Answering form questions                      | 04          |
+| 05b | Disqualification                              | 06          |
+| 06  | Walk the form without submitting              | 03, 03b, 05 |
+| 07  | Submit, and never twice                       | 06, 05b     |
 
-03→03b and 04→05→05b are independent of each other and can be built in either order.
+03→03b and 04→05 are independent; 05b follows 06.
 
 ### 03 Local browser and the LinkedIn session
 
@@ -122,26 +122,28 @@ The author gives the runner one LinkedIn job URL. A real Chrome window on the au
 
 ### 05 Answering form questions
 
-- **Scope:** given one form question (label, field type, options, required or not, any help text) and the facts, return an answer with a confidence level and the fact or facts it rests on, or say it can't answer. Calls go through OpenRouter. A golden set of real Easy Apply questions with expected answers, and an eval command, like 10xjobs's `processor:eval`. No browser. It reads the bank through `libs/fact-bank`, and also uses the bank's stories and known answers (see Locked).
+- **Scope:** given one form question (label, field type, options, required or not, any help text) and the facts, return an answer and the fact or facts it rests on, or say it can't answer. Confidence is the status: an answer is backed (it passed the code checks and an independent verifier) or blocked; there is no numeric score. Calls go through `claude -p`. A golden set of real Easy Apply questions with expected answers, and an eval command, like 10xjobs's `processor:eval`. No browser. It reads the bank through `libs/fact-bank`, and also uses the bank's stories and known answers (see Locked).
 - **Locked:** never invent. An answer not supported by the facts counts as "can't answer", which becomes a blocking question. Simple fields (name, email, phone, resume upload) are filled straight from the facts without an LLM where possible _(my call)_.
   - **Stories:** the answerer may shorten, reorder and reword a story, and may combine two. It never adds events, people, numbers, results or details that are not in the story text _(user)_. A question no story fits is a blocking question.
   - **Known answers are used as written:** the answerer may fit one to the field (pick the matching option, strip the unit for a number-only field) but never rephrases a text answer _(my call)_.
   - **The whole bank goes into every call, no RAG:** a search that misses the right fact could turn into a wrong "can't answer" or a guess _(my call, user agreed)_. The bank's check warns when it grows past 60,000 characters, as the signal to revisit this.
 - **Spec answers:** the confidence rule that decides "auto-submit" versus "blocking" (this is what protects the "wrong or invented answer" anti-goal); which model; how numeric and select fields are matched to options; how the golden set is gathered without committing personal data (it may live in `private/`).
-- **Copy from:** 10xjobs's OpenRouter client and eval setup in `apps/xjobs`.
+- **Copy from:** 10xjobs's generate-then-verify pattern (`2026-11-07-generate-then-verify-design.md`); no OpenRouter client.
+- **Spec:** [slice 05 spec](../superpowers/specs/2026-11-12-answering-form-questions-design.md).
 
 ### 05b Disqualification
 
 - **Scope:** some jobs require something the author does not have, usually a work authorization or a location. The run should not apply to them. It marks the job **disqualified** instead.
-  - A model extracts structured claims from the job page and from each form question's label, text and options (for example `{ requires: work-authorization, country: US }`).
+  - A `claude -p` role extracts structured claims from the job page and from each form question's label, text and options (for example `{ requires: work-authorization, country: US }`).
   - Plain code checks those claims against a separate rules file, so the decision is deterministic and tested exactly.
-  - The check runs on the job page before the form is opened, and again on each form question.
+  - Slice 06 comes first; this slice adds its check to the run: on the job page before the form opens, and on each question.
   - A disqualified job is recorded and skipped. It is not a blocking question, because nothing the author answers would fix it.
 - **Locked:** the extractor is its own role and model in configuration, separate from the answerer, and it never sees the fact bank _(user)_. Disqualification is not the bank's job: the bank answers a work-authorization question truthfully like any other.
 - **Spec answers:** the rules file format, the extraction schema and where the verdict is recorded are left to this slice's own spec. In Phase 2 the same check can also run when a match arrives, before it reaches the approval list.
 
 ### 06 Walk the form without submitting
 
+- **Spec:** [slice 06 spec](../superpowers/specs/2026-11-12-walk-the-form-design.md).
 - **Scope:** `apply <job-url> --dry-run`: open the job, confirm it is Easy Apply and not already applied to, open the form, read each step's questions into a structured list, answer them through slice 05, fill them in, move through the steps and stop on the review page before Submit. It acts on the page only through the pace module. Print and save (under `private/`) a run report: each question, the answer, its confidence and source.
 - **Locked:** the safety stops listed at the top. Only Easy Apply; any other kind of job is reported and skipped.
 - **Spec answers:** which field types are supported at first and how an unknown one is detected; how the runner recognises each step and the review page; how many dry runs on real jobs are enough before slice 07 turns on submit.
@@ -150,7 +152,7 @@ The author gives the runner one LinkedIn job URL. A real Chrome window on the au
 
 - **Scope:** `apply <job-url>` without `--dry-run`. If every answer is confident, it submits. If something blocks, it asks the author in the terminal, then continues or stops. After submitting, it confirms LinkedIn shows the job as applied. A local record of applied jobs under `private/`, keyed on the LinkedIn job id, refuses a second application. LinkedIn's own "Applied" marker is checked too. The record also has a `disqualified` status (from slice 05b), and a disqualified job is never retried.
 - **Locked:** auto-submit unless blocked _(user)_. The local record is written before the Submit click, as "submitting", and updated after it, so a crash mid-submit never leads to a second attempt without the author checking.
-- **Spec answers:** whether a terminal answer is saved back into the fact bank for next time; what happens if the browser crashes mid-run; the format of the local record (it moves to Postgres in slice 14).
+- **Spec answers:** whether a terminal answer is saved back into the fact bank for next time (answered in slice 06: yes, as a known answer); what happens if the browser crashes mid-run; the format of the local record (it moves to Postgres in slice 14).
 
 ## Phase 2: Steady stream for the author
 
@@ -217,7 +219,7 @@ The author gives the runner one LinkedIn job URL. A real Chrome window on the au
 ### 15 Blocking questions in the web app
 
 - **Scope:** when a run blocks, its question shows in the web app. The author answers, the answer is saved to the facts, and the job goes back to approved so the runner tries again.
-- **Spec answers:** whether the runner keeps the form open waiting (minutes) or abandons and retries later (my lean: abandon and retry, so the browser isn't left sitting on a half-filled form); how the author is told a question is waiting.
+- **Spec answers:** whether the runner keeps the form open waiting (minutes) or abandons and retries later (my lean: abandon and retry, so the browser isn't left sitting on a half-filled form); how the author is told a question is waiting; how the author's answer becomes a bank entry: kept word for word as a known answer, or turned into a fact sentence by a model. Rewording is where an invented detail could slip in, so my lean is that a model may propose the entry, the author confirms its wording before it is saved, and the original answer is kept _(user: answers become facts)_.
 
 ### 16 Launch check
 
@@ -234,7 +236,7 @@ Applications run on our servers instead of the author's machine, so friends can 
 
 - Browser server and residential IPs: our own server for browsers, a proxy provider, one dedicated static residential (ISP) IP per user near their location, a persistent profile per user (from `CLAUDE.md`).
 - Hosted sign-in: a live view the user drives to sign in to LinkedIn; we never see the password. Session storage, encrypted, never logged; expiry detection and a request to sign in again.
-- Hosted workers and Redis queues: one run at a time per account, per-account caps and pacing, many accounts on one server.
+- Hosted workers and Redis queues: one run at a time per account, per-account caps and pacing, many accounts on one server. Hosted runs need a second `ModelCaller`, since `claude -p` uses the author's own subscription.
 - Moving the author's account from the home machine to the server. This is a new device and IP to LinkedIn, so it gets its own care (for example, signing in fresh through the live view and starting with low caps).
 - Onboarding friends: invites, fact bank setup, linking their 10xjobs email.
 - Account health: watching for LinkedIn warnings across accounts, and a kill switch per account and for everyone.

@@ -2,15 +2,19 @@ import { execFileSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import {
   appendFileSync,
+  copyFileSync,
   cpSync,
   existsSync,
   mkdirSync,
   readFileSync,
   rmSync,
+  statSync,
+  utimesSync,
   writeFileSync,
 } from 'node:fs';
-import { dirname, isAbsolute, join } from 'node:path';
+import { basename, dirname, isAbsolute, join } from 'node:path';
 import { parseEnv } from 'node:util';
+import type { Resume } from '../apply/fill.js';
 import { ConfigError } from '../config.js';
 
 export type Exec = (cmd: string, args: string[]) => string;
@@ -50,6 +54,33 @@ export function windowsPracticeFile(exec: Exec): string {
     );
   }
   return exec('wslpath', ['-w', file]).trim();
+}
+
+/**
+ * Copies the bank's resume to `resume/<name>` beside the extension folder
+ * (Chrome reads uploads from its own disk). The copy is rewritten only when
+ * its size or modification time differs, and takes the source's time.
+ */
+export function installResume(bankResumePath: string, exec: Exec): Resume {
+  const fileName = basename(bankResumePath);
+  const dir = join(dirname(windowsExtensionDir(exec)), 'resume');
+  const target = join(dir, fileName);
+  const src = statSync(bankResumePath);
+  const old = existsSync(target) ? statSync(target) : null;
+  if (
+    old === null ||
+    old.size !== src.size ||
+    Math.abs(old.mtimeMs - src.mtimeMs) >= 1
+  ) {
+    mkdirSync(dir, { recursive: true });
+    copyFileSync(bankResumePath, target);
+    const seconds = src.mtimeMs / 1000;
+    utimesSync(target, seconds, seconds);
+  }
+  return {
+    fileName,
+    windowsPath: exec('wslpath', ['-w', target]).trim(),
+  };
 }
 
 /** The Windows folder the extension is installed to, as a WSL path. */

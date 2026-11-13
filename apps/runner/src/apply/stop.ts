@@ -1,0 +1,105 @@
+import type { Pace } from '../pace/pace.js';
+import type { ApplyDeps, ApplyOutcome, ApplyRun, SafetyStop } from './types.js';
+
+type StopInfo = Omit<NonNullable<ApplyRun['stop']>, 'step' | 'pathPrefix'>;
+
+/** Ends the run: thrown anywhere in the walk, caught once in runApply. */
+export class RunEnd extends Error {
+  constructor(
+    readonly outcome: ApplyOutcome,
+    readonly stop?: StopInfo,
+  ) {
+    super(outcome);
+    this.name = 'RunEnd';
+  }
+}
+
+export function safety(
+  kind: SafetyStop,
+  detail: string,
+  pageErrors?: string[],
+): RunEnd {
+  return new RunEnd(
+    'safety-stop',
+    pageErrors ? { kind, detail, pageErrors } : { kind, detail },
+  );
+}
+
+/** Ctrl+C or the bridge going away: the run ends as `stopped`. */
+export function checkStop(deps: Pick<ApplyDeps, 'stopReason'>): void {
+  const reason = deps.stopReason();
+  if (reason !== null) {
+    throw new RunEnd('stopped', { kind: 'bridge', detail: reason });
+  }
+}
+
+/** Pace's own refusals ("pace: target has no box …") start with this. */
+const PACE_REFUSAL = 'pace: ';
+
+/**
+ * Any other error mid-run. Once `stopReason()` is set it is that stop.
+ * A pace refusal means the page didn't take an input: `unexpected-page`.
+ * Anything else is `error`, named in `detail`. Either way the message's
+ * first line (at most 200 characters) is kept in `error`, which only the
+ * full report shows.
+ */
+export function asRunEnd(e: unknown, deps: ApplyDeps): RunEnd {
+  if (e instanceof RunEnd) return e;
+  const reason = deps.stopReason();
+  if (reason !== null) {
+    return new RunEnd('stopped', { kind: 'bridge', detail: reason });
+  }
+  const message = e instanceof Error ? e.message : String(e);
+  const firstLine = (message.split('\n')[0] ?? '').slice(0, 200);
+  if (message.startsWith(PACE_REFUSAL)) {
+    // Pace's own words, value-free; `error` stays full-report-only.
+    return new RunEnd('safety-stop', {
+      kind: 'unexpected-page',
+      detail: 'the page did not take an input',
+      error: firstLine,
+    });
+  }
+  return new RunEnd('stopped', {
+    kind: 'error',
+    detail: e instanceof Error ? e.name : typeof e,
+    error: firstLine,
+  });
+}
+
+/** The author typed s at a prompt. */
+export const authorStop = (): RunEnd =>
+  new RunEnd('stopped', {
+    kind: 'author',
+    detail: 'the author stopped the run',
+  });
+
+/** A blocked required question and no author: named by its id only. */
+export const needsAuthor = (id: string): RunEnd =>
+  new RunEnd('needs-author', {
+    kind: 'needs-author',
+    detail: `question ${id} needs the author`,
+  });
+
+/** `pace` with `stopReason()` checked before every action it takes. */
+export function guardPace(pace: Pace, deps: ApplyDeps): Pace {
+  const g =
+    <A extends unknown[]>(f: (...a: A) => Promise<void>) =>
+    async (...a: A) => {
+      checkStop(deps);
+      await f(...a);
+    };
+  return {
+    mood: pace.mood,
+    defaulted: pace.defaulted,
+    click: g((t, o) => pace.click(t, o)),
+    type: g((f, text, o) => pace.type(f, text, o)),
+    clear: g((f, o) => pace.clear(f, o)),
+    glance: g((f, o) => pace.glance(f, o)),
+    pick: g((c, i, o) => pace.pick(c, i, o)),
+    upload: g((b, p, o) => pace.upload(b, p, o)),
+    scroll: g((a, n) => pace.scroll(a, n)),
+    read: g((n) => pace.read(n)),
+    pause: g(() => pace.pause()),
+    maybe: (a) => pace.maybe(a),
+  };
+}

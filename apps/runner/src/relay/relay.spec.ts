@@ -7,6 +7,7 @@ import {
   type Relay,
 } from './relay.js';
 import { BrowserModel } from './browser-model.js';
+import { isRefused, isRefusedOnSession } from './policy.js';
 
 const TOKEN = 'test-token-0123456789abcdef';
 
@@ -374,6 +375,46 @@ describe('relay', () => {
   it('viewport fails when there is no run tab', async () => {
     const ctx = await connected();
     await expect(ctx.relay.viewport()).rejects.toThrow('no run tab');
+  });
+
+  describe('pageHtml', () => {
+    it('sends DOM.getDocument then DOM.getOuterHTML with includeShadowDOM on the run tab', async () => {
+      const ctx = await connected();
+      await openTarget(ctx);
+      ctx.ext.handlers['debugger.send'] = (p) => {
+        if (p.method === 'DOM.getDocument') return { root: { nodeId: 9 } };
+        if (p.method === 'DOM.getOuterHTML')
+          return { outerHTML: '<html>x</html>' };
+        return {};
+      };
+      const before = ctx.ext.commands.length;
+      expect(await ctx.relay.pageHtml()).toBe('<html>x</html>');
+      const sent = ctx.ext.commands.slice(before).map((c) => c.params as Json);
+      expect(sent).toEqual([
+        {
+          target: { tabId: 42 },
+          method: 'DOM.getDocument',
+          params: { depth: 0 },
+        },
+        {
+          target: { tabId: 42 },
+          method: 'DOM.getOuterHTML',
+          params: { nodeId: 9, includeShadowDOM: true },
+        },
+      ]);
+    });
+
+    it('rejects with "no run tab" when no tab is attached', async () => {
+      const ctx = await connected();
+      await expect(ctx.relay.pageHtml()).rejects.toThrow('no run tab');
+    });
+
+    it('DOM.getDocument and DOM.getOuterHTML are not refused', () => {
+      for (const m of ['DOM.getDocument', 'DOM.getOuterHTML']) {
+        expect(isRefused(m, { depth: 0 })).toBe(false);
+        expect(isRefusedOnSession(m, { depth: 0 })).toBe(false);
+      }
+    });
   });
 
   describe('uploadOnChooser', () => {

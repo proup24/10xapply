@@ -12,6 +12,27 @@
           "command": "tsx --conditions=@xapply/source src/main.ts session"
         }
       },
+      "apply": {
+        "executor": "nx:run-commands",
+        "options": {
+          "cwd": "apps/runner",
+          "command": "tsx --conditions=@xapply/source src/main.ts apply"
+        }
+      },
+      "snapshot": {
+        "executor": "nx:run-commands",
+        "options": {
+          "cwd": "apps/runner",
+          "command": "tsx --conditions=@xapply/source src/main.ts snapshot"
+        }
+      },
+      "snapshot-scrub": {
+        "executor": "nx:run-commands",
+        "options": {
+          "cwd": "apps/runner",
+          "command": "tsx --conditions=@xapply/source src/main.ts snapshot scrub"
+        }
+      },
       "bot-check": {
         "executor": "nx:run-commands",
         "options": {
@@ -82,6 +103,13 @@
           "command": "tsx --conditions=@xapply/source src/main.ts pace summary"
         }
       },
+      "answers-eval": {
+        "executor": "nx:run-commands",
+        "options": {
+          "cwd": "apps/runner",
+          "command": "tsx --conditions=@xapply/source src/main.ts answers eval"
+        }
+      },
       "facts-check": {
         "executor": "nx:run-commands",
         "options": {
@@ -99,13 +127,14 @@
     }
   },
   "dependencies": {
+    "@xapply/answerer": "workspace:*",
     "@xapply/fact-bank": "workspace:*",
+    "linkedom": "^0.18.15",
     "patchright-core": "1.64.3",
     "ws": "^8.22.2"
   },
   "devDependencies": {
     "@types/ws": "^8.18.1",
-    "linkedom": "^0.18.15",
     "tsx": "^4.23.15"
   }
 }

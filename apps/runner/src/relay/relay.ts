@@ -41,6 +41,11 @@ export interface Relay {
   /** The run tab's viewport in CSS px (Page.getLayoutMetrics), or null. */
   viewport(): Promise<{ width: number; height: number } | null>;
   /**
+   * The run tab's full document as HTML, open shadow roots serialised as
+   * `<template shadowrootmode="open">`. Read-only; runs no page script.
+   */
+  pageHtml(): Promise<string>;
+  /**
    * Runs `open` (a click that opens the run tab's file chooser), awaits
    * `choose` once it has opened, then sets `files` (paths on the Chrome
    * side) on the chooser's input, in-process.
@@ -443,6 +448,10 @@ export async function startRelay(opts: RelayOptions): Promise<Relay> {
 
     viewport(): Promise<{ width: number; height: number } | null> {
       return model.viewport();
+    },
+
+    pageHtml(): Promise<string> {
+      return model.pageHtml();
     },
 
     uploadOnChooser(

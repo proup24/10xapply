@@ -200,6 +200,28 @@ export class BrowserModel {
   }
 
   /**
+   * The run tab's whole document as HTML, open shadow roots included (as
+   * `<template shadowrootmode="open">`). DOM.getDocument then
+   * DOM.getOuterHTML: read-only, runs no script in the page.
+   */
+  async pageHtml(): Promise<string> {
+    const tab = [...this.tabs.values()].find((t) => t.attached);
+    if (!tab) throw new Error('no run tab');
+    const target = { tabId: tab.tabId };
+    const doc = (await this.debuggerSend(target, 'DOM.getDocument', {
+      depth: 0,
+    })) as { root?: { nodeId?: unknown } } | undefined;
+    const nodeId = doc?.root?.nodeId;
+    if (typeof nodeId !== 'number') throw new Error('no document');
+    const out = (await this.debuggerSend(target, 'DOM.getOuterHTML', {
+      nodeId,
+      includeShadowDOM: true,
+    })) as { outerHTML?: unknown } | undefined;
+    if (typeof out?.outerHTML !== 'string') throw new Error('no page HTML');
+    return out.outerHTML;
+  }
+
+  /**
    * Sets `files` on the input whose chooser `open` opens, after `choose`
    * (the time a person spends in the dialog), through Chrome's own
    * DOM.setFileInputFiles: Chrome then fires a trusted `input` and `change`,
