@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { FactBankError, type FactBank } from '@xapply/fact-bank';
 import type { Bridge } from '../bridge/bridge.js';
 import { INTERRUPTED } from '../apply/run.js';
+import { ReadMismatchError } from '../apply/fill.js';
 import type { ApplyDeps, ApplyRun } from '../apply/types.js';
 import type { Page } from 'patchright-core';
 import {
@@ -466,6 +467,10 @@ describe('adaptApplyPage reads', () => {
             timeouts.push(o?.timeout);
             return states[i] ?? false;
           },
+          getAttribute: async (name: string, o?: { timeout?: number }) => {
+            timeouts.push(o?.timeout);
+            return name === 'id' ? `id-${i}` : null;
+          },
         }),
         isChecked: async (o?: { timeout?: number }) => {
           timeouts.push(o?.timeout);
@@ -500,6 +505,43 @@ describe('adaptApplyPage reads', () => {
     const p = adaptApplyPage(fakeReads([false, true]).page, bridge);
     expect(await p.checkedAt('x', 1, 2)).toBe(true);
     await expect(p.checkedAt('x', 1, 3)).rejects.toThrow();
+  });
+
+  it('a selector with nothing or a changed count throws ReadMismatchError', async () => {
+    await expect(
+      adaptApplyPage(fakeReads([]).page, bridge).anyChecked('x'),
+    ).rejects.toBeInstanceOf(ReadMismatchError);
+    await expect(
+      adaptApplyPage(fakeReads([true]).page, bridge).checkedAt('x', 0, 2),
+    ).rejects.toBeInstanceOf(ReadMismatchError);
+    await expect(
+      adaptApplyPage(fakeReads([true]).page, bridge).idAt('x', 0, 2),
+    ).rejects.toBeInstanceOf(ReadMismatchError);
+  });
+
+  it("idAt reads the nth match's id within 1 s", async () => {
+    const { page, timeouts } = fakeReads([true, false]);
+    expect(await adaptApplyPage(page, bridge).idAt('x', 1, 2)).toBe('id-1');
+    expect(timeouts).toEqual([1000]);
+  });
+
+  it('selectedText reads the chosen option within 1 s', async () => {
+    const timeouts: (number | undefined)[] = [];
+    const page = {
+      locator: () => ({
+        locator: () => ({
+          count: async () => 1,
+          first: () => ({
+            textContent: async (o?: { timeout?: number }) => {
+              timeouts.push(o?.timeout);
+              return ' Yes ';
+            },
+          }),
+        }),
+      }),
+    } as unknown as Page;
+    expect(await adaptApplyPage(page, bridge).selectedText('s')).toBe('Yes');
+    expect(timeouts).toEqual([1000]);
   });
 
   it('reads time out after 1 s', async () => {

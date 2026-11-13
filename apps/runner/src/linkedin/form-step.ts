@@ -142,20 +142,15 @@ export function pressSelectorFor(
 }
 
 /**
- * A selector that matches `el` and nothing else on the page: its id, else
- * its componentkey (kept for the life of the page), else a data-testid,
- * name, aria-label or aria-describedby. Null when none is unique, so the
- * control is never aimed at through an ambiguous selector.
- */
-/**
  * The inputs by their shared `aria-label` (which LinkedIn keeps when it
  * re-renders, unlike the React ids): only when every input has the same
- * one and the selector matches exactly these inputs, in this order.
+ * one, each has an id, and the selector matches exactly these inputs, in
+ * this order.
  */
 export function stableGroupFor(
   doc: Document,
   inputs: El[],
-): { selector: string; count: number } | undefined {
+): { selector: string; count: number; ids: string[] } | undefined {
   const [first] = inputs;
   const aria = first?.getAttribute('aria-label') ?? '';
   const type = first?.getAttribute('type') ?? '';
@@ -163,13 +158,22 @@ export function stableGroupFor(
   if (inputs.some((i) => i.getAttribute('aria-label') !== aria)) {
     return undefined;
   }
+  // Each input's id at read time, for the position check before a press.
+  const ids = inputs.map((i) => i.getAttribute('id') ?? '');
+  if (ids.includes('')) return undefined;
   const selector = `input${attr('type', type)}${attr('aria-label', aria)}`;
   const found = all(doc, selector);
   const same =
     found.length === inputs.length && found.every((f, i) => f === inputs[i]);
-  return same ? { selector, count: inputs.length } : undefined;
+  return same ? { selector, count: inputs.length, ids } : undefined;
 }
 
+/**
+ * A selector that matches `el` and nothing else on the page: its id, else
+ * its componentkey (kept for the life of the page), else a data-testid,
+ * name, aria-label or aria-describedby. Null when none is unique, so the
+ * control is never aimed at through an ambiguous selector.
+ */
 export function selectorFor(doc: Document, el: El): string | null {
   const tag = el.tagName.toLowerCase();
   const candidates: string[] = [];

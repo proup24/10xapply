@@ -2,7 +2,12 @@ import { describe, expect, it } from 'vitest';
 import type { Locator } from 'patchright-core';
 import type { Pace } from '../pace/pace.js';
 import type { ReadField } from '../linkedin/types.js';
-import { fillField, type FillPage, type Resume } from './fill.js';
+import {
+  ReadMismatchError,
+  fillField,
+  type FillPage,
+  type Resume,
+} from './fill.js';
 
 /** A stand-in locator that only remembers its selector. */
 const loc = (sel: string) => ({ sel }) as unknown as Locator;
@@ -28,6 +33,7 @@ function fakePace(
       w(o);
       const sel = selOf(t);
       calls.push(`click ${sel}`);
+      s.acted = true;
       if (s.inert?.includes(sel)) return;
       // A label[for] press checks its input.
       const box = s.pressFor?.[sel] ?? sel;
@@ -37,6 +43,7 @@ function fakePace(
       w(o);
       const sel = selOf(f);
       calls.push(`type ${sel} ${text}`);
+      s.acted = true;
       if (s.deaf?.includes(sel)) return;
       s.values = { ...s.values, [sel]: (s.values?.[sel] ?? '') + text };
     },
@@ -80,6 +87,14 @@ interface PageState {
   deaf?: string[];
   /** Selectors no longer on the page: a read times out. */
   missing?: string[];
+  /** Every read times out once any press or typing has happened. */
+  failAfterAct?: boolean;
+  /** Set by the fake pace on a press or typing. */
+  acted?: boolean;
+  /** Reads reject as a closed target (not a timeout). */
+  closed?: boolean;
+  /** Stable selectors -> the ids of their matches, for the position check. */
+  ids?: Record<string, (string | null)[]>;
   /** Stable selectors -> how many inputs match. */
   counts?: Record<string, number>;
   /** Selectors clearing doesn't empty. */
@@ -97,14 +112,28 @@ const timeout = (sel: string) =>
 
 function fakePage(s: PageState): FillPage {
   const gone = (sel: string) => {
+    if (s.closed) {
+      throw new Error('Target page, context or browser has been closed');
+    }
     if (s.missing?.includes(sel)) throw timeout(sel);
+    if (s.failAfterAct && s.acted) throw timeout(sel);
   };
   return {
     locator: loc,
     value: async (sel) => (gone(sel), s.values?.[sel] ?? ''),
     checked: async (sel) => (gone(sel), s.checked?.[sel] ?? false),
     selectedText: async (sel) => (gone(sel), s.selected?.[sel] ?? null),
-    suggestion: async (list, text) => s.suggestions?.[list]?.[text] ?? null,
+    suggestion: async (list, text) => (
+      gone(list),
+      s.suggestions?.[list]?.[text] ?? null
+    ),
+    idAt: async (sel, i, count) => {
+      gone(sel);
+      if ((s.counts?.[sel] ?? 1) !== count) {
+        throw new ReadMismatchError('the inputs changed');
+      }
+      return s.ids?.[sel]?.[i] ?? null;
+    },
     // Stable reads: `sel@i` is the nth match's state; `counts` the matches.
     anyChecked: async (sel) => {
       gone(sel);
@@ -116,7 +145,9 @@ function fakePage(s: PageState): FillPage {
     },
     checkedAt: async (sel, i, count) => {
       gone(sel);
-      if ((s.counts?.[sel] ?? 1) !== count) throw new Error('count changed');
+      if ((s.counts?.[sel] ?? 1) !== count) {
+        throw new ReadMismatchError('the inputs changed');
+      }
       return s.checked?.[`${sel}@${i}`] ?? false;
     },
   };
@@ -391,7 +422,8 @@ describe('fillField', () => {
     });
     const { calls, result } = await run(f, 'No', { inert: ['#r2'] });
     expect(calls).toEqual(['click #r2']);
-    expect(result).toEqual({ ok: false, reason: 'no-option' });
+    // After a press, a failed check is unverified, never a plain no-option.
+    expect(result).toEqual({ ok: false, reason: 'unverified' });
   });
 
   it('glances at a radio already on the answer', async () => {
@@ -433,7 +465,7 @@ describe('fillField', () => {
     expect(result).toEqual({ ok: true, changedFromLinkedIn: true });
   });
 
-  it('a radio label press that does not check the input → no-option', async () => {
+  it('a radio label press that does not check the input → unverified', async () => {
     const f = field('radio', {
       options: ['Yes', 'No'],
       optionSelectors: ['#r1', '#r2'],
@@ -441,7 +473,7 @@ describe('fillField', () => {
     });
     const { calls, result } = await run(f, 'No');
     expect(calls).toEqual(['click label[for="r2"]']);
-    expect(result).toEqual({ ok: false, reason: 'no-option' });
+    expect(result).toEqual({ ok: false, reason: 'unverified' });
   });
 
   it("glances at the checked radio's label", async () => {
@@ -545,11 +577,11 @@ describe('fillField', () => {
     expect(result).toEqual({ ok: true, changedFromLinkedIn: false });
   });
 
-  it('a checkbox label press that does not change the input → no-option', async () => {
+  it('a checkbox label press that does not change the input → unverified', async () => {
     const f = field('checkbox', { pressSelector: 'label[for="f"]' });
     const { calls, result } = await run(f, 'Yes');
     expect(calls).toEqual(['click label[for="f"]']);
-    expect(result).toEqual({ ok: false, reason: 'no-option' });
+    expect(result).toEqual({ ok: false, reason: 'unverified' });
   });
 
   it("glances at a checkbox's label when it is already right", async () => {
@@ -571,7 +603,7 @@ describe('fillField', () => {
     expect(result).toEqual({ ok: true, changedFromLinkedIn: false });
   });
 
-  it('a checkbox-group label press that does not take → no-option', async () => {
+  it('a checkbox-group label press that does not take → unverified', async () => {
     const f = field('checkbox-group', {
       options: ['A', 'B'],
       optionSelectors: ['#a', '#b'],
@@ -579,7 +611,7 @@ describe('fillField', () => {
     });
     const { calls, result } = await run(f, ['B']);
     expect(calls).toEqual(['click label[for="b"]']);
-    expect(result).toEqual({ ok: false, reason: 'no-option' });
+    expect(result).toEqual({ ok: false, reason: 'unverified' });
   });
 
   it('refuses a checkbox answer that is neither yes nor no', async () => {
@@ -705,11 +737,11 @@ describe('fillField', () => {
     expect(result).toEqual({ ok: true, changedFromLinkedIn: false });
   });
 
-  it('a resume press that does not check its input → no-option', async () => {
+  it('a resume press that does not check its input → unverified', async () => {
     const f = field('file', { resumeChoices: [choice('cv.pdf', 'cv')] });
     const { calls, result } = await run(f, 'cv.pdf', { missing: stale('cv') });
     expect(calls).toEqual(['click label[for="cv"]']);
-    expect(result).toEqual({ ok: false, reason: 'no-option' });
+    expect(result).toEqual({ ok: false, reason: 'unverified' });
   });
 
   it('a resume read that times out is not-taken, not a thrown error', async () => {
@@ -745,18 +777,30 @@ describe('fillField', () => {
         options: ['Yes', 'No'],
         optionSelectors: ['#r1', '#r2'],
         optionPressSelectors: ['label[for="r1"]', 'label[for="r2"]'],
-        stableGroup: { selector: Q, count: 2 },
+        stableGroup: { selector: Q, count: 2, ids: ['r1', 'r2'] },
       });
+    const IDS = { [Q]: ['r1', 'r2'] };
 
     it('ids change after a radio press: verified by question and position', async () => {
       const { calls, result } = await run(radio(), 'No', {
         counts: { [Q]: 2 },
+        ids: IDS,
         checked: { [`${Q}@0`]: true },
         pressFor: { 'label[for="r2"]': `${Q}@1` },
         missing: ['#r1', '#r2'],
       });
       expect(calls).toEqual(['click label[for="r2"]']);
       expect(result).toEqual({ ok: true, changedFromLinkedIn: true });
+    });
+
+    it('a position that no longer holds the read id is not pressed: no-option', async () => {
+      const { calls, result } = await run(radio(), 'No', {
+        counts: { [Q]: 2 },
+        // The page reordered: the second input is not r2 any more.
+        ids: { [Q]: ['r2', 'r1'] },
+      });
+      expect(calls).toEqual([]);
+      expect(result).toEqual({ ok: false, reason: 'no-option' });
     });
 
     it('a radio group whose inputs no longer match its count is not-taken', async () => {
@@ -768,10 +812,11 @@ describe('fillField', () => {
       const C = 'input[type="checkbox"][aria-label="I agree"]';
       const f = field('checkbox', {
         pressSelector: 'label[for="f"]',
-        stableGroup: { selector: C, count: 1 },
+        stableGroup: { selector: C, count: 1, ids: ['f'] },
       });
       const { calls, result } = await run(f, 'Yes', {
         pressFor: { 'label[for="f"]': `${C}@0` },
+        ids: { [C]: ['f'] },
         missing: ['#f'],
       });
       expect(calls).toEqual(['click label[for="f"]']);
@@ -789,6 +834,45 @@ describe('fillField', () => {
     it('a text read that times out is not-taken', async () => {
       const { result } = await run(field('text'), 'Ada', { missing: ['#f'] });
       expect(result).toEqual({ ok: false, reason: 'not-taken' });
+    });
+  });
+
+  describe('read failures', () => {
+    it('a closed target is not a soft failure: the fill throws', async () => {
+      await expect(
+        run(field('checkbox'), 'Yes', { closed: true }),
+      ).rejects.toThrow(/has been closed/);
+    });
+
+    it('a read that fails after a press is unverified', async () => {
+      const f = field('checkbox-group', {
+        options: ['A', 'B'],
+        optionSelectors: ['#a', '#b'],
+      });
+      const { calls, result } = await run(f, ['A', 'B'], {
+        failAfterAct: true,
+      });
+      expect(calls).toEqual(['click #a']);
+      expect(result).toEqual({ ok: false, reason: 'unverified' });
+    });
+
+    it('text: a read that fails after typing clears the field and is unverified', async () => {
+      const { calls, result } = await run(field('text'), 'Ada', {
+        failAfterAct: true,
+      });
+      expect(calls).toEqual(['type #f Ada', 'clear #f']);
+      expect(result).toEqual({ ok: false, reason: 'unverified' });
+    });
+
+    it('typeahead: the suggestion read failing after typing clears the field and is unverified', async () => {
+      const { calls, result } = await run(
+        field('typeahead', { suggestions: '#list' }),
+        'Paris',
+        // The typed text reads back fine; only the list read times out.
+        { missing: ['#list'] },
+      );
+      expect(calls).toEqual(['type #f Paris', 'clear #f']);
+      expect(result).toEqual({ ok: false, reason: 'unverified' });
     });
   });
 

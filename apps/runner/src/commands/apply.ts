@@ -14,7 +14,7 @@ import {
   loadFactBank,
   type FactBank,
 } from '@xapply/fact-bank';
-import type { Resume } from '../apply/fill.js';
+import { ReadMismatchError, type Resume } from '../apply/fill.js';
 import {
   formatRedactedSummary,
   formatRunMarkdown,
@@ -175,7 +175,7 @@ export function adaptApplyPage(
     anyChecked: async (sel) => {
       const inputs = page.locator(sel);
       const n = await inputs.count();
-      if (n === 0) throw new Error('fill read: nothing matches');
+      if (n === 0) throw new ReadMismatchError('nothing matches');
       for (let i = 0; i < n; i++) {
         const on = await inputs
           .nth(i)
@@ -187,9 +187,18 @@ export function adaptApplyPage(
     checkedAt: async (sel, index, count) => {
       const inputs = page.locator(sel);
       if ((await inputs.count()) !== count) {
-        throw new Error('fill read: the inputs changed');
+        throw new ReadMismatchError('the inputs changed');
       }
       return inputs.nth(index).isChecked({ timeout: FILL_READ_TIMEOUT_MS });
+    },
+    idAt: async (sel, index, count) => {
+      const inputs = page.locator(sel);
+      if ((await inputs.count()) !== count) {
+        throw new ReadMismatchError('the inputs changed');
+      }
+      return inputs
+        .nth(index)
+        .getAttribute('id', { timeout: FILL_READ_TIMEOUT_MS });
     },
     selectedText: async (sel) => {
       const chosen = page.locator(sel).locator('option:checked');

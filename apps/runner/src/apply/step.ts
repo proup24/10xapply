@@ -230,7 +230,8 @@ async function blocked(
   const { io } = w.deps;
   const q = rec.question;
   if (io === null) {
-    if (q.required) {
+    // A field left part-answered after a press is never left blank.
+    if (q.required || rec.fillProblem === 'unverified') {
       rec.by = 'needs-author';
       throw needsAuthor(q.id);
     }

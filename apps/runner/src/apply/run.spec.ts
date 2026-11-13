@@ -24,6 +24,7 @@ import { ConfigError } from '../config.js';
 import type { Pace } from '../pace/pace.js';
 import type { TerminalIO } from '../terminal/author-mode.js';
 import { REVIEW_PROMPT, guardNext, runApply } from './run.js';
+import { ReadMismatchError } from './fill.js';
 import type { ApplyDeps, ApplyPage, ApplyRun } from './types.js';
 
 const FIXTURES = join(dirname(fileURLToPath(import.meta.url)), 'fixtures');
@@ -138,6 +139,8 @@ interface Setup {
   rejectAsk?: string;
   /** Selectors typing doesn't change. */
   deaf?: string[];
+  /** Once this selector is pressed, every checked-state read times out. */
+  readsFailAfter?: string;
 }
 
 type Reply = AnswerValue | { blocked: true };
@@ -215,21 +218,35 @@ function harness(s: Setup): Harness {
     if (to) current = to;
   };
 
+  /** A read once `readsFailAfter` was pressed: Patchright times out. */
+  const soft = () => {
+    if (s.readsFailAfter && calls.some((c) => c.sel === s.readsFailAfter)) {
+      throw Object.assign(new Error('locator.isChecked: Timeout 1000ms'), {
+        name: 'TimeoutError',
+      });
+    }
+  };
+  const idAt = (sel: string, i: number, count: number) => {
+    const els = [...docOf(screen().html).querySelectorAll(sel)];
+    if (els.length !== count) throw new ReadMismatchError('inputs changed');
+    return els[i]?.getAttribute('id') ?? null;
+  };
   const page: ApplyPage = {
     locator: loc,
     value: async (sel) => values[sel] ?? '',
-    checked: async (sel) => checked[sel] ?? false,
+    checked: async (sel) => (soft(), checked[sel] ?? false),
     // Stable reads go through the screen's own DOM to the inputs' ids.
     anyChecked: async (sel) => {
+      soft();
       const els = [...docOf(screen().html).querySelectorAll(sel)];
-      if (els.length === 0) throw new Error(`nothing matches ${sel}`);
+      if (els.length === 0) throw new ReadMismatchError('nothing matches');
       return els.some((el) => checked[byId(el.getAttribute('id') ?? '')]);
     },
     checkedAt: async (sel, i, count) => {
-      const els = [...docOf(screen().html).querySelectorAll(sel)];
-      if (els.length !== count) throw new Error(`count changed for ${sel}`);
-      return checked[byId(els[i]?.getAttribute('id') ?? '')] ?? false;
+      soft();
+      return checked[byId(idAt(sel, i, count) ?? '')] ?? false;
     },
+    idAt: async (sel, i, count) => (soft(), idAt(sel, i, count)),
     selectedText: async () => null,
     suggestion: async () => null,
     goto: async (url) => {
@@ -1038,6 +1055,44 @@ describe('runApply', () => {
         'click label[for="c2"]',
       ]),
     );
+  });
+
+  describe('a check that fails after a press (unverified)', () => {
+    const group =
+      '<div componentkey="easyApplyFieldFocus_g"><fieldset id="g">' +
+      '<legend>Which stacks?</legend>' +
+      '<input type="checkbox" id="c1"><label for="c1">Node</label>' +
+      '<input type="checkbox" id="c2"><label for="c2">Go</label>' +
+      '</fieldset></div>';
+
+    it('without an author, an optional question ends as needs-author, not blank', async () => {
+      const h = harness({
+        screens: oneStep(synth({ fields: [group] })),
+        answers: { 'Which stacks?': ['Node', 'Go'] },
+        readsFailAfter: 'label[for="c1"]',
+      });
+      const run = await runApply('123', h.deps);
+      expect(run.questions[0]?.question.required).toBe(false);
+      expect(run.outcome).toBe('needs-author');
+      expect(run.questions[0]).toMatchObject({
+        by: 'needs-author',
+        fillProblem: 'unverified',
+      });
+      // One press, then nothing more in the form.
+      expect(h.acts().filter((a) => a.includes('c2'))).toEqual([]);
+    });
+
+    it('with an author, it is asked about like any blocked question', async () => {
+      const h = harness({
+        screens: oneStep(synth({ fields: [group] })),
+        answers: { 'Which stacks?': ['Node', 'Go'] },
+        readsFailAfter: 'label[for="c1"]',
+        author: ['s'],
+      });
+      const run = await runApply('123', h.deps);
+      expect(run.outcome).toBe('stopped');
+      expect(h.printed.join('\n') + h.asked.join('\n')).toMatch(/unverified/);
+    });
   });
 
   it('author stop → stopped', async () => {

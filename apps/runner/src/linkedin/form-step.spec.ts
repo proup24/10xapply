@@ -3,7 +3,8 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { FIELD_TYPES } from '@xapply/answerer';
 import { parsePage, type Document } from './dom.js';
-import { readStep, stepKey } from './form-step.js';
+import { readStep, stableGroupFor, stepKey } from './form-step.js';
+import { attr } from './selectors.js';
 import type { ReadField, StepRead } from './types.js';
 
 const dir = join(dirname(fileURLToPath(import.meta.url)), '../apply/fixtures');
@@ -171,6 +172,8 @@ describe('readStep on the fixtures', () => {
       selector:
         'input[type="radio"][aria-label="Are you legally authorized to work in Spain?"]',
       count: 2,
+      // The ids at read time, for the position check before a press.
+      ids: ['_r_4c_', '_r_4e_'],
     });
     expect(spain?.optionPressSelectors).toEqual([
       'label[for="_r_4c_"]',
@@ -703,5 +706,26 @@ describe('stepKey', () => {
       form('<input id="b" aria-label="B"><input id="a" aria-label="A">'),
     );
     expect(stepKey(ab)).toBe(stepKey(ba));
+  });
+});
+
+describe('attr', () => {
+  it('escapes quotes, backslashes and line breaks for CSS', () => {
+    expect(attr('aria-label', 'a"b\\c')).toBe('[aria-label="a\\"b\\\\c"]');
+    expect(attr('aria-label', 'one\ntwo\rthree\ffour')).toBe(
+      '[aria-label="one\\a two\\d three\\c four"]',
+    );
+  });
+
+  it('a stable group whose aria-label has a line break still matches its inputs', () => {
+    const doc = parsePage(
+      '<html><body><dialog aria-labelledby="dialog-header" open><input type="radio" id="a" aria-label="Q&#10;two"><input type="radio" id="b" aria-label="Q&#10;two"></dialog></body></html>',
+    );
+    const inputs = [...doc.querySelectorAll('input')] as unknown as Parameters<
+      typeof stableGroupFor
+    >[1];
+    const g = stableGroupFor(doc, inputs);
+    expect(g?.count).toBe(2);
+    expect(doc.querySelectorAll(g?.selector ?? 'x')).toHaveLength(2);
   });
 });

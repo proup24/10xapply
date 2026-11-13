@@ -92,7 +92,14 @@ export const DISCARD_TEXT = 'Discard';
 
 /** `[attr="value"]` with the value quoted for CSS. */
 export function attr(name: string, value: string): string {
-  return `[${name}="${value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"]`;
+  const escaped = value
+    .replace(/\\/g, '\\\\')
+    .replace(/"/g, '\\"')
+    // Line breaks can't stand in a CSS string: hex escapes, each ended by a space.
+    .replace(/\n/g, '\\a ')
+    .replace(/\r/g, '\\d ')
+    .replace(/\f/g, '\\c ');
+  return `[${name}="${escaped}"]`;
 }
 
 /**

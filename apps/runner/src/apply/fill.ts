@@ -22,6 +22,22 @@ export interface FillPage {
    * unless it still matches exactly `count` (the page changed under it).
    */
   checkedAt(selector: string, index: number, count: number): Promise<boolean>;
+  /**
+   * The id of the `index`th input `selector` matches; throws unless it
+   * still matches exactly `count`.
+   */
+  idAt(selector: string, index: number, count: number): Promise<string | null>;
+}
+
+/**
+ * The page no longer matches what a read expects: nothing matches, or the
+ * count of matches changed. Thrown by the page adapter; a soft failure.
+ */
+export class ReadMismatchError extends Error {
+  constructor(message: string) {
+    super(`fill read: ${message}`);
+    this.name = 'ReadMismatchError';
+  }
 }
 
 /** A page read that timed out or found nothing: the field did not take. */
@@ -32,13 +48,22 @@ class ReadFailed extends Error {
   }
 }
 
-/** `page` with every read turned into a ReadFailed when it fails. */
+/** A Patchright timeout or the adapter's own mismatch: a soft read failure. */
+const isSoft = (e: unknown) =>
+  e instanceof ReadMismatchError ||
+  (e instanceof Error && e.name === 'TimeoutError');
+
+/**
+ * `page` with soft read failures turned into ReadFailed. Anything else (a
+ * closed target, the bridge going away) is thrown as it is, so the run
+ * ends on it.
+ */
 function guardReads(page: FillPage): FillPage {
   const guard =
     <A extends unknown[], R>(f: (...a: A) => Promise<R>) =>
     (...a: A): Promise<R> =>
-      f(...a).catch(() => {
-        throw new ReadFailed();
+      f(...a).catch((e: unknown) => {
+        throw isSoft(e) ? new ReadFailed() : e;
       });
   return {
     locator: (sel) => page.locator(sel),
@@ -48,8 +73,29 @@ function guardReads(page: FillPage): FillPage {
     suggestion: guard((list, text) => page.suggestion(list, text)),
     anyChecked: guard((sel) => page.anyChecked(sel)),
     checkedAt: guard((sel, i, n) => page.checkedAt(sel, i, n)),
+    idAt: guard((sel, i, n) => page.idAt(sel, i, n)),
   };
 }
+
+/** `pace` that notes when an action that can change the page has run. */
+function trackActs(pace: Pace, acted: { yes: boolean }): Pace {
+  const mark =
+    <A extends unknown[]>(f: (...a: A) => Promise<void>) =>
+    (...a: A): Promise<void> => {
+      acted.yes = true;
+      return f(...a);
+    };
+  return {
+    ...pace,
+    click: mark((t, o) => pace.click(t, o)),
+    type: mark((f, text, o) => pace.type(f, text, o)),
+    clear: mark((f, o) => pace.clear(f, o)),
+    pick: mark((c, i, o) => pace.pick(c, i, o)),
+    upload: mark((b, p, o) => pace.upload(b, p, o)),
+  };
+}
+
+const TEXT_LIKE = new Set(['text', 'number', 'textarea', 'typeahead']);
 export interface Resume {
   fileName: string;
   windowsPath: string;
@@ -57,10 +103,17 @@ export interface Resume {
 /**
  * Why a fill failed. `not-taken`: after a clear the field was not empty,
  * after typing it did not hold the typed text, or a page read timed out or
- * found nothing.
+ * found nothing before anything was done. `unverified`: something was
+ * pressed, typed or uploaded, and then a read failed or the check after it
+ * did not hold, so the field may be partly answered: never left blank.
  */
 export type FillProblem =
-  'not-typeable' | 'not-taken' | 'no-option' | 'no-suggestion' | 'no-resume';
+  | 'not-typeable'
+  | 'not-taken'
+  | 'no-option'
+  | 'no-suggestion'
+  | 'no-resume'
+  | 'unverified';
 export type FillResult =
   | { ok: true; changedFromLinkedIn: boolean }
   | { ok: false; reason: FillProblem };
@@ -147,14 +200,48 @@ export async function fillField(
   value: AnswerValue,
   ctx: Ctx,
 ): Promise<FillResult> {
+  const acted = { yes: false };
+  const inner: Ctx = {
+    ...ctx,
+    page: guardReads(ctx.page),
+    pace: trackActs(ctx.pace, acted),
+  };
+  let result: FillResult;
+  let readFailed = false;
   try {
-    return await fillGuarded(f, value, { ...ctx, page: guardReads(ctx.page) });
+    result = await fillGuarded(f, value, inner);
   } catch (e) {
     // A read that timed out or found nothing is a failed fill, never an
     // error stop; pace refusals and other errors still propagate.
-    if (e instanceof ReadFailed) return fail('not-taken');
-    throw e;
+    if (!(e instanceof ReadFailed)) throw e;
+    readFailed = true;
+    result = fail('not-taken');
   }
+  if (result.ok || !acted.yes) return result;
+  if (!readFailed && result.reason !== 'no-option') return result;
+  // Typed text that can't be read back is cleared, best effort.
+  if (readFailed && TEXT_LIKE.has(f.question.type)) {
+    try {
+      await ctx.pace.clear(ctx.page.locator(f.selector), opts(ctx));
+    } catch {
+      // The field stays unverified either way.
+    }
+  }
+  return fail('unverified');
+}
+
+/**
+ * True while nth(i) of the stable group still carries the id read with the
+ * step: the position route is only trusted while the ids are valid.
+ */
+async function positionHolds(
+  f: ReadField,
+  page: FillPage,
+  i: number,
+): Promise<boolean> {
+  const g = f.stableGroup;
+  if (!g) return true;
+  return (await page.idAt(g.selector, i, g.count)) === g.ids[i];
 }
 
 async function fillGuarded(
@@ -303,6 +390,7 @@ async function fillRadio(
     await pace.glance(page.locator(press), opts(ctx));
     return done(false);
   }
+  if (!(await positionHolds(f, page, index))) return fail('no-option');
   await pace.click(page.locator(press), opts(ctx));
   if (!(await stateOf(f, page, index))) return fail('no-option');
   return done(states.some(Boolean));
@@ -330,6 +418,7 @@ async function fillGroup(
   for (const [i, sel] of sels.entries()) {
     if (!differs[i]) continue;
     const press = f.optionPressSelectors?.[i] ?? sel;
+    if (!(await positionHolds(f, page, i))) return fail('no-option');
     await pace.click(page.locator(press), opts(ctx));
     if ((await stateOf(f, page, i)) !== want[i]) return fail('no-option');
   }
@@ -357,6 +446,7 @@ async function fillCheckbox(
     await pace.glance(press, opts(ctx));
     return done(false);
   }
+  if (!(await positionHolds(f, page, 0))) return fail('no-option');
   await pace.click(press, opts(ctx));
   if ((await stateOf(f, page, 0)) !== want) return fail('no-option');
   return done(ticked);
@@ -388,7 +478,10 @@ async function fillResume(f: ReadField, ctx: Ctx): Promise<FillResult> {
   let otherChecked = false;
   for (const sel of new Set(choices.map((c) => c.stateSelector))) {
     if (mineStates.has(sel)) continue;
-    if (await page.anyChecked(sel)) otherChecked = true;
+    if (await page.anyChecked(sel)) {
+      otherChecked = true;
+      break;
+    }
   }
   for (const c of mine) {
     if (await checkedOf(c)) {

@@ -37,9 +37,10 @@ export interface ReadField {
    * keeps when it re-renders (the shared `aria-label`, not the per-load
    * React ids). `selector` matched exactly `count` inputs at read time, in
    * option order, so option i is its nth(i). State is read through this
-   * when present, before and after a press.
+   * when present, before and after a press. `ids` are the inputs' ids at
+   * read time: before a press, nth(i) must still carry ids[i].
    */
-  stableGroup?: { selector: string; count: number };
+  stableGroup?: { selector: string; count: number; ids: string[] };
   /**
    * select: the page's own option index of each `question.options` entry,
    * so a placeholder left out of `options` doesn't shift picks.

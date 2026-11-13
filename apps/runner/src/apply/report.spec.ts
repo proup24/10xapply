@@ -326,4 +326,18 @@ describe('apply reports', () => {
     expect(JSON.stringify(redacted)).not.toContain(message);
     expect(formatRedactedSummary(redacted)).not.toContain(message);
   });
+
+  it('an unverified fill shows in the full report and keeps its word in the redacted one', () => {
+    const bank = makeBank();
+    const base = makeRun(bank);
+    const [first] = base.questions;
+    const run: ApplyRun = {
+      ...base,
+      questions: first ? [{ ...first, fillProblem: 'unverified' }] : [],
+    };
+    expect(formatRunMarkdown(run, bank)).toContain('fill problem: unverified');
+    expect(redactApplyRun(run, bank).questions[0]?.fillProblem).toBe(
+      'unverified',
+    );
+  });
 });
