@@ -506,6 +506,52 @@ describe('fillField', () => {
     expect(result).toEqual({ ok: true, changedFromLinkedIn: true });
   });
 
+  it('presses a checkbox on its label and verifies through the input', async () => {
+    const f = field('checkbox', { pressSelector: 'label[for="f"]' });
+    const { calls, result } = await run(f, 'Yes', {
+      pressFor: { 'label[for="f"]': '#f' },
+    });
+    expect(calls).toEqual(['click label[for="f"]']);
+    expect(result).toEqual({ ok: true, changedFromLinkedIn: false });
+  });
+
+  it('a checkbox label press that does not change the input → no-option', async () => {
+    const f = field('checkbox', { pressSelector: 'label[for="f"]' });
+    const { calls, result } = await run(f, 'Yes');
+    expect(calls).toEqual(['click label[for="f"]']);
+    expect(result).toEqual({ ok: false, reason: 'no-option' });
+  });
+
+  it("glances at a checkbox's label when it is already right", async () => {
+    const f = field('checkbox', { pressSelector: 'label[for="f"]' });
+    const { calls } = await run(f, 'Yes', { checked: { '#f': true } });
+    expect(calls).toEqual(['glance label[for="f"]']);
+  });
+
+  it('presses checkbox-group labels and verifies each through its input', async () => {
+    const f = field('checkbox-group', {
+      options: ['A', 'B'],
+      optionSelectors: ['#a', '#b'],
+      optionPressSelectors: ['label[for="a"]', 'label[for="b"]'],
+    });
+    const { calls, result } = await run(f, ['B'], {
+      pressFor: { 'label[for="a"]': '#a', 'label[for="b"]': '#b' },
+    });
+    expect(calls).toEqual(['click label[for="b"]']);
+    expect(result).toEqual({ ok: true, changedFromLinkedIn: false });
+  });
+
+  it('a checkbox-group label press that does not take → no-option', async () => {
+    const f = field('checkbox-group', {
+      options: ['A', 'B'],
+      optionSelectors: ['#a', '#b'],
+      optionPressSelectors: ['label[for="a"]', 'label[for="b"]'],
+    });
+    const { calls, result } = await run(f, ['B']);
+    expect(calls).toEqual(['click label[for="b"]']);
+    expect(result).toEqual({ ok: false, reason: 'no-option' });
+  });
+
   it('refuses a checkbox answer that is neither yes nor no', async () => {
     const { calls, result } = await run(field('checkbox'), 'Sometimes');
     expect(calls).toEqual([]);

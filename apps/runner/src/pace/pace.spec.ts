@@ -705,11 +705,14 @@ describe('createPace', () => {
     });
   });
 
-  it('refuses a sub-pixel target (a visually hidden input) as unusable, not off-screen', async () => {
+  it('refuses a target under 4 px (a visually hidden input) as unusable, not off-screen', async () => {
     for (const tiny of [
       { x: 700, y: 500, width: 0.5, height: 20 },
       { x: 700, y: 500, width: 20, height: 0.9 },
       { x: 700, y: 1500, width: 0.5, height: 0.5 },
+      { x: 700, y: 500, width: 1, height: 1 },
+      { x: 700, y: 500, width: 3, height: 20 },
+      { x: 700, y: 1500, width: 1, height: 1 },
     ]) {
       const f = setup();
       await expect(f.pace.click(f.locator([tiny]))).rejects.toThrow(
@@ -718,6 +721,12 @@ describe('createPace', () => {
       expect(of(f.log, 'down')).toHaveLength(0);
       expect(of(f.log, 'wheel')).toHaveLength(0);
     }
+  });
+
+  it('accepts a 4×4 px target', async () => {
+    const f = setup();
+    await f.pace.click(f.locator([{ x: 700, y: 500, width: 4, height: 4 }]));
+    expect(of(f.log, 'down')).toHaveLength(1);
   });
 
   it('never sends a move to where the pointer already is (Chrome reports it as a zero-movement pointermove)', async () => {

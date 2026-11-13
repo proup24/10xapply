@@ -262,8 +262,12 @@ async function fillGroup(
     await pace.glance(page.locator(f.selector), opts(ctx));
     return done(false);
   }
+  // Pressed on each option's label, and each read back from its input.
   for (const [i, sel] of sels.entries()) {
-    if (differs[i]) await pace.click(page.locator(sel), opts(ctx));
+    if (!differs[i]) continue;
+    const press = f.optionPressSelectors?.[i] ?? sel;
+    await pace.click(page.locator(press), opts(ctx));
+    if ((await page.checked(sel)) !== want[i]) return fail('no-option');
   }
   return done(states.some(Boolean));
 }
@@ -282,13 +286,15 @@ async function fillCheckbox(
         ? false
         : null;
   if (want === null) return fail('no-option');
-  const field = page.locator(f.selector);
+  // Pressed on its label; state read from the input, live.
+  const press = page.locator(f.pressSelector ?? f.selector);
   const ticked = await page.checked(f.selector);
   if (ticked === want) {
-    await pace.glance(field, opts(ctx));
+    await pace.glance(press, opts(ctx));
     return done(false);
   }
-  await pace.click(field, opts(ctx));
+  await pace.click(press, opts(ctx));
+  if ((await page.checked(f.selector)) !== want) return fail('no-option');
   return done(ticked);
 }
 

@@ -1021,7 +1021,11 @@ describe('runApply', () => {
       { question: 'Which stacks?', answer: 'Node; Go' },
     ]);
     expect(h.acts()).toEqual(
-      expect.arrayContaining(['click #c1', 'click #c2']),
+      // Pressed on their labels; the harness checks the inputs.
+      expect.arrayContaining([
+        'click label[for="c1"]',
+        'click label[for="c2"]',
+      ]),
     );
   });
 

@@ -459,6 +459,29 @@ describe('readStep type mapping', () => {
     });
   });
 
+  it("checkboxes in LinkedIn's shape (input + empty label[for]) are pressed on the label", () => {
+    const group = only(
+      '<fieldset id="fs"><legend>Stacks</legend><div><input id="a" type="checkbox"><label for="a"></label><p>Node</p></div><div><input id="b" type="checkbox"><label for="b"></label><p>Go</p></div></fieldset>',
+    );
+    expect(group.question.type).toBe('checkbox-group');
+    expect(group.optionSelectors).toEqual(['#a', '#b']);
+    expect(group.optionPressSelectors).toEqual([
+      'label[for="a"]',
+      'label[for="b"]',
+    ]);
+    const one = only(
+      '<input id="t" type="checkbox" aria-label="I agree"><label for="t"></label>',
+    );
+    expect(one.question.type).toBe('checkbox');
+    expect(one.selector).toBe('#t');
+    expect(one.pressSelector).toBe('label[for="t"]');
+  });
+
+  it('a checkbox without its own label[for] is pressed on the input', () => {
+    const one = only('<input id="t" type="checkbox" aria-label="I agree">');
+    expect(one.pressSelector).toBe('#t');
+  });
+
   it('input[type=file] is file', () => {
     const f = only('<input id="f" type="file" aria-label="Cover letter">');
     expect(f.question.type).toBe('file');

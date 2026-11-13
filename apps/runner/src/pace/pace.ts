@@ -96,6 +96,8 @@ const SCROLL_SETTLE_MS = 300;
  */
 const REVEAL_END_SHARE = 0.6;
 const REVEAL_END_MIN_PX = 12;
+/** A target box narrower or shorter than this is refused as unusable. */
+const USABLE_MIN_PX = 4;
 /** A revealed target sits at least this share of the window from its edge. */
 const REVEAL_MARGIN = 0.15;
 /** The `<select>` options after the checked one (plain CSS, no script). */
@@ -318,11 +320,12 @@ export function createPace(
   }
 
   /**
-   * Refuses a target box under 1 px wide or tall: a visually hidden control
-   * (LinkedIn's radio inputs), which no press can land on.
+   * Refuses a target box under USABLE_MIN_PX wide or tall: a visually
+   * hidden control (LinkedIn's 1 px radio and checkbox inputs), which no
+   * person would aim a press at.
    */
   function assertUsable(box: Box): void {
-    if (box.width < 1 || box.height < 1) {
+    if (box.width < USABLE_MIN_PX || box.height < USABLE_MIN_PX) {
       throw new Error('pace: target has no usable box (hidden or zero-size)');
     }
   }

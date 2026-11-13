@@ -127,7 +127,7 @@ function readErrors(dialog: El): string[] {
 }
 
 /**
- * Where to press a radio: its `label[for="<id>"]` when exactly one matches
+ * Where to press a radio or checkbox: its `label[for="<id>"]` when exactly one matches
  * on the page, else `fallback` (the input's own selector).
  */
 export function pressSelectorFor(
@@ -378,11 +378,14 @@ function readFields(
     if (optionSelectors) {
       const sels = optionSelectors as string[];
       field.optionSelectors = sels;
-      if (q.type === 'radio' && options) {
+      if ((q.type === 'radio' || q.type === 'checkbox-group') && options) {
         field.optionPressSelectors = options.map((o, i) =>
           pressSelectorFor(doc, o, sels[i] ?? ''),
         );
       }
+    }
+    if (q.type === 'checkbox' && target) {
+      field.pressSelector = pressSelectorFor(doc, target, selector);
     }
     fields.push(field);
   };

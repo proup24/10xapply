@@ -20,12 +20,18 @@ export interface ReadField {
   /** radio, checkbox-group: one selector per option, in `question.options` order. */
   optionSelectors?: string[];
   /**
-   * radio: where to press each option, in the same order. LinkedIn's radio
-   * inputs are visually hidden; the visible control is the empty
-   * `label[for]` after each one. The input itself when no label picks it
-   * out alone. State is still read from `optionSelectors`.
+   * radio, checkbox-group: where to press each option, in the same order.
+   * LinkedIn's radio and checkbox inputs are visually hidden; the visible
+   * control is the empty `label[for]` after each one. The input itself
+   * when no label picks it out alone. State is still read from
+   * `optionSelectors`.
    */
   optionPressSelectors?: string[];
+  /**
+   * checkbox: where to press it (its one `label[for]`, else the input).
+   * State is read from `selector`.
+   */
+  pressSelector?: string;
   /**
    * select: the page's own option index of each `question.options` entry,
    * so a placeholder left out of `options` doesn't shift picks.
