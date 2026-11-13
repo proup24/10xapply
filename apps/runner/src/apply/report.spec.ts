@@ -378,10 +378,11 @@ describe('apply reports', () => {
         { tag: 'div', role: null, inputType: null, label: 'LABEL-MARK' },
       ],
       checks: [
-        { at: 'job-page', step: null, claims: [log], calls: [] },
+        { at: 'job-page', step: null, ok: true, claims: [log], calls: [] },
         {
           at: 'step',
           step: 2,
+          ok: true,
           claims: [disq, unclear],
           calls: [
             {
@@ -429,6 +430,7 @@ describe('apply reports', () => {
       expect(redacted.checks).toHaveLength(2);
       expect(redacted.checks[1]?.calls).toHaveLength(1);
       expect(redacted.checks[1]?.step).toBe(2);
+      expect(redacted.checks[1]?.ok).toBe(true);
       expect(redactApplyRun(makeRun(bank), bank).disqualification).toBeNull();
     });
 
@@ -467,22 +469,103 @@ describe('apply reports', () => {
       expect(md).toContain(
         'Verdict: disqualified: asks-sponsorship US at s2-q1',
       );
+      // A rule kind with no countries is unclear; a log kind's is none.
+      expect(md).toContain('| s1-u1 | requires-authorization | unclear |');
+      expect(md).toContain('| job-page | language-requirement | - |');
       expect(md.indexOf('## Outcome')).toBeLessThan(
         md.indexOf('## Requirements'),
       );
     });
 
+    const reached = (bank: FactBank): ApplyRun => ({
+      ...makeRun(bank),
+      outcome: 'reached-review',
+      stop: undefined,
+    });
+
     it('a pass verdict, and no claims', () => {
       const bank = makeBank();
       const passing: ApplyRun = {
-        ...makeRun(bank),
-        checks: [{ at: 'job-page', step: null, claims: [log], calls: [] }],
+        ...reached(bank),
+        checks: [
+          { at: 'job-page', step: null, ok: true, claims: [log], calls: [] },
+        ],
       };
       const md = formatRunMarkdown(passing, bank);
       expect(md).toContain('Verdict: pass');
-      const empty = formatRunMarkdown(makeRun(bank), bank);
+      const empty = formatRunMarkdown(
+        {
+          ...reached(bank),
+          checks: [
+            { at: 'job-page', step: null, ok: true, claims: [], calls: [] },
+          ],
+        },
+        bank,
+      );
       expect(empty).toContain('No requirements found.');
-      expect(empty).not.toContain('Verdict:');
+      expect(empty).toContain('Verdict: pass');
+    });
+
+    it('a check-failed run is not decided and its requirements are not known', () => {
+      const bank = makeBank();
+      const failed: ApplyRun = {
+        ...makeRun(bank),
+        outcome: 'safety-stop',
+        stop: {
+          kind: 'check-failed',
+          step: null,
+          detail: 'the requirements check did not give a valid answer',
+          pathPrefix: '/jobs/',
+        },
+        checks: [
+          { at: 'job-page', step: null, ok: false, claims: [], calls: [] },
+        ],
+      };
+      const md = formatRunMarkdown(failed, bank);
+      expect(md).not.toContain('No requirements found.');
+      expect(md).toContain('1 check failed');
+      expect(md).toContain('Verdict: not decided (safety-stop/check-failed)');
+      expect(md).not.toContain('Verdict: pass');
+      expect(redactApplyRun(failed, bank).checks[0]?.ok).toBe(false);
+      // A failed round after claims were found still says so.
+      const later = formatRunMarkdown(
+        {
+          ...failed,
+          checks: [
+            { at: 'job-page', step: null, ok: true, claims: [log], calls: [] },
+            { at: 'step', step: 1, ok: false, claims: [], calls: [] },
+          ],
+        },
+        bank,
+      );
+      expect(later).toContain('1 check failed');
+      expect(later).toContain(
+        'Verdict: not decided (safety-stop/check-failed)',
+      );
+    });
+
+    it('a stopped run is not decided, never pass', () => {
+      const bank = makeBank();
+      const stopped: ApplyRun = {
+        ...makeRun(bank),
+        outcome: 'stopped',
+        stop: {
+          kind: 'bridge',
+          step: 1,
+          detail: 'interrupted',
+          pathPrefix: '/jobs/',
+        },
+        checks: [
+          { at: 'job-page', step: null, ok: true, claims: [log], calls: [] },
+        ],
+      };
+      const md = formatRunMarkdown(stopped, bank);
+      expect(md).toContain('Verdict: not decided (stopped/bridge)');
+      expect(md).not.toContain('Verdict: pass');
+      const none = formatRunMarkdown({ ...stopped, checks: [] }, bank);
+      expect(none).toContain('No checks ran.');
+      expect(none).not.toContain('No requirements found.');
+      expect(none).toContain('Verdict: not decided (stopped/bridge)');
     });
   });
 });

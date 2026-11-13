@@ -58,6 +58,8 @@ export interface CheckRecord {
   at: 'job-page' | 'step';
   /** The form step, null for the job page. */
   step: number | null;
+  /** False when the check failed (`check-failed`): its claims are not known. */
+  ok: boolean;
   /** Empty when the check failed. */
   claims: Claim[];
   /** Kept even when the check failed. */

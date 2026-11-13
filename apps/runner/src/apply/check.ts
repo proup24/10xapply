@@ -70,12 +70,24 @@ export async function awaitCheck(
     res = await pending;
   } catch (e) {
     if (e instanceof CheckFailedError) {
-      w.run.checks.push({ at, step, claims: [], calls: [...e.calls] });
+      w.run.checks.push({
+        at,
+        step,
+        ok: false,
+        claims: [],
+        calls: [...e.calls],
+      });
     }
     checkStop(w.deps);
     throw e;
   }
-  w.run.checks.push({ at, step, claims: res.claims, calls: res.calls });
+  w.run.checks.push({
+    at,
+    step,
+    ok: true,
+    claims: res.claims,
+    calls: res.calls,
+  });
   checkStop(w.deps);
   return res.claims;
 }

@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import type { Locator } from 'patchright-core';
 import {
   mapField,
+  ModelUnavailableError,
   type AnswerResult,
   type AnswerValue,
   type FormQuestion,
@@ -1505,6 +1506,7 @@ describe('runApply', () => {
       expect(run.checks[0]).toEqual({
         at: 'job-page',
         step: null,
+        ok: true,
         claims: [claim('requires-authorization', ['US'])],
         calls: [CALL],
       });
@@ -1585,7 +1587,7 @@ describe('runApply', () => {
       });
       expect(h.acts()).not.toContain(`click ${EASY_APPLY}`);
       expect(run.checks).toEqual([
-        { at: 'job-page', step: null, claims: [], calls: [CALL] },
+        { at: 'job-page', step: null, ok: false, claims: [], calls: [CALL] },
       ]);
       expect(h.closed()).toBe(true);
     });
@@ -1722,10 +1724,46 @@ describe('runApply', () => {
       expect(run.checks.at(-1)).toEqual({
         at: 'step',
         step: 1,
+        ok: false,
         claims: [],
         calls: [CALL, CALL],
       });
       expect(h.answered).toEqual([]);
+    });
+
+    it('ModelUnavailableError from a round check is an error stop, unrecorded', async () => {
+      const h = harness({ screens: checked(synth({ fields: [A] })) });
+      h.deps.checkQuestions = async () => {
+        throw new ModelUnavailableError('claude is not signed in');
+      };
+      const run = await runApply('123', h.deps);
+      expect(run.outcome).toBe('stopped');
+      expect(run.stop).toMatchObject({
+        kind: 'error',
+        detail: 'ModelUnavailableError',
+        step: 1,
+      });
+      // Only the job page's check is recorded.
+      expect(run.checks.map((c) => [c.at, c.ok])).toEqual([['job-page', true]]);
+      expect(h.answered).toEqual([]);
+      expect(typed(h)).toEqual([]);
+    });
+
+    it('ModelUnavailableError from the job check is an error stop, unrecorded', async () => {
+      const h = harness({ screens: fullFlow() });
+      h.deps.checkJob = async () => {
+        throw new ModelUnavailableError('claude is not signed in');
+      };
+      const run = await runApply('123', h.deps);
+      expect(run.outcome).toBe('stopped');
+      expect(run.stop).toMatchObject({
+        kind: 'error',
+        detail: 'ModelUnavailableError',
+        step: null,
+      });
+      expect(run.checks).toEqual([]);
+      expect(h.acts()).not.toContain(`click ${EASY_APPLY}`);
+      expect(h.closed()).toBe(true);
     });
 
     it('an unclear claim does not disqualify', async () => {
