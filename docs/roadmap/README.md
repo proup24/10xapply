@@ -133,6 +133,7 @@ The author gives the runner one LinkedIn job URL. A real Chrome window on the au
 
 ### 05b Disqualification
 
+- **Spec:** [slice 05b spec](../superpowers/specs/2026-11-13-disqualification-design.md).
 - **Scope:** some jobs require something the author does not have, usually a work authorization or a location. The run should not apply to them. It marks the job **disqualified** instead.
   - A `claude -p` role extracts structured claims from the job page and from each form question's label, text and options (for example `{ requires: work-authorization, country: US }`).
   - Plain code checks those claims against a separate rules file, so the decision is deterministic and tested exactly.
