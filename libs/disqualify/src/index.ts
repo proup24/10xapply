@@ -13,3 +13,5 @@ export {
   type Rules,
   type RulesCheck,
 } from './rules.js';
+export { normalizeText, validateClaims } from './validate.js';
+export { decide, type Verdict } from './decide.js';
