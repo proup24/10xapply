@@ -116,7 +116,9 @@ describe('createClaudeCliCaller', () => {
 
   it('costUsd is null when total_cost_usd is missing', async () => {
     const { spawn } = scripted([ok({ structured_output: { n: 1 } })]);
-    const res = await createClaudeCliCaller({ sleep: noSleep, spawn }).call(req);
+    const res = await createClaudeCliCaller({ sleep: noSleep, spawn }).call(
+      req,
+    );
     expect(res.stat.costUsd).toBeNull();
   });
 
@@ -125,7 +127,9 @@ describe('createClaudeCliCaller', () => {
       { code: 0, stdout: 'Update available!\n', timedOut: false },
       good,
     ]);
-    const res = await createClaudeCliCaller({ sleep: noSleep, spawn }).call(req);
+    const res = await createClaudeCliCaller({ sleep: noSleep, spawn }).call(
+      req,
+    );
     expect(res.value).toEqual({ n: 7 });
     expect(calls).toHaveLength(2);
   });
@@ -288,7 +292,9 @@ describe('createClaudeCliCaller', () => {
     });
 
     it('does not wait or retry when the model is unavailable', async () => {
-      const { spawn } = scripted([ok({ is_error: true, api_error_status: 401 })]);
+      const { spawn } = scripted([
+        ok({ is_error: true, api_error_status: 401 }),
+      ]);
       const { waits, sleep } = recorder();
       await expect(
         createClaudeCliCaller({ spawn, sleep }).call(req),
