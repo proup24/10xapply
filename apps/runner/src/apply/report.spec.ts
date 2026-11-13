@@ -171,7 +171,11 @@ function makeRun(bank: FactBank): ApplyRun {
         fillProblem: 'no-option',
       },
     ],
-    unknownFields: [{ tag: 'div', role: 'slider', inputType: null }],
+    unknownFields: [
+      { tag: 'div', role: 'slider', inputType: null, label: mk('unknown') },
+    ],
+    checks: [],
+    disqualification: null,
     timings: { totalMs: 1234, perStepMs: [100, 200] },
   };
 }

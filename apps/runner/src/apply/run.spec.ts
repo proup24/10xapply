@@ -10,6 +10,14 @@ import {
   type FormQuestion,
 } from '@xapply/answerer';
 import type { FactBank } from '@xapply/fact-bank';
+import {
+  CheckFailedError,
+  type CheckJob,
+  type CheckQuestion,
+  type Claim,
+  type ClaimKind,
+  type ExtractResult,
+} from '@xapply/disqualify';
 import { parsePage, type Document } from '../linkedin/dom.js';
 import { readStep } from '../linkedin/form-step.js';
 import {
@@ -121,6 +129,10 @@ interface Harness {
   saved: { question: string; answer: string }[];
   loads: () => number;
   answered: FormQuestion[];
+  /** What each job-page check was given. */
+  jobChecks: CheckJob[];
+  /** What each round's check was given. */
+  stepChecks: CheckQuestion[][];
 }
 
 interface Setup {
@@ -141,6 +153,10 @@ interface Setup {
   deaf?: string[];
   /** Once this selector is pressed, every checked-state read times out. */
   readsFailAfter?: string;
+  /** The job-page check's claims; none by default. */
+  jobClaims?: Claim[];
+  /** Each round's check: its claims; none by default. */
+  stepClaims?: (qs: CheckQuestion[]) => Claim[];
 }
 
 type Reply = AnswerValue | { blocked: true };
@@ -192,6 +208,8 @@ function harness(s: Setup): Harness {
   const printed: string[] = [];
   const saved: { question: string; answer: string }[] = [];
   const answered: FormQuestion[] = [];
+  const jobChecks: CheckJob[] = [];
+  const stepChecks: CheckQuestion[][] = [];
   const replies = [...(s.author ?? [])];
   const reads: Record<string, number> = {};
 
@@ -331,6 +349,17 @@ function harness(s: Setup): Harness {
     resume: { fileName: 'resume-2025.pdf', windowsPath: 'C:\\x\\cv.pdf' },
     now: () => (t += 10),
     wait: async (ms) => void calls.push({ op: 'wait', sel: '', arg: ms }),
+    checkJob: async (job) => {
+      jobChecks.push(job);
+      calls.push({ op: 'check-job', sel: '' });
+      return { claims: s.jobClaims ?? [], calls: [CALL] };
+    },
+    checkQuestions: async (qs) => {
+      stepChecks.push(qs);
+      calls.push({ op: 'check-step', sel: qs.map((q) => q.id).join(',') });
+      return { claims: s.stepClaims?.(qs) ?? [], calls: [CALL] };
+    },
+    rules: { authorizedCountries: ['MA'] },
   };
   const PACE_OPS = new Set([
     'click',
@@ -356,8 +385,33 @@ function harness(s: Setup): Harness {
     saved,
     loads: () => loads,
     answered,
+    jobChecks,
+    stepChecks,
   };
 }
+
+const CALL = {
+  role: 'extract',
+  model: 'opus',
+  latencyMs: 5,
+  costUsd: null,
+  ok: true,
+} as const;
+
+/** A claim as the extractor gives it; the quote is never checked here. */
+const claim = (
+  kind: ClaimKind,
+  countries: string[],
+  source = 'job-page',
+): Claim => ({
+  kind,
+  countries,
+  countryFrom: 'text',
+  quote: 'quoted',
+  placeQuote: null,
+  source,
+  detail: null,
+});
 
 /** job → contact → resume → questions → review → save prompt → closed. */
 function fullFlow(): Record<string, Screen> {
@@ -799,7 +853,7 @@ describe('runApply', () => {
     expect(run.outcome).toBe('safety-stop');
     expect(run.stop).toMatchObject({ kind: 'unknown-field', step: 1 });
     expect(run.unknownFields).toEqual([
-      { tag: 'input', role: null, inputType: 'date' },
+      { tag: 'input', role: null, inputType: 'date', label: null },
     ]);
     expect(h.answered).toEqual([]);
     expect(h.acts()).not.toContain('type #qa ok');
@@ -1425,5 +1479,343 @@ describe('runApply', () => {
     expect(() =>
       guardNext(ok, { selector: '#next', label: 'next' }),
     ).not.toThrow();
+  });
+  describe('the requirements checks', () => {
+    /** job → `step` (Dismiss opens the save prompt) → review. */
+    const checked = (step: string): Record<string, Screen> => ({
+      job: { html: JOB, on: { [EASY_APPLY]: 'step' } },
+      step: {
+        html: step,
+        on: { [nextOf(step)]: 'review', [DISMISS]: 'prompt' },
+      },
+      ...reviewScreens(),
+    });
+    const typed = (h: Harness) => h.acts().filter((a) => a.startsWith('type'));
+
+    it('disqualifying job page never opens the form', async () => {
+      const h = harness({
+        screens: fullFlow(),
+        jobClaims: [claim('requires-authorization', ['US'])],
+      });
+      const run = await runApply('123', h.deps);
+      expect(run.outcome).toBe('disqualified');
+      expect(run.stop).toBeUndefined();
+      expect(h.acts()).not.toContain(`click ${EASY_APPLY}`);
+      expect(h.acts()).toEqual([]);
+      expect(run.checks[0]).toEqual({
+        at: 'job-page',
+        step: null,
+        claims: [claim('requires-authorization', ['US'])],
+        calls: [CALL],
+      });
+      expect(run.disqualification).toEqual([
+        claim('requires-authorization', ['US']),
+      ]);
+      expect(h.stepChecks).toEqual([]);
+      expect(h.closed()).toBe(true);
+    });
+
+    it('the job check gets the title, company and description only', async () => {
+      const h = harness({ screens: fullFlow() });
+      const run = await runApply('123', h.deps);
+      expect(run.outcome).toBe('reached-review');
+      expect(h.jobChecks).toEqual([
+        {
+          title: run.job?.title,
+          company: run.job?.company,
+          description: run.job?.description,
+        },
+      ]);
+      expect(run.disqualification).toBeNull();
+    });
+
+    it('the job check runs during the read', async () => {
+      const h = harness({ screens: fullFlow() });
+      let readResolved = false;
+      let calledBefore: boolean | null = null;
+      const inner = h.deps.pace;
+      h.deps.pace = (p) => {
+        const pace = inner(p);
+        return {
+          ...pace,
+          read: async (n) => {
+            await pace.read(n);
+            readResolved = true;
+          },
+        };
+      };
+      const check = h.deps.checkJob;
+      h.deps.checkJob = (job) => {
+        calledBefore = !readResolved;
+        return check(job);
+      };
+      const run = await runApply('123', h.deps);
+      expect(run.outcome).toBe('reached-review');
+      expect(calledBefore).toBe(true);
+      const ops = h.calls.map((c) => c.op);
+      expect(ops.indexOf('check-job')).toBeLessThan(ops.indexOf('read'));
+    });
+
+    it('job check failing during the read stops before Easy Apply', async () => {
+      const h = harness({ screens: fullFlow() });
+      let reject: (e: unknown) => void = () => undefined;
+      h.deps.checkJob = () =>
+        new Promise<ExtractResult>((_, rej) => {
+          reject = rej;
+        });
+      const inner = h.deps.pace;
+      h.deps.pace = (p) => {
+        const pace = inner(p);
+        return {
+          ...pace,
+          read: async (n) => {
+            reject(new CheckFailedError('model-error', [CALL]));
+            // A macrotask: an unhandled rejection would be reported here.
+            await new Promise((r) => setTimeout(r, 20));
+            await pace.read(n);
+          },
+        };
+      };
+      const run = await runApply('123', h.deps);
+      expect(run.outcome).toBe('safety-stop');
+      expect(run.stop).toMatchObject({
+        kind: 'check-failed',
+        detail: 'the requirements check did not give a valid answer',
+        step: null,
+      });
+      expect(h.acts()).not.toContain(`click ${EASY_APPLY}`);
+      expect(run.checks).toEqual([
+        { at: 'job-page', step: null, claims: [], calls: [CALL] },
+      ]);
+      expect(h.closed()).toBe(true);
+    });
+
+    it('disqualifying round fills nothing', async () => {
+      const h = harness({
+        screens: checked(synth({ fields: [A, B] })),
+        stepClaims: () => [claim('asks-sponsorship', ['US'], 's1-q2')],
+      });
+      const run = await runApply('123', h.deps);
+      expect(run.outcome).toBe('disqualified');
+      expect(run.stop).toBeUndefined();
+      expect(h.answered).toEqual([]);
+      expect(run.questions).toEqual([]);
+      expect(typed(h)).toEqual([]);
+      expect(h.acts().some((a) => /#q[ab]/.test(a))).toBe(false);
+      expect(run.disqualification?.[0]?.source).toBe('s1-q2');
+      expect(h.stepChecks.map((qs) => qs.map((q) => [q.id, q.label]))).toEqual([
+        [
+          ['s1-q1', 'Question A'],
+          ['s1-q2', 'Question B'],
+        ],
+      ]);
+      expect(run.checks.map((c) => [c.at, c.step])).toEqual([
+        ['job-page', null],
+        ['step', 1],
+      ]);
+      // The close-out: Dismiss, then Discard on the save prompt.
+      expect(h.acts().slice(-2)).toEqual([
+        `click ${DISMISS}`,
+        `click ${DISCARD}`,
+      ]);
+      expect(h.closed()).toBe(true);
+    });
+
+    it('a follow-up field can disqualify', async () => {
+      const h = harness({
+        screens: {
+          job: { html: JOB, on: { [EASY_APPLY]: 's0' } },
+          s0: { html: synth({ fields: [A] }), on: { '#qa': 's1' } },
+          s1: {
+            html: synth({ fields: [A, B] }),
+            on: { [DISMISS]: 'prompt' },
+          },
+          ...reviewScreens(),
+        },
+        stepClaims: (qs) =>
+          qs.some((q) => q.id === 's1-q2')
+            ? [claim('asks-sponsorship', ['US'], 's1-q2')]
+            : [],
+      });
+      const run = await runApply('123', h.deps);
+      expect(run.outcome).toBe('disqualified');
+      expect(h.stepChecks.map((qs) => qs.map((q) => q.id))).toEqual([
+        ['s1-q1'],
+        ['s1-q2'],
+      ]);
+      expect(h.answered.map((q) => q.id)).toEqual(['s1-q1']);
+      expect(typed(h)).toEqual(['type #qa ok']);
+      expect(run.disqualification?.[0]?.source).toBe('s1-q2');
+    });
+
+    it('an offer on the job page exempts a form question', async () => {
+      const h = harness({
+        screens: checked(synth({ fields: [A] })),
+        jobClaims: [claim('offers-sponsorship', ['DE'])],
+        stepClaims: () => [claim('asks-sponsorship', ['DE'], 's1-q1')],
+      });
+      const run = await runApply('123', h.deps);
+      expect(run.outcome).toBe('reached-review');
+      expect(run.disqualification).toBeNull();
+      expect(typed(h)).toEqual(['type #qa ok']);
+    });
+
+    it('an offer in a form question exempts nothing', async () => {
+      const h = harness({
+        screens: checked(synth({ fields: [A] })),
+        stepClaims: () => [
+          claim('offers-sponsorship', ['DE'], 's1-q1'),
+          claim('asks-sponsorship', ['DE'], 's1-q1'),
+        ],
+      });
+      const run = await runApply('123', h.deps);
+      expect(run.outcome).toBe('disqualified');
+    });
+
+    it('disqualification wins over an unknown field', async () => {
+      const unknown =
+        '<div componentkey="easyApplyFieldFocus_dt"><label for="dt">Visa sponsorship needed from</label><input type="date" id="dt"></div>' +
+        '<div componentkey="easyApplyFieldFocus_dn"><input type="date" id="dn"></div>';
+      const h = harness({
+        screens: checked(synth({ fields: [A, unknown] })),
+        stepClaims: () => [claim('asks-sponsorship', ['US'], 's1-u1')],
+      });
+      const run = await runApply('123', h.deps);
+      expect(run.outcome).toBe('disqualified');
+      expect(run.stop).toBeUndefined();
+      // The unlabelled unknown is not sent.
+      expect(h.stepChecks).toEqual([
+        [
+          expect.objectContaining({ id: 's1-q1', label: 'Question A' }),
+          {
+            id: 's1-u1',
+            label: 'Visa sponsorship needed from',
+            type: 'date',
+            stepTitle: 'Apply to Acme',
+          },
+        ],
+      ]);
+      expect(h.answered).toEqual([]);
+    });
+
+    it('an unknown field still stops once the check passes', async () => {
+      const unknown =
+        '<div componentkey="easyApplyFieldFocus_dt"><label for="dt">Start date</label><input type="date" id="dt"></div>';
+      const h = harness({
+        screens: checked(synth({ fields: [A, unknown] })),
+      });
+      const run = await runApply('123', h.deps);
+      expect(run.outcome).toBe('safety-stop');
+      expect(run.stop).toMatchObject({ kind: 'unknown-field', step: 1 });
+      expect(h.stepChecks).toHaveLength(1);
+      expect(h.answered).toEqual([]);
+    });
+
+    it('a round whose check fails is check-failed, with its calls kept', async () => {
+      const h = harness({ screens: checked(synth({ fields: [A] })) });
+      h.deps.checkQuestions = async () => {
+        throw new CheckFailedError('invalid-claims', [CALL, CALL]);
+      };
+      const run = await runApply('123', h.deps);
+      expect(run.outcome).toBe('safety-stop');
+      expect(run.stop).toMatchObject({ kind: 'check-failed', step: 1 });
+      expect(run.checks.at(-1)).toEqual({
+        at: 'step',
+        step: 1,
+        claims: [],
+        calls: [CALL, CALL],
+      });
+      expect(h.answered).toEqual([]);
+    });
+
+    it('an unclear claim does not disqualify', async () => {
+      const h = harness({
+        screens: checked(synth({ fields: [A] })),
+        jobClaims: [claim('requires-authorization', [])],
+        stepClaims: () => [claim('asks-authorization', [], 's1-q1')],
+      });
+      const run = await runApply('123', h.deps);
+      expect(run.outcome).toBe('reached-review');
+      expect(run.disqualification).toBeNull();
+      expect(run.checks.map((c) => c.claims.length)).toEqual([1, 1]);
+    });
+
+    it.each([
+      ['passes', false],
+      ['fails', true],
+    ])('stop during a check is stopped (the check %s)', async (_, fails) => {
+      let stop = false;
+      const h = harness({
+        screens: checked(synth({ fields: [A] })),
+        stopWhen: () => (stop ? 'interrupted' : null),
+      });
+      h.deps.checkQuestions = async () => {
+        stop = true;
+        if (fails) throw new CheckFailedError('model-error', [CALL]);
+        return { claims: [], calls: [CALL] };
+      };
+      const run = await runApply('123', h.deps);
+      expect(run.outcome).toBe('stopped');
+      expect(run.stop).toMatchObject({
+        kind: 'bridge',
+        detail: 'interrupted',
+        step: 1,
+      });
+      expect(run.checks.at(-1)).toMatchObject({ at: 'step', step: 1 });
+      expect(h.answered).toEqual([]);
+      // Ctrl+C still dismisses and discards.
+      expect(h.acts().slice(-2)).toEqual([
+        `click ${DISMISS}`,
+        `click ${DISCARD}`,
+      ]);
+    });
+
+    it('stop during the job check is stopped', async () => {
+      let stop = false;
+      const h = harness({
+        screens: fullFlow(),
+        stopWhen: () => (stop ? 'interrupted' : null),
+      });
+      h.deps.checkJob = async () => {
+        stop = true;
+        throw new CheckFailedError('model-error', [CALL]);
+      };
+      const run = await runApply('123', h.deps);
+      expect(run.outcome).toBe('stopped');
+      expect(h.acts()).not.toContain(`click ${EASY_APPLY}`);
+    });
+
+    it('no fresh fields, no check', async () => {
+      const h = harness({ screens: fullFlow() });
+      const run = await runApply('123', h.deps);
+      expect(run.outcome).toBe('reached-review');
+      // Three steps with fields; the review page with none gets no check.
+      expect(h.stepChecks).toHaveLength(3);
+      const empty = harness({ screens: oneStep(synth({})) });
+      const r2 = await runApply('123', empty.deps);
+      expect(r2.outcome).toBe('reached-review');
+      expect(empty.stepChecks).toEqual([]);
+    });
+
+    it('fields already filled get no second check', async () => {
+      const h = harness({
+        screens: {
+          job: { html: JOB, on: { [EASY_APPLY]: 's0' } },
+          s0: { html: synth({ fields: [A] }), on: { '#qa': 's1' } },
+          s1: { html: synth({ fields: [A, B] }), on: { '#next': 'review' } },
+          ...reviewScreens(),
+        },
+      });
+      const run = await runApply('123', h.deps);
+      expect(run.outcome).toBe('reached-review');
+      expect(h.stepChecks.map((qs) => qs.map((q) => q.id))).toEqual([
+        ['s1-q1'],
+        ['s1-q2'],
+      ]);
+      expect(run.questions.map((q) => q.question.id)).toEqual([
+        's1-q1',
+        's1-q2',
+      ]);
+    });
   });
 });

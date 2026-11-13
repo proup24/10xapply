@@ -53,7 +53,8 @@ export interface RedactedApplyRun {
     pathPrefix: string | null;
   } | null;
   questions: RedactedQuestion[];
-  unknownFields: UnknownField[];
+  /** Never the label. */
+  unknownFields: Omit<UnknownField, 'label'>[];
   timings: ApplyRun['timings'];
 }
 

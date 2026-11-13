@@ -72,13 +72,25 @@ describe('resolveRelayPort', () => {
 describe('loadAnswerConfig', () => {
   const none = join(tmpdir(), 'no-such-file');
 
-  it('defaults to opus, opus, opus and one regeneration', () => {
+  it('defaults to opus, opus, opus, opus and one regeneration', () => {
     expect(loadAnswerConfig({}, none)).toEqual({
       answerModel: 'opus',
       verifyModel: 'opus',
       judgeModel: 'opus',
+      extractModel: 'opus',
       maxRegenerations: 1,
     });
+  });
+
+  it('EXTRACT_MODEL sets the extractor model, from the file or the environment', () => {
+    expect(
+      loadAnswerConfig({ EXTRACT_MODEL: 'sonnet' }, none).extractModel,
+    ).toBe('sonnet');
+    const f = envFile('EXTRACT_MODEL=haiku\n');
+    expect(loadAnswerConfig({}, f).extractModel).toBe('haiku');
+    expect(loadAnswerConfig({ EXTRACT_MODEL: 'sonnet' }, f).extractModel).toBe(
+      'sonnet',
+    );
   });
 
   it('reads overrides from the file, and the environment wins', () => {
@@ -89,6 +101,7 @@ describe('loadAnswerConfig', () => {
       answerModel: 'sonnet',
       verifyModel: 'haiku',
       judgeModel: 'fable',
+      extractModel: 'opus',
       maxRegenerations: 3,
     });
   });

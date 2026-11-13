@@ -1,9 +1,17 @@
 import type {
   AnswerResult,
   AnswerValue,
+  CallStat,
   FormQuestion,
   Job,
 } from '@xapply/answerer';
+import type {
+  CheckJob,
+  CheckQuestion,
+  Claim,
+  ExtractResult,
+  Rules,
+} from '@xapply/disqualify';
 import type { FactBank } from '@xapply/fact-bank';
 import type { UnknownField } from '../linkedin/types.js';
 import type { Pace } from '../pace/pace.js';
@@ -16,13 +24,15 @@ export type SafetyStop =
   | 'unknown-field'
   | 'unexpected-page'
   | 'step-did-not-change'
-  | 'too-many-rounds';
+  | 'too-many-rounds'
+  | 'check-failed';
 
 export type StopKind =
   SafetyStop | 'bridge' | 'error' | 'author' | 'needs-author';
 
 export type ApplyOutcome =
   | 'reached-review'
+  | 'disqualified'
   | 'not-easy-apply'
   | 'already-applied'
   | 'safety-stop'
@@ -41,6 +51,17 @@ export interface QuestionRecord {
   /** The known-answer id the author's answer was saved as. */
   savedAs?: string;
   fillProblem?: FillProblem;
+}
+
+/** One requirements check: the job page's, or one round of a step's. */
+export interface CheckRecord {
+  at: 'job-page' | 'step';
+  /** The form step, null for the job page. */
+  step: number | null;
+  /** Empty when the check failed. */
+  claims: Claim[];
+  /** Kept even when the check failed. */
+  calls: CallStat[];
 }
 
 export interface ApplyRun {
@@ -73,6 +94,10 @@ export interface ApplyRun {
   job: Job | null;
   questions: QuestionRecord[];
   unknownFields: UnknownField[];
+  /** Every requirements check made, in order. */
+  checks: CheckRecord[];
+  /** `disqualified` only: the claims that disqualified, the first the headline. */
+  disqualification: Claim[] | null;
   timings: { totalMs: number; perStepMs: number[] };
 }
 
@@ -102,4 +127,9 @@ export interface ApplyDeps {
   resume: Resume;
   now(): number;
   wait(ms: number): Promise<void>;
+  /** The job page's requirements check. */
+  checkJob(job: CheckJob): Promise<ExtractResult>;
+  /** One round's requirements check, over all its fresh questions. */
+  checkQuestions(qs: CheckQuestion[], job: CheckJob): Promise<ExtractResult>;
+  rules: Rules;
 }

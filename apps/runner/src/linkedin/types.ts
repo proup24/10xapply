@@ -68,6 +68,11 @@ export interface UnknownField {
   tag: string;
   role: string | null;
   inputType: string | null;
+  /**
+   * The cleaned text of its `label[for]`, else its fieldset's legend, else
+   * null. Sent to the requirements check; never in a redacted output.
+   */
+  label: string | null;
 }
 export type StepRead =
   | {

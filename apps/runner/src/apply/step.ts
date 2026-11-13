@@ -1,4 +1,5 @@
 import type { AnswerValue, FormQuestion, Job } from '@xapply/answerer';
+import type { Claim } from '@xapply/disqualify';
 import type { FactBank } from '@xapply/fact-bank';
 import { all } from '../linkedin/el.js';
 import { readDiscard } from '../linkedin/close.js';
@@ -13,6 +14,13 @@ import {
   classifySession,
 } from '../session/classify.js';
 import { askBlocked, askSave } from '../terminal/ask.js';
+import {
+  awaitCheck,
+  checkJobOf,
+  fieldQuestion,
+  judge,
+  unknownQuestion,
+} from './check.js';
 import { fillField } from './fill.js';
 import { authorStop, checkStop, needsAuthor, safety } from './stop.js';
 import type {
@@ -38,6 +46,8 @@ export interface Walk {
   bank: FactBank;
   /** The form step being walked (1-based), null before the form opens. */
   step: number | null;
+  /** The job page's offers-sponsorship claims; they exempt form questions. */
+  offers: Claim[];
 }
 
 type FormRead = Exclude<StepRead, { kind: 'none' }>;
@@ -116,7 +126,10 @@ export async function settleStep(
 /**
  * Answers and fills every field of a step (or of a review page that still
  * has fields), re-reading after each round: a fill can reveal a follow-up
- * field. Returns the last read. A field that disappeared is dropped from
+ * field. Each round's fresh fields, and its labelled unknown fields, go to
+ * the requirements check first; nothing of the round is answered or filled
+ * until it passes, and a disqualification wins over the round's other
+ * stops. Returns the last read. A field that disappeared is dropped from
  * the report.
  */
 export async function walkStep(w: Walk, first: FormRead): Promise<FormRead> {
@@ -126,7 +139,36 @@ export async function walkStep(w: Walk, first: FormRead): Promise<FormRead> {
   const keyOf = new Map<QuestionRecord, string>();
   let read = first;
   let n = 0;
+  let k = 0;
   for (let round = 1; ; round++) {
+    const fresh = read.fields
+      .filter((f) => !seen.has(f.key))
+      .map((f) => ({ f, id: `s${step}-q${++n}` }));
+    const qs = [
+      ...fresh.map(({ f, id }) => fieldQuestion(f, id, title)),
+      ...read.unknown.flatMap((u) =>
+        u.label === null
+          ? []
+          : [
+              unknownQuestion(
+                { ...u, label: u.label },
+                `s${step}-u${++k}`,
+                title,
+              ),
+            ],
+      ),
+    ];
+    if (qs.length > 0) {
+      checkStop(w.deps);
+      const job = checkJobOf(jobOf(w));
+      const claims = await awaitCheck(
+        w,
+        'step',
+        step,
+        w.deps.checkQuestions(qs, job),
+      );
+      judge(w, claims, w.offers);
+    }
     if (read.unknown.length > 0) {
       w.run.unknownFields.push(...read.unknown);
       throw safety(
@@ -134,7 +176,6 @@ export async function walkStep(w: Walk, first: FormRead): Promise<FormRead> {
         `${read.unknown.length} field(s) of a type the runner can't fill`,
       );
     }
-    const fresh = read.fields.filter((f) => !seen.has(f.key));
     if (fresh.length === 0) break;
     if (round > MAX_ROUNDS) {
       throw safety(
@@ -142,15 +183,9 @@ export async function walkStep(w: Walk, first: FormRead): Promise<FormRead> {
         `new fields still appearing after ${MAX_ROUNDS} rounds`,
       );
     }
-    for (const f of fresh) {
+    for (const { f, id } of fresh) {
       seen.add(f.key);
-      const rec = await answerField(
-        w,
-        f,
-        `s${step}-q${++n}`,
-        title,
-        read.fields,
-      );
+      const rec = await answerField(w, f, id, title, read.fields);
       keyOf.set(rec, f.key);
       await w.pace.pause();
     }

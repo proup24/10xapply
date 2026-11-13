@@ -7,6 +7,14 @@ import {
   type ModelCaller,
 } from '@xapply/answerer';
 import {
+  DEFAULT_RULES_PATH,
+  RulesError,
+  extractFromJob,
+  extractFromQuestions,
+  loadRules,
+  type Rules,
+} from '@xapply/disqualify';
+import {
   addKnownAnswer,
   DEFAULT_FACT_BANK_PATH,
   FactBankError,
@@ -41,6 +49,7 @@ export const NO_DRY_RUN = 'apply: submitting comes in slice 07; use --dry-run';
 const BAD_URL =
   'apply: give a LinkedIn job URL (/jobs/view/<id> or currentJobId); quote a long URL';
 const NO_BANK = 'apply: the fact bank did not load; fix it first';
+const NO_RULES = 'apply: the disqualify rules did not load; fix them first';
 const NO_RESUME =
   "apply: the fact bank's resume file is missing; run pnpm nx run runner:facts-check";
 export const RESUME_FAILED = 'apply: could not install the resume';
@@ -62,6 +71,8 @@ export interface ApplyCommandDeps {
   out: (text: string) => void;
   bankPath: string;
   loadBank: (path: string) => FactBank;
+  rulesPath: string;
+  loadRules: (path: string) => Rules;
   installResume: (bankResumePath: string) => Resume;
   loadConfig: () => RunnerConfig;
   loadAnswerConfig: () => AnswerConfig;
@@ -91,6 +102,8 @@ function defaultDeps(): ApplyCommandDeps {
     out: (t) => void console.log(t),
     bankPath: DEFAULT_FACT_BANK_PATH,
     loadBank: (p) => loadFactBank(p),
+    rulesPath: DEFAULT_RULES_PATH,
+    loadRules: (p) => loadRules(p),
     installResume: (p) => installResume(p, realExec),
     loadConfig: () => loadConfig(),
     loadAnswerConfig: () => loadAnswerConfig(),
@@ -239,6 +252,8 @@ function unavailableRun(jobId: string, startedAt: Date, why: string): ApplyRun {
     job: null,
     questions: [],
     unknownFields: [],
+    checks: [],
+    disqualification: null,
     timings: { totalMs: 0, perStepMs: [] },
   };
 }
@@ -271,6 +286,16 @@ export async function applyCommand(
     if (!(e instanceof FactBankError)) throw e;
     d.out(NO_BANK);
     for (const p of e.problems) d.out(`  ${formatProblem(p)}`);
+    return 2;
+  }
+  // The run never goes ahead without the rules.
+  let rules: Rules;
+  try {
+    rules = d.loadRules(d.rulesPath);
+  } catch (e) {
+    if (!(e instanceof RulesError)) throw e;
+    d.out(NO_RULES);
+    for (const p of e.problems) d.out(`  ${p}`);
     return 2;
   }
   if (!existsSync(bank.fields.resume)) {
@@ -309,6 +334,7 @@ export async function applyCommand(
     });
     try {
       const caller = d.caller();
+      const extract = { caller, model: answerCfg.extractModel };
       const raw = new WeakMap<ApplyPage, Page>();
       const stamp = startedAt.toISOString().replaceAll(':', '-');
       let saves = 0;
@@ -345,6 +371,11 @@ export async function applyCommand(
         resume,
         now: () => Date.now(),
         wait: (ms) => sleep(ms),
+        // A failed check is the walker's `check-failed` stop; any other
+        // error surfaces as its `error` stop.
+        checkJob: (job) => extractFromJob(job, extract),
+        checkQuestions: (qs, job) => extractFromQuestions(qs, job, extract),
+        rules,
       });
     } finally {
       offSigint();

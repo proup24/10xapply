@@ -67,13 +67,18 @@ export interface AnswerConfig {
   answerModel: string;
   verifyModel: string;
   judgeModel: string;
+  /** The disqualification extractor's model (`EXTRACT_MODEL`). */
+  extractModel: string;
   maxRegenerations: number;
 }
 
 export const DEFAULT_ANSWER_MODEL = 'opus';
 export const MAX_REGENERATIONS_LIMIT = 3;
 
-/** The answerer's models and regeneration limit, from the env and the env file. */
+/**
+ * The answerer's and the extractor's models and the regeneration limit,
+ * from the env and the env file.
+ */
 export function loadAnswerConfig(
   env: NodeJS.ProcessEnv = process.env,
   envFile: string = ENV_FILE,
@@ -94,6 +99,7 @@ export function loadAnswerConfig(
     answerModel: merged.ANSWER_MODEL || DEFAULT_ANSWER_MODEL,
     verifyModel: merged.ANSWER_VERIFY_MODEL || DEFAULT_ANSWER_MODEL,
     judgeModel: merged.ANSWER_JUDGE_MODEL || DEFAULT_ANSWER_MODEL,
+    extractModel: merged.EXTRACT_MODEL || DEFAULT_ANSWER_MODEL,
     maxRegenerations,
   };
 }

@@ -15,6 +15,7 @@ import {
 } from '../linkedin/selectors.js';
 import type { StepRead } from '../linkedin/types.js';
 import { pathPrefix } from '../reports/write-report.js';
+import { awaitCheck, checkJobOf, judge, offersOf } from './check.js';
 import { RunEnd, asRunEnd, checkStop, guardPace, safety } from './stop.js';
 import { POLL_MS, look, settleStep, walkStep, type Walk } from './step.js';
 import type { ApplyDeps, ApplyPage, ApplyRun } from './types.js';
@@ -49,6 +50,8 @@ export async function runApply(
     job: null,
     questions: [],
     unknownFields: [],
+    checks: [],
+    disqualification: null,
     timings: { totalMs: 0, perStepMs: [] },
   };
   let page: ApplyPage | null = null;
@@ -75,6 +78,7 @@ export async function runApply(
       run,
       bank,
       step: null,
+      offers: [],
     };
     await openJob(w);
     formOpen = true;
@@ -131,7 +135,11 @@ async function settleJobPage(w: Walk, ms: number) {
   }
 }
 
-/** Loads and checks the job, reads the post, then clicks Easy Apply. */
+/**
+ * Loads and checks the job, reads the post, then clicks Easy Apply. The
+ * requirements check runs while the post is read; Easy Apply is clicked
+ * only once it has returned and passed.
+ */
 async function openJob(w: Walk): Promise<void> {
   const { page, pace, run } = w;
   checkStop(w.deps);
@@ -150,11 +158,17 @@ async function openJob(w: Walk): Promise<void> {
     source: 'LinkedIn',
   };
   if (jr.location !== null) run.job.location = jr.location;
+  const check = w.deps.checkJob(checkJobOf(run.job));
+  // Awaited below; until then an early failure must not go unhandled.
+  check.catch(() => undefined);
   await pace.read(jr.description.length);
   if (pace.maybe('scroll-description') && all(doc, MORE_BUTTON).length === 1) {
     await pace.scroll(page.locator(MORE_BUTTON));
   }
   await pace.pause();
+  const claims = await awaitCheck(w, 'job-page', null, check);
+  w.offers = offersOf(claims);
+  judge(w, claims, w.offers);
   await pace.click(page.locator(jr.easyApply));
 }
 
