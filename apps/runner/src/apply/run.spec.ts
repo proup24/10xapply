@@ -13,6 +13,7 @@ import type { FactBank } from '@xapply/fact-bank';
 import { parsePage, type Document } from '../linkedin/dom.js';
 import { readStep } from '../linkedin/form-step.js';
 import {
+  byId,
   DISMISS,
   EASY_APPLY,
   FORM_CONTENT,
@@ -99,6 +100,13 @@ function checkNotSubmit(html: string, sel: string) {
 }
 
 const loc = (sel: string) => ({ sel }) as unknown as Locator;
+/** The input a `label[for="id"]` press acts on, else the selector itself. */
+const inputOf = (sel: string) => {
+  const m = /^label\[for="([^"]+)"\]$/.exec(sel);
+  return m?.[1] ? byId(m[1]) : sel;
+};
+/** The bank's resume, pressed on its label (step-resume.html). */
+const RESUME_PRESS = 'label[for="_r_3d_"]';
 const selOf = (l: Locator) => (l as unknown as { sel: string }).sel;
 
 interface Harness {
@@ -236,7 +244,8 @@ function harness(s: Setup): Harness {
     defaulted: [],
     click: async (t, o) => {
       act('click', t, undefined, o);
-      const sel = selOf(t);
+      // A label[for] press changes its input's state.
+      const sel = inputOf(selOf(t));
       checked[sel] = !(checked[sel] ?? false);
     },
     type: async (f, text, o) => {
@@ -429,7 +438,7 @@ describe('runApply', () => {
     });
     const acts = h.acts();
     expect(acts).toContain(`click ${EASY_APPLY}`);
-    expect(acts).toContain('click #_r_3d_'); // the resume with the bank's name
+    expect(acts).toContain(`click ${RESUME_PRESS}`); // the bank's resume, on its label
     // Close-out: Dismiss, then Discard on the save prompt, then close.
     expect(acts.slice(-2)).toEqual([`click ${DISMISS}`, `click ${DISCARD}`]);
     expect(h.closed()).toBe(true);
@@ -1143,7 +1152,7 @@ describe('runApply', () => {
 
   it('an unexpected error is kind error, named but not quoted', async () => {
     const h = failingClick(
-      '#_r_3d_',
+      RESUME_PRESS,
       new Error('debugger detached: target_closed\ncall log: x'),
     );
     const run = await runApply('123', h.deps);
@@ -1160,14 +1169,15 @@ describe('runApply', () => {
 
   it('an error once the bridge has gone is a bridge stop', async () => {
     let gone = false;
-    const h = failingClick('#_r_3d_', new Error('target closed'));
+    const h = failingClick(RESUME_PRESS, new Error('target closed'));
     const click = h.deps.pace;
     h.deps.pace = (p) => {
       const pace = click(p);
       return {
         ...pace,
         click: async (t) => {
-          if ((t as unknown as { sel: string }).sel === '#_r_3d_') gone = true;
+          if ((t as unknown as { sel: string }).sel === RESUME_PRESS)
+            gone = true;
           return pace.click(t);
         },
       };
@@ -1183,7 +1193,7 @@ describe('runApply', () => {
 
   it('a pace refusal is an unexpected-page safety stop', async () => {
     const h = failingClick(
-      '#_r_3d_',
+      RESUME_PRESS,
       new Error('pace: target has no box (hidden or detached)'),
     );
     const run = await runApply('123', h.deps);
@@ -1200,7 +1210,7 @@ describe('runApply', () => {
 
   it("a pace refusal keeps its message's first line, at most 200 characters", async () => {
     const long = `pace: target is off-screen ${'x'.repeat(300)}\nsecond line`;
-    const h = failingClick('#_r_3d_', new Error(long));
+    const h = failingClick(RESUME_PRESS, new Error(long));
     const run = await runApply('123', h.deps);
     expect(run.stop?.kind).toBe('unexpected-page');
     expect(run.stop?.error).toBe(long.split('\n')[0]?.slice(0, 200));

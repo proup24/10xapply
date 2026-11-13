@@ -705,6 +705,21 @@ describe('createPace', () => {
     });
   });
 
+  it('refuses a sub-pixel target (a visually hidden input) as unusable, not off-screen', async () => {
+    for (const tiny of [
+      { x: 700, y: 500, width: 0.5, height: 20 },
+      { x: 700, y: 500, width: 20, height: 0.9 },
+      { x: 700, y: 1500, width: 0.5, height: 0.5 },
+    ]) {
+      const f = setup();
+      await expect(f.pace.click(f.locator([tiny]))).rejects.toThrow(
+        'pace: target has no usable box (hidden or zero-size)',
+      );
+      expect(of(f.log, 'down')).toHaveLength(0);
+      expect(of(f.log, 'wheel')).toHaveLength(0);
+    }
+  });
+
   it('never sends a move to where the pointer already is (Chrome reports it as a zero-movement pointermove)', async () => {
     // A box at the window's corner: overshoot and bulge points get clamped.
     const corner: Box = { x: VIEW.width - 30, y: 0, width: 30, height: 20 };

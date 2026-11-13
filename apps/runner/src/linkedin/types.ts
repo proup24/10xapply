@@ -20,12 +20,28 @@ export interface ReadField {
   /** radio, checkbox-group: one selector per option, in `question.options` order. */
   optionSelectors?: string[];
   /**
+   * radio: where to press each option, in the same order. LinkedIn's radio
+   * inputs are visually hidden; the visible control is the empty
+   * `label[for]` after each one. The input itself when no label picks it
+   * out alone. State is still read from `optionSelectors`.
+   */
+  optionPressSelectors?: string[];
+  /**
    * select: the page's own option index of each `question.options` entry,
    * so a placeholder left out of `options` doesn't shift picks.
    */
   pageIndexes?: number[];
-  /** file: resumes LinkedIn already lists. */
-  resumeChoices?: { fileName: string; selector: string; selected: boolean }[];
+  /**
+   * file: resumes LinkedIn already lists. `selector` is the radio input,
+   * for reading its checked state live; `pressSelector` is where to press
+   * it (its `label[for]`, else the input). The captures carry no checked
+   * state, so none is read here.
+   */
+  resumeChoices?: {
+    fileName: string;
+    selector: string;
+    pressSelector: string;
+  }[];
   /** typeahead: where suggestions appear once typed. */
   suggestions?: string;
 }

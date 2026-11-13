@@ -317,8 +317,19 @@ export function createPace(
     return shown;
   }
 
+  /**
+   * Refuses a target box under 1 px wide or tall: a visually hidden control
+   * (LinkedIn's radio inputs), which no press can land on.
+   */
+  function assertUsable(box: Box): void {
+    if (box.width < 1 || box.height < 1) {
+      throw new Error('pace: target has no usable box (hidden or zero-size)');
+    }
+  }
+
   /** The part of `box` inside `area`; throws when none of it is. */
   function clip(box: Box, area: Box): Box {
+    assertUsable(box);
     const shown = intersect(box, area);
     if (!shown) {
       throw new Error('pace: target is off-screen; scroll it into view first');
@@ -436,10 +447,11 @@ export function createPace(
     }
   }
 
-  /** The target's box, or a refusal when it has none. */
+  /** The target's box, or a refusal when it has none or a sub-pixel one. */
   async function boxOf(target: Locator): Promise<Box> {
     const box = await target.boundingBox();
     if (!box) throw new Error('pace: target has no box (hidden or detached)');
+    assertUsable(box);
     return box;
   }
 

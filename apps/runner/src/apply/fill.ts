@@ -230,15 +230,16 @@ async function fillRadio(
   if (index < 0) return fail('no-option');
   const states = await optionStates(f, page);
   if (states === null) return fail('no-option');
-  if (states[index]) {
-    await pace.glance(page.locator(f.selector), opts(ctx));
-    return done(false);
-  }
-  // Click the answer's own radio, not the nth one in page order, and check
-  // that it took.
+  // The answer's own radio, not the nth one in page order. It is pressed
+  // (or glanced at) on its label, and its state read from the input.
   const sel = f.optionSelectors?.[index];
   if (sel === undefined) return fail('no-option');
-  await pace.click(page.locator(sel), opts(ctx));
+  const press = f.optionPressSelectors?.[index] ?? sel;
+  if (states[index]) {
+    await pace.glance(page.locator(press), opts(ctx));
+    return done(false);
+  }
+  await pace.click(page.locator(press), opts(ctx));
   if (!(await page.checked(sel))) return fail('no-option');
   return done(states.some(Boolean));
 }
@@ -291,22 +292,32 @@ async function fillCheckbox(
   return done(ticked);
 }
 
+/**
+ * A resume LinkedIn lists under the bank's file name is picked from the
+ * list; otherwise the bank's file is uploaded. Checked state is read live
+ * from each input. Among same-name entries the checked one is glanced at;
+ * with none checked, the first is pressed and must read checked after.
+ */
 async function fillResume(f: ReadField, ctx: Ctx): Promise<FillResult> {
   const { pace, page, resume } = ctx;
   const choices = f.resumeChoices ?? [];
-  const otherSelected = (skip?: string) =>
-    choices.some((c) => c.selected && c.selector !== skip);
-  const same = choices.find((c) => c.fileName === resume.fileName);
-  if (same) {
-    const target = page.locator(same.selector);
-    if (same.selected) {
-      await pace.glance(target, opts(ctx));
-      return done(false);
-    }
-    await pace.click(target, opts(ctx));
-    return done(otherSelected(same.selector));
+  const checked: boolean[] = [];
+  for (const c of choices) checked.push(await page.checked(c.selector));
+  const isMine = (i: number) => choices[i]?.fileName === resume.fileName;
+  const otherChecked = checked.some((on, i) => on && !isMine(i));
+  const mine = choices.filter((_, i) => isMine(i));
+  const on = choices.find((_, i) => isMine(i) && checked[i]);
+  if (on) {
+    await pace.glance(page.locator(on.pressSelector), opts(ctx));
+    return done(false);
+  }
+  const [first] = mine;
+  if (first) {
+    await pace.click(page.locator(first.pressSelector), opts(ctx));
+    if (!(await page.checked(first.selector))) return fail('no-option');
+    return done(otherChecked);
   }
   if (!resume.windowsPath) return fail('no-resume');
   await pace.upload(page.locator(f.selector), resume.windowsPath, opts(ctx));
-  return done(otherSelected());
+  return done(otherChecked);
 }

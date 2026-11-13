@@ -127,6 +127,21 @@ function readErrors(dialog: El): string[] {
 }
 
 /**
+ * Where to press a radio: its `label[for="<id>"]` when exactly one matches
+ * on the page, else `fallback` (the input's own selector).
+ */
+export function pressSelectorFor(
+  doc: Document,
+  el: El,
+  fallback: string,
+): string {
+  const id = el.getAttribute('id');
+  if (!id) return fallback;
+  const sel = `label${attr('for', id)}`;
+  return all(doc, sel).length === 1 ? sel : fallback;
+}
+
+/**
  * A selector that matches `el` and nothing else on the page: its id, else
  * its componentkey (kept for the life of the page), else a data-testid,
  * name, aria-label or aria-describedby. Null when none is unique, so the
@@ -360,7 +375,15 @@ function readFields(
       question: q,
       ...rest,
     };
-    if (optionSelectors) field.optionSelectors = optionSelectors as string[];
+    if (optionSelectors) {
+      const sels = optionSelectors as string[];
+      field.optionSelectors = sels;
+      if (q.type === 'radio' && options) {
+        field.optionPressSelectors = options.map((o, i) =>
+          pressSelectorFor(doc, o, sels[i] ?? ''),
+        );
+      }
+    }
     fields.push(field);
   };
   const simple = (
@@ -547,7 +570,7 @@ function readFields(
     const resumeChoices = radios.map((r) => ({
       fileName: label(r),
       selector: selectorFor(doc, r),
-      selected: false,
+      el: r,
     }));
     const selector = target ? selectorFor(doc, target) : null;
     if (selector === null || resumeChoices.some((c) => c.selector === null)) {
@@ -558,10 +581,14 @@ function readFields(
       key: keyOf(radios[0] ?? el, group),
       selector,
       question: { label: 'Resume', type: 'file', required: true },
-      resumeChoices: resumeChoices.map((c) => ({
-        ...c,
-        selector: c.selector as string,
-      })),
+      resumeChoices: resumeChoices.map((c) => {
+        const selector = c.selector as string;
+        return {
+          fileName: c.fileName,
+          selector,
+          pressSelector: pressSelectorFor(doc, c.el, selector),
+        };
+      }),
     });
   }
 

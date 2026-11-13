@@ -29,7 +29,9 @@ function fakePace(
       const sel = selOf(t);
       calls.push(`click ${sel}`);
       if (s.inert?.includes(sel)) return;
-      s.checked = { ...s.checked, [sel]: !(s.checked?.[sel] ?? false) };
+      // A label[for] press checks its input.
+      const box = s.pressFor?.[sel] ?? sel;
+      s.checked = { ...s.checked, [box]: !(s.checked?.[box] ?? false) };
     },
     type: async (f, text, o) => {
       w(o);
@@ -72,6 +74,8 @@ interface PageState {
   suggestions?: Record<string, Record<string, string>>;
   /** Selectors a click doesn't change. */
   inert?: string[];
+  /** A press target (a label) -> the input whose state it changes. */
+  pressFor?: Record<string, string>;
   /** Selectors typing doesn't change. */
   deaf?: string[];
   /** Selectors clearing doesn't empty. */
@@ -368,7 +372,8 @@ describe('fillField', () => {
     const { calls, result } = await run(f, 'No', {
       checked: { '#r2': true },
     });
-    expect(calls).toEqual(['glance #f']);
+    // No label to press: the radio itself.
+    expect(calls).toEqual(['glance #r2']);
     expect(result).toEqual({ ok: true, changedFromLinkedIn: false });
   });
 
@@ -382,6 +387,44 @@ describe('fillField', () => {
     });
     expect(calls).toEqual(['click #r2']);
     expect(result).toEqual({ ok: true, changedFromLinkedIn: true });
+  });
+
+  it('presses the radio label and reads checked state from the input', async () => {
+    const f = field('radio', {
+      options: ['Yes', 'No'],
+      optionSelectors: ['#r1', '#r2'],
+      optionPressSelectors: ['label[for="r1"]', 'label[for="r2"]'],
+    });
+    const { calls, result } = await run(f, 'No', {
+      checked: { '#r1': true },
+      pressFor: { 'label[for="r1"]': '#r1', 'label[for="r2"]': '#r2' },
+    });
+    expect(calls).toEqual(['click label[for="r2"]']);
+    expect(result).toEqual({ ok: true, changedFromLinkedIn: true });
+  });
+
+  it('a radio label press that does not check the input → no-option', async () => {
+    const f = field('radio', {
+      options: ['Yes', 'No'],
+      optionSelectors: ['#r1', '#r2'],
+      optionPressSelectors: ['label[for="r1"]', 'label[for="r2"]'],
+    });
+    const { calls, result } = await run(f, 'No');
+    expect(calls).toEqual(['click label[for="r2"]']);
+    expect(result).toEqual({ ok: false, reason: 'no-option' });
+  });
+
+  it("glances at the checked radio's label", async () => {
+    const f = field('radio', {
+      options: ['Yes', 'No'],
+      optionSelectors: ['#r1', '#r2'],
+      optionPressSelectors: ['label[for="r1"]', 'label[for="r2"]'],
+    });
+    const { calls, result } = await run(f, 'No', {
+      checked: { '#r2': true },
+    });
+    expect(calls).toEqual(['glance label[for="r2"]']);
+    expect(result).toEqual({ ok: true, changedFromLinkedIn: false });
   });
 
   it('radio option missing → no-option', async () => {
@@ -513,36 +556,81 @@ describe('fillField', () => {
     expect(result).toEqual({ ok: true, changedFromLinkedIn: true });
   });
 
-  it('picks a listed resume with the same name', async () => {
+  /** A resume choice: input `#<id>`, pressed on `label[for="<id>"]`. */
+  const choice = (fileName: string, id: string) => ({
+    fileName,
+    selector: `#${id}`,
+    pressSelector: `label[for="${id}"]`,
+  });
+  const presses = (...ids: string[]): Record<string, string> =>
+    Object.fromEntries(ids.map((id) => [`label[for="${id}"]`, `#${id}`]));
+
+  it('a different resume checked live: presses the same-name label, verifies, changed', async () => {
     const f = field('file', {
-      resumeChoices: [
-        { fileName: 'old.pdf', selector: '#old', selected: true },
-        { fileName: 'cv.pdf', selector: '#cv', selected: false },
-      ],
+      resumeChoices: [choice('old.pdf', 'old'), choice('cv.pdf', 'cv')],
     });
-    const { calls, result } = await run(f, 'cv.pdf');
-    expect(calls).toEqual(['click #cv']);
+    const { calls, result } = await run(f, 'cv.pdf', {
+      checked: { '#old': true },
+      pressFor: presses('old', 'cv'),
+    });
+    expect(calls).toEqual(['click label[for="cv"]']);
     expect(result).toEqual({ ok: true, changedFromLinkedIn: true });
   });
 
-  it('glances at a listed resume already selected', async () => {
-    const f = field('file', {
-      resumeChoices: [{ fileName: 'cv.pdf', selector: '#cv', selected: true }],
+  it('glances at the same-name resume checked live', async () => {
+    const f = field('file', { resumeChoices: [choice('cv.pdf', 'cv')] });
+    const { calls, result } = await run(f, 'cv.pdf', {
+      checked: { '#cv': true },
     });
-    const { calls, result } = await run(f, 'cv.pdf');
-    expect(calls).toEqual(['glance #cv']);
+    expect(calls).toEqual(['glance label[for="cv"]']);
     expect(result).toEqual({ ok: true, changedFromLinkedIn: false });
   });
 
-  it('uploads when no listed resume matches', async () => {
+  it('with duplicate names, glances at the second when it is the checked one', async () => {
     const f = field('file', {
-      resumeChoices: [
-        { fileName: 'old.pdf', selector: '#old', selected: true },
-      ],
+      resumeChoices: [choice('cv.pdf', 'cv1'), choice('cv.pdf', 'cv2')],
     });
+    const { calls, result } = await run(f, 'cv.pdf', {
+      checked: { '#cv2': true },
+      pressFor: presses('cv1', 'cv2'),
+    });
+    expect(calls).toEqual(['glance label[for="cv2"]']);
+    expect(result).toEqual({ ok: true, changedFromLinkedIn: false });
+  });
+
+  it('with duplicate names and none checked, presses the first and verifies it', async () => {
+    const f = field('file', {
+      resumeChoices: [choice('cv.pdf', 'cv1'), choice('cv.pdf', 'cv2')],
+    });
+    const { calls, result } = await run(f, 'cv.pdf', {
+      pressFor: presses('cv1', 'cv2'),
+    });
+    expect(calls).toEqual(['click label[for="cv1"]']);
+    expect(result).toEqual({ ok: true, changedFromLinkedIn: false });
+  });
+
+  it('a resume press that does not check its input → no-option', async () => {
+    const f = field('file', { resumeChoices: [choice('cv.pdf', 'cv')] });
+    // No pressFor: the label press leaves the input unchecked.
     const { calls, result } = await run(f, 'cv.pdf');
+    expect(calls).toEqual(['click label[for="cv"]']);
+    expect(result).toEqual({ ok: false, reason: 'no-option' });
+  });
+
+  it('uploads when no listed resume matches, changed when another was checked live', async () => {
+    const f = field('file', { resumeChoices: [choice('old.pdf', 'old')] });
+    const { calls, result } = await run(f, 'cv.pdf', {
+      checked: { '#old': true },
+    });
     expect(calls).toEqual(['upload #f C:\\x\\cv.pdf']);
     expect(result).toEqual({ ok: true, changedFromLinkedIn: true });
+  });
+
+  it('uploads unchanged when the listed resume is not checked live', async () => {
+    const f = field('file', { resumeChoices: [choice('old.pdf', 'old')] });
+    const { calls, result } = await run(f, 'cv.pdf');
+    expect(calls).toEqual(['upload #f C:\\x\\cv.pdf']);
+    expect(result).toEqual({ ok: true, changedFromLinkedIn: false });
   });
 
   it('uploads when LinkedIn lists no resume', async () => {
@@ -600,7 +688,7 @@ describe('fillField', () => {
         'clicks a listed resume',
         field('file', {
           resumeChoices: [
-            { fileName: 'cv.pdf', selector: '#cv', selected: false },
+            { fileName: 'cv.pdf', selector: '#cv', pressSelector: '#cv' },
           ],
         }),
         'cv.pdf',

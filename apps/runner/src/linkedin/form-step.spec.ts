@@ -22,7 +22,10 @@ function selectorsOf(r: StepRead): string[] {
   const out: string[] = [];
   for (const f of r.fields) {
     out.push(f.selector, ...(f.optionSelectors ?? []));
-    out.push(...(f.resumeChoices ?? []).map((c) => c.selector));
+    out.push(...(f.optionPressSelectors ?? []));
+    out.push(
+      ...(f.resumeChoices ?? []).flatMap((c) => [c.selector, c.pressSelector]),
+    );
   }
   if (r.kind === 'step' && r.next) out.push(r.next.selector);
   return out;
@@ -163,6 +166,10 @@ describe('readStep on the fixtures', () => {
     );
     expect(spain?.question.options).toEqual(['Yes', 'No']);
     expect(spain?.optionSelectors).toEqual(['#_r_4c_', '#_r_4e_']);
+    expect(spain?.optionPressSelectors).toEqual([
+      'label[for="_r_4c_"]',
+      'label[for="_r_4e_"]',
+    ]);
     // LinkedIn's radio questions carry no marker; they are always required.
     expect(spain?.question.required).toBe(true);
     expect(r.fields[2]?.question.required).toBe(true);
@@ -170,6 +177,41 @@ describe('readStep on the fixtures', () => {
       'easyApplyFieldFocus_ea_validation_p2_0_32633232164',
     );
     expect(r.next?.label).toBe('review');
+  });
+
+  it('every radio and resume press target is its one label[for]', () => {
+    let n = 0;
+    for (const file of [
+      'step-questions.html',
+      'step-questions-2.html',
+      'step-questions-location.html',
+      'step-resume.html',
+    ]) {
+      const doc = load(file);
+      for (const f of step(readStep(doc)).fields) {
+        const press = [
+          ...(f.optionPressSelectors ?? []),
+          ...(f.resumeChoices ?? []).map((c) => c.pressSelector),
+        ];
+        if (f.question.type === 'radio') {
+          expect(press).toHaveLength(f.optionSelectors?.length ?? -1);
+        }
+        for (const sel of press) {
+          n++;
+          expect(sel).toMatch(/^label\[for="[^"]+"\]$/);
+          expect(doc.querySelectorAll(sel)).toHaveLength(1);
+        }
+      }
+    }
+    expect(n).toBeGreaterThan(19);
+  });
+
+  it('a radio without its own label[for] is pressed on the input', () => {
+    const f = only(
+      '<fieldset role="radiogroup" aria-describedby="error-message-g"><div><input id="y" type="radio" name="g" aria-label="Relocate?"><p>Yes</p></div><div><input id="n" type="radio" name="g" aria-label="Relocate?"><label for="n"></label><label for="n"></label><p>No</p></div></fieldset>',
+    );
+    // n has two label[for]s: neither picks it out alone.
+    expect(f.optionPressSelectors).toEqual(['#y', '#n']);
   });
 
   it('reads the location question as plain text (no listbox)', () => {
@@ -191,10 +233,11 @@ describe('readStep on the fixtures', () => {
     expect(resume?.question.type).toBe('file');
     expect(resume?.question.required).toBe(true);
     expect(resume?.resumeChoices).toHaveLength(19);
+    // No checked state: fill reads it live. The press goes to the label.
     expect(resume?.resumeChoices?.[3]).toEqual({
       fileName: 'resume.2026.fs.pdf',
       selector: '#_r_25_',
-      selected: false,
+      pressSelector: 'label[for="_r_25_"]',
     });
     // pace.upload clicks the button that opens the file chooser.
     expect(textOf(doc, resume?.selector ?? '')).toMatch(/upload resume/i);
