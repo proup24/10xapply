@@ -112,6 +112,26 @@ cases:
       verdict: disqualified
       claims: [{ kind: asks-authorization, countries: [US] }]
 
+  - id: auth-us-citizen
+    group: authorization
+    questions:
+      - label: Are you a US citizen?
+        type: radio
+        options: [Yes, 'No']
+    expect:
+      verdict: disqualified
+      claims: [{ kind: asks-authorization, countries: [US] }]
+
+  - id: auth-us-citizen-or-resident
+    group: authorization
+    questions:
+      - label: Are you a U.S. citizen or permanent resident?
+        type: radio
+        options: [Yes, 'No']
+    expect:
+      verdict: disqualified
+      claims: [{ kind: asks-authorization, countries: [US] }]
+
   - id: auth-work-permit
     group: authorization
     questions:
