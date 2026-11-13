@@ -15,3 +15,10 @@ export {
 } from './rules.js';
 export { normalizeText, validateClaims } from './validate.js';
 export { decide, type Verdict } from './decide.js';
+export {
+  CheckFailedError,
+  extractFromJob,
+  extractFromQuestions,
+  type ExtractContext,
+  type ExtractResult,
+} from './extract.js';

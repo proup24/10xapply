@@ -8,8 +8,6 @@ export default [
       '@nx/dependency-checks': [
         'error',
         {
-          // Only src/testing imports it so far; the extractor (a later task) will too.
-          ignoredDependencies: ['@xapply/answerer'],
           ignoredFiles: [
             '{projectRoot}/eslint.config.{js,cjs,mjs,ts,cts,mts}',
             '{projectRoot}/vitest.config.{js,ts,mjs,mts}',
