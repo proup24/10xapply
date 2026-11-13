@@ -11,6 +11,9 @@
     },
     {
       "path": "./libs/answerer"
+    },
+    {
+      "path": "./libs/disqualify"
     }
   ],
   "compilerOptions": {}

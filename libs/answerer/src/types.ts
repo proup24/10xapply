@@ -96,7 +96,7 @@ export type MathSpec =
   | { kind: 'years-since'; year: number; month?: number }
   | { kind: 'arithmetic'; expression: string };
 
-export type Role = 'answer' | 'verify' | 'judge';
+export type Role = 'answer' | 'verify' | 'judge' | 'extract';
 
 export interface CallStat {
   role: Role;
