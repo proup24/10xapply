@@ -63,11 +63,24 @@ const SCRUBBED_ENV = [
   'AWS_BEARER_TOKEN_BEDROCK',
 ] as const;
 
+/**
+ * The child never updates itself: an update replaces the `claude` binary, and
+ * every call started while it is being replaced fails at once.
+ */
 export function childEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   const rest = { ...env };
   for (const name of SCRUBBED_ENV) delete rest[name];
-  return rest;
+  return { ...rest, DISABLE_AUTOUPDATER: '1' };
 }
+
+/**
+ * Waits before each retry. A CLI that is being updated (by another session)
+ * cannot start for about half a minute, and retries without a wait all fail
+ * inside a second.
+ */
+const RETRY_DELAYS_MS = [5_000, 30_000];
+const realSleep = (ms: number) =>
+  new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 /** Default spawn: stdout is collected, stderr is discarded, the child is killed on timeout. */
 export function makeNodeSpawn(binary: string): Spawn {
@@ -123,12 +136,17 @@ export function createClaudeCliCaller(
     retries?: number;
     timeoutMs?: number;
     binary?: string;
+    /** Wait before retry i is retryDelaysMs[i - 1], or the last one. */
+    retryDelaysMs?: number[];
+    sleep?: (ms: number) => Promise<void>;
   } = {},
 ): ModelCaller {
   const spawn = opts.spawn ?? makeNodeSpawn(opts.binary ?? 'claude');
   const retries = opts.retries ?? 2;
   const timeoutMs = opts.timeoutMs ?? 180_000;
   const env = childEnv(opts.env ?? process.env);
+  const delays = opts.retryDelaysMs ?? RETRY_DELAYS_MS;
+  const sleep = opts.sleep ?? realSleep;
 
   async function attempt<T>(req: ModelRequest<T>): Promise<Attempt<T>> {
     const cwd = await mkdtemp(join(tmpdir(), 'xapply-claude-'));
@@ -192,6 +210,7 @@ export function createClaudeCliCaller(
       const started = Date.now();
       let reason = 'unknown';
       for (let i = 0; i <= retries; i++) {
+        if (i > 0) await sleep(delays[Math.min(i, delays.length) - 1] ?? 0);
         const r = await attempt(req);
         if (r.kind === 'ok') {
           return {
