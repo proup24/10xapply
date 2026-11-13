@@ -99,4 +99,71 @@ describe('decide', () => {
       reasons: [a, b],
     });
   });
+  describe('location', () => {
+    const reloc = (countries: string[]) => c('offers-relocation', countries);
+    it('requires-location outside locatedIn disqualifies', () => {
+      const k = c('requires-location', ['DE']);
+      expect(disq([k])).toEqual({ kind: 'disqualified', reasons: [k] });
+    });
+    it('asks-location outside locatedIn disqualifies', () => {
+      expect(disq([c('asks-location', ['DE'])]).kind).toBe('disqualified');
+    });
+    it('location inside locatedIn passes', () => {
+      expect(disq([c('asks-location', ['MA'])])).toEqual({ kind: 'pass' });
+    });
+    it('location any-of passes', () => {
+      expect(disq([c('requires-location', ['MA', 'TN'])])).toEqual({
+        kind: 'pass',
+      });
+    });
+    it('location region', () => {
+      expect(disq([c('requires-location', ['EU'])]).kind).toBe('disqualified');
+      expect(disq([c('requires-location', ['MENA'])])).toEqual({
+        kind: 'pass',
+      });
+    });
+    it('unclear location passes', () => {
+      expect(disq([c('asks-location', [])])).toEqual({ kind: 'pass' });
+    });
+    it('relocation offer exempts its country', () => {
+      expect(disq([c('requires-location', ['DE'])], [reloc(['DE'])])).toEqual({
+        kind: 'pass',
+      });
+      expect(disq([c('requires-location', ['FR'])], [reloc(['DE'])]).kind).toBe(
+        'disqualified',
+      );
+    });
+    it('relocation offer with no country exempts all location', () => {
+      expect(disq([c('asks-location', ['DE'])], [reloc([])])).toEqual({
+        kind: 'pass',
+      });
+    });
+    it('relocation offer does not exempt authorization', () => {
+      expect(disq([c('no-sponsorship', ['DE'])], [reloc([])]).kind).toBe(
+        'disqualified',
+      );
+      expect(disq([c('asks-sponsorship', ['DE'])], [reloc([])]).kind).toBe(
+        'disqualified',
+      );
+    });
+    it('sponsorship offer does not exempt location', () => {
+      expect(disq([c('requires-location', ['DE'])], [offer([])]).kind).toBe(
+        'disqualified',
+      );
+    });
+    it('location uses locatedIn, not authorizedCountries', () => {
+      const r = { authorizedCountries: ['DE'], locatedIn: ['MA'] };
+      expect(decide([c('asks-location', ['DE'])], r, []).kind).toBe(
+        'disqualified',
+      );
+      expect(decide([c('asks-authorization', ['DE'])], r, [])).toEqual({
+        kind: 'pass',
+      });
+    });
+    it('log kinds never decide', () => {
+      expect(
+        disq([c('location-preference', ['DE']), c('language-requirement', [])]),
+      ).toEqual({ kind: 'pass' });
+    });
+  });
 });
