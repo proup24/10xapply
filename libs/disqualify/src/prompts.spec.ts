@@ -42,6 +42,13 @@ describe('prompts', () => {
       expect(p).toContain(s);
   });
 
+  it("sends a sponsorship question naming no country to the job's country", () => {
+    expect(EXTRACT_SYSTEM).toContain(
+      'names no country ("Will you now or in the future require sponsorship for employment visa status?"',
+    );
+    expect(EXTRACT_SYSTEM).toContain('is about the country of this job');
+  });
+
   it('nothing mentions the rules or the bank', () => {
     const all =
       EXTRACT_SYSTEM +
