@@ -9,6 +9,7 @@ import {
   type RedactedResult,
   type Source,
 } from '@xapply/answerer';
+import type { Claim } from '@xapply/disqualify';
 import type { FactBank } from '@xapply/fact-bank';
 import { REPORTS_DIR } from '../reports/write-report.js';
 import type { UnknownField } from '../linkedin/types.js';
@@ -16,6 +17,7 @@ import type { FillProblem } from './fill.js';
 import type {
   ApplyOutcome,
   ApplyRun,
+  CheckRecord,
   QuestionRecord,
   StopKind,
 } from './types.js';
@@ -43,6 +45,19 @@ export interface RedactedQuestion {
   result: RedactedResult | null;
 }
 
+/** A claim with no text: only our own words, codes and ids. */
+export type RedactedClaim = Pick<
+  Claim,
+  'kind' | 'countries' | 'countryFrom' | 'source'
+>;
+
+export interface RedactedCheck {
+  at: CheckRecord['at'];
+  step: number | null;
+  claims: RedactedClaim[];
+  calls: CheckRecord['calls'];
+}
+
 export interface RedactedApplyRun {
   jobId: string;
   startedAt: string;
@@ -55,8 +70,18 @@ export interface RedactedApplyRun {
   questions: RedactedQuestion[];
   /** Never the label. */
   unknownFields: Omit<UnknownField, 'label'>[];
+  checks: RedactedCheck[];
+  disqualification: RedactedClaim[] | null;
   timings: ApplyRun['timings'];
 }
+
+/** An allow-list copy: a field added to `Claim` later is not copied. */
+const redactClaim = (c: Claim): RedactedClaim => ({
+  kind: c.kind,
+  countries: [...c.countries],
+  countryFrom: c.countryFrom,
+  source: c.source,
+});
 
 /** The copy for Claude: ids, counts, kinds and timings; no text of any kind. */
 export function redactApplyRun(
@@ -89,6 +114,15 @@ export function redactApplyRun(
       role: u.role,
       inputType: u.inputType,
     })),
+    checks: run.checks.map((c) => ({
+      at: c.at,
+      step: c.step,
+      claims: c.claims.map(redactClaim),
+      calls: c.calls.map((x) => ({ ...x })),
+    })),
+    disqualification: run.disqualification
+      ? run.disqualification.map(redactClaim)
+      : null,
     timings: {
       totalMs: run.timings.totalMs,
       perStepMs: [...run.timings.perStepMs],
@@ -110,7 +144,19 @@ export function formatRedactedSummary(r: RedactedApplyRun): string {
       `stop: ${r.stop.kind}${r.stop.step === null ? '' : ` at step ${r.stop.step}`}`,
     );
   }
+  const [head, ...rest] = r.disqualification ?? [];
+  if (head) {
+    lines.push(
+      `${headline(head)}${rest.length > 0 ? ` (+${rest.length} more)` : ''}`,
+    );
+  }
   return `${lines.join('\n')}\n`;
+}
+
+/** `disqualified: <kind> <countries|unclear> at <source>`. */
+function headline(c: RedactedClaim): string {
+  const where = c.countries.length > 0 ? c.countries.join(',') : 'unclear';
+  return `disqualified: ${c.kind} ${where} at ${c.source}`;
 }
 
 const cell = (s: string): string =>
@@ -224,6 +270,49 @@ function row(q: QuestionRecord, bank: FactBank): string {
     .join(' | ')} |`;
 }
 
+const isRuleKind = (k: Claim['kind']): boolean => !k.endsWith('-requirement');
+
+/** Every claim from every check, with its quote, and the verdict. */
+function requirements(run: ApplyRun): string[] {
+  const claims = run.checks.flatMap((c) => c.claims);
+  if (claims.length === 0)
+    return ['## Requirements', '', 'No requirements found.', ''];
+  const out = [
+    '## Requirements',
+    '',
+    '| Where | Kind | Countries | Country from | Quote | Place quote | Detail |',
+    '| --- | --- | --- | --- | --- | --- | --- |',
+  ];
+  for (const c of claims) {
+    const countries =
+      c.countries.length > 0
+        ? c.countries.join(', ')
+        : isRuleKind(c.kind)
+          ? 'unclear'
+          : '-';
+    out.push(
+      `| ${[
+        c.source,
+        c.kind,
+        countries,
+        c.countryFrom,
+        `"${c.quote}"`,
+        c.placeQuote === null ? '-' : `"${c.placeQuote}"`,
+        c.detail ?? '-',
+      ]
+        .map(cell)
+        .join(' | ')} |`,
+    );
+  }
+  const [head] = run.disqualification ?? [];
+  out.push(
+    '',
+    `Verdict: ${run.outcome === 'disqualified' && head ? headline(redactClaim(head)) : 'pass'}`,
+    '',
+  );
+  return out;
+}
+
 /** The author's report: every label, answer and the bank text it rests on. */
 export function formatRunMarkdown(run: ApplyRun, bank: FactBank): string {
   const out: string[] = [`# Apply run ${run.jobId}`, ''];
@@ -263,8 +352,8 @@ export function formatRunMarkdown(run: ApplyRun, bank: FactBank): string {
       `Unknown fields: ${run.unknownFields.map((u) => `${u.tag}/${u.role ?? '-'}/${u.inputType ?? '-'}`).join(', ')}`,
     );
   }
+  out.push('', ...requirements(run));
   out.push(
-    '',
     '## Timings',
     '',
     `Total: ${run.timings.totalMs} ms`,

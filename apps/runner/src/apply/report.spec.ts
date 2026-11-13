@@ -10,6 +10,7 @@ import {
   redactApplyRun,
   writeApplyReports,
 } from './report.js';
+import type { Claim } from '@xapply/disqualify';
 import type { ApplyRun } from './types.js';
 
 const markers = new Set<string>();
@@ -343,5 +344,145 @@ describe('apply reports', () => {
     expect(redactApplyRun(run, bank).questions[0]?.fillProblem).toBe(
       'unverified',
     );
+  });
+
+  describe('requirements', () => {
+    const claim = (over: Partial<Claim>): Claim => ({
+      kind: 'asks-sponsorship',
+      countries: ['US'],
+      countryFrom: 'text',
+      quote: 'QUOTE-MARK | a\nb',
+      placeQuote: 'PLACE-MARK',
+      source: 's2-q1',
+      detail: 'DETAIL-MARK',
+      ...over,
+    });
+    const disq = claim({});
+    const log = claim({
+      kind: 'language-requirement',
+      countries: [],
+      source: 'job-page',
+      quote: 'QUOTE-MARK-2',
+      detail: 'DETAIL-MARK-2',
+    });
+    const unclear = claim({
+      kind: 'requires-authorization',
+      countries: [],
+      source: 's1-u1',
+    });
+    const dq = (bank: FactBank): ApplyRun => ({
+      ...makeRun(bank),
+      outcome: 'disqualified',
+      stop: undefined,
+      unknownFields: [
+        { tag: 'div', role: null, inputType: null, label: 'LABEL-MARK' },
+      ],
+      checks: [
+        { at: 'job-page', step: null, claims: [log], calls: [] },
+        {
+          at: 'step',
+          step: 2,
+          claims: [disq, unclear],
+          calls: [
+            {
+              role: 'extract',
+              model: 'opus',
+              latencyMs: 9,
+              costUsd: 0.02,
+              ok: true,
+            },
+          ],
+        },
+      ],
+      disqualification: [disq, unclear],
+    });
+
+    it('redacts claims to kind, countries, countryFrom and source', () => {
+      const bank = makeBank();
+      const redacted = redactApplyRun(dq(bank), bank);
+      const json = JSON.stringify(redacted);
+      for (const m of [
+        'QUOTE-MARK',
+        'PLACE-MARK',
+        'DETAIL-MARK',
+        'LABEL-MARK',
+        'quote',
+        'detail',
+        'placeQuote',
+        'label',
+      ])
+        expect(json, m).not.toContain(m);
+      expect(redacted.disqualification).toEqual([
+        {
+          kind: 'asks-sponsorship',
+          countries: ['US'],
+          countryFrom: 'text',
+          source: 's2-q1',
+        },
+        {
+          kind: 'requires-authorization',
+          countries: [],
+          countryFrom: 'text',
+          source: 's1-u1',
+        },
+      ]);
+      expect(redacted.checks).toHaveLength(2);
+      expect(redacted.checks[1]?.calls).toHaveLength(1);
+      expect(redacted.checks[1]?.step).toBe(2);
+      expect(redactApplyRun(makeRun(bank), bank).disqualification).toBeNull();
+    });
+
+    it('the summary headline names kind, countries and source', () => {
+      const bank = makeBank();
+      const one = redactApplyRun(
+        { ...dq(bank), disqualification: [disq] },
+        bank,
+      );
+      expect(formatRedactedSummary(one)).toContain(
+        'disqualified: asks-sponsorship US at s2-q1\n',
+      );
+      const two = formatRedactedSummary(redactApplyRun(dq(bank), bank));
+      expect(two).toContain(
+        'disqualified: asks-sponsorship US at s2-q1 (+1 more)',
+      );
+      const none = formatRedactedSummary(
+        redactApplyRun({ ...dq(bank), disqualification: [unclear] }, bank),
+      );
+      expect(none).toContain(
+        'disqualified: requires-authorization unclear at s1-u1',
+      );
+      expect(
+        formatRedactedSummary(redactApplyRun(makeRun(bank), bank)),
+      ).not.toContain('disqualified:');
+    });
+
+    it('the markdown lists every claim with its quote and a verdict', () => {
+      const bank = makeBank();
+      const md = formatRunMarkdown(dq(bank), bank);
+      expect(md).toContain('## Requirements');
+      expect(md).toContain('QUOTE-MARK \\| a b');
+      expect(md).toContain('QUOTE-MARK-2');
+      expect(md).toContain('PLACE-MARK');
+      expect(md).toContain('DETAIL-MARK');
+      expect(md).toContain(
+        'Verdict: disqualified: asks-sponsorship US at s2-q1',
+      );
+      expect(md.indexOf('## Outcome')).toBeLessThan(
+        md.indexOf('## Requirements'),
+      );
+    });
+
+    it('a pass verdict, and no claims', () => {
+      const bank = makeBank();
+      const passing: ApplyRun = {
+        ...makeRun(bank),
+        checks: [{ at: 'job-page', step: null, claims: [log], calls: [] }],
+      };
+      const md = formatRunMarkdown(passing, bank);
+      expect(md).toContain('Verdict: pass');
+      const empty = formatRunMarkdown(makeRun(bank), bank);
+      expect(empty).toContain('No requirements found.');
+      expect(empty).not.toContain('Verdict:');
+    });
   });
 });
