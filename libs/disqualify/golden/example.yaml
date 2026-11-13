@@ -469,6 +469,10 @@ cases:
       claims: []
 
   # --------------------------------------------------------------- location
+  # The rules say locatedIn: [MA]. A skip case lists only the deciding claim;
+  # a pass case lists none.
+
+  # Skips: a place outside Morocco is required, on the form or the posting.
   - id: loc-based-in-berlin
     group: location
     job:
@@ -478,8 +482,8 @@ cases:
         You must be based in Berlin. Build payment services in TypeScript with
         a small team.
     expect:
-      verdict: pass
-      claims: []
+      verdict: disqualified
+      claims: [{ kind: requires-location, countries: [DE] }]
 
   - id: loc-hybrid-paris
     group: location
@@ -490,13 +494,382 @@ cases:
         Hybrid role, three days a week in our Paris office. Build payment
         services in TypeScript.
     expect:
-      verdict: pass
-      claims: []
+      verdict: disqualified
+      claims: [{ kind: requires-location, countries: [FR] }]
 
   - id: loc-onsite-question
     group: location
     questions:
       - label: Are you comfortable working on-site in Dublin three days a week?
+        type: radio
+        options: [Yes, 'No']
+    expect:
+      verdict: disqualified
+      claims: [{ kind: asks-location, countries: [IE] }]
+
+  - id: loc-q-located-germany
+    group: location
+    questions:
+      - label: Are you located in Germany?
+        type: radio
+        options: [Yes, 'No']
+    expect:
+      verdict: disqualified
+      claims: [{ kind: asks-location, countries: [DE] }]
+
+  - id: loc-q-located-munich-full
+    group: location
+    questions:
+      - label: Are you currently located in Munich, Bavaria, Germany?
+        type: radio
+        options: [Yes, 'No']
+    expect:
+      verdict: disqualified
+      claims: [{ kind: asks-location, countries: [DE] }]
+
+  - id: loc-q-located-bavaria
+    group: location
+    questions:
+      - label: Are you currently located in Bavaria?
+        type: radio
+        options: [Yes, 'No']
+    expect:
+      verdict: disqualified
+      claims: [{ kind: asks-location, countries: [DE] }]
+
+  - id: loc-q-confirm-eu
+    group: location
+    questions:
+      - label: Confirm you are located in the EU
+        type: radio
+        options: [Yes, 'No']
+    expect:
+      verdict: disqualified
+      claims: [{ kind: asks-location, countries: [EU] }]
+
+  - id: loc-q-munich-area
+    group: location
+    questions:
+      - label: Do you live in the Munich area?
+        type: radio
+        options: [Yes, 'No']
+    expect:
+      verdict: disqualified
+      claims: [{ kind: asks-location, countries: [DE] }]
+
+  - id: loc-q-onsite-commit
+    group: location
+    questions:
+      - label: This role is on-site in Munich, can you commit to that?
+        type: radio
+        options: [Yes, 'No']
+    expect:
+      verdict: disqualified
+      claims: [{ kind: asks-location, countries: [DE] }]
+
+  - id: loc-q-closed-list
+    group: location
+    questions:
+      - label: Which country are you based in?
+        type: select
+        options: [Germany, Austria, Switzerland]
+    expect:
+      verdict: disqualified
+      claims: [{ kind: asks-location, countries: [DE, AT, CH] }]
+
+  - id: loc-jp-must-be-germany
+    group: location
+    job:
+      title: Data Engineer
+      company: Kestrel Freight
+      description: |
+        Kestrel Freight plans truck routes across Europe. You will build data
+        pipelines in Python and SQL. Candidates must be based in Germany.
+    expect:
+      verdict: disqualified
+      claims: [{ kind: requires-location, countries: [DE] }]
+
+  - id: loc-jp-only-uk
+    group: location
+    job:
+      title: Frontend Engineer
+      company: Brightpath Labs
+      description: |
+        Build our learning app in React. We are hiring only candidates based in
+        the UK for this role.
+    expect:
+      verdict: disqualified
+      claims: [{ kind: requires-location, countries: [GB] }]
+
+  - id: loc-jp-onsite-munich
+    group: location
+    job:
+      title: Embedded Engineer
+      company: Lindqvist Robotics
+      description: |
+        Write firmware for warehouse robots. This role is on-site in Munich,
+        five days a week, next to the hardware lab.
+    expect:
+      verdict: disqualified
+      claims: [{ kind: requires-location, countries: [DE] }]
+
+  - id: loc-jp-remote-eu-only
+    group: location
+    job:
+      title: Backend Engineer
+      company: Northwind Ledger
+      description: |
+        Northwind Ledger builds accounting software for small firms. Remote, EU
+        only. You will build Go services and own them in production.
+    expect:
+      verdict: disqualified
+      claims: [{ kind: requires-location, countries: [EU] }]
+
+  - id: loc-jp-remote-us
+    group: location
+    job:
+      title: Site Reliability Engineer
+      company: Harbor Metrics
+      description: |
+        Location: Remote (US)
+
+        Keep our monitoring platform running. You will own on-call, Terraform
+        and our Kubernetes clusters.
+    expect:
+      verdict: disqualified
+      claims: [{ kind: requires-location, countries: [US] }]
+
+  - id: loc-jp-us-only
+    group: location
+    job:
+      title: Full Stack Engineer
+      company: Pinecrest Health
+      description: |
+        Build scheduling tools for clinics in TypeScript and React. This is a
+        remote role, US only.
+    expect:
+      verdict: disqualified
+      claims: [{ kind: requires-location, countries: [US] }]
+
+  - id: loc-jp-europe-only
+    group: location
+    job:
+      title: Mobile Engineer
+      company: Tidewater Apps
+      description: |
+        Build our Android and iOS apps in Kotlin and Swift. Fully remote,
+        Europe only.
+    expect:
+      verdict: disqualified
+      claims: [{ kind: requires-location, countries: [EUROPE] }]
+
+  - id: loc-jp-us-based-only
+    group: location
+    job:
+      title: Backend Engineer
+      company: Copperline Insurance
+      description: |
+        Build claims processing services in Java. US-based candidates only.
+    expect:
+      verdict: disqualified
+      claims:
+        - kind: [requires-location, requires-authorization]
+          countries: [US]
+
+  # Mixed: one family's offer never covers the other family's requirement.
+  - id: loc-mixed-relocation-no-sponsorship
+    group: location
+    job:
+      title: Backend Engineer
+      company: Fernhill Mobility
+      description: |
+        Build routing services for our scooters in Berlin. A relocation package
+        to Berlin is provided. We cannot sponsor work visas in Germany for this
+        role.
+    expect:
+      verdict: disqualified
+      claims: [{ kind: no-sponsorship, countries: [DE] }]
+
+  - id: loc-mixed-sponsorship-based-berlin
+    group: location
+    job:
+      title: Backend Engineer
+      company: Fernhill Mobility
+      description: |
+        We sponsor work visas in Germany. You must be based in Berlin. Build
+        routing services for our scooters in TypeScript.
+    expect:
+      verdict: disqualified
+      claims: [{ kind: requires-location, countries: [DE] }]
+
+  # Passes: open questions, relocation willingness, soft wording, time zones,
+  # Moroccan places, wide regions holding Morocco, open lists, and a
+  # requirement covered by a relocation offer.
+  - id: loc-pass-where-located
+    group: location
+    questions:
+      - label: Where are you located?
+        type: text
+    expect:
+      verdict: pass
+      claims: []
+
+  - id: loc-pass-city-of-residence
+    group: location
+    questions:
+      - label: City of residence
+        type: text
+    expect:
+      verdict: pass
+      claims: []
+
+  - id: loc-pass-relocate-germany
+    group: location
+    questions:
+      - label: Are you willing to relocate to Germany?
+        type: radio
+        options: [Yes, 'No']
+    expect:
+      verdict: pass
+      claims: []
+
+  - id: loc-pass-preferably-germany
+    group: location
+    job:
+      title: Backend Engineer
+      company: Kestrel Freight
+      description: |
+        Build route planning services in Kotlin. Candidates preferably based in
+        Germany, but we welcome applications from anywhere.
+    expect:
+      verdict: pass
+      claims: []
+
+  - id: loc-pass-our-berlin-office
+    group: location
+    job:
+      title: Frontend Engineer
+      company: Fernhill Mobility
+      description: |
+        Build the rider app in React Native. Our Berlin office hosts the product
+        team, and engineers work from wherever suits them.
+    expect:
+      verdict: pass
+      claims: []
+
+  - id: loc-pass-open-europe
+    group: location
+    job:
+      title: Data Scientist
+      company: Brightpath Labs
+      description: |
+        Model how learners progress through our courses. We are open to
+        candidates in Europe and beyond.
+    expect:
+      verdict: pass
+      claims: []
+
+  - id: loc-pass-germany-remote-line
+    group: location
+    job:
+      title: Backend Engineer
+      company: Northwind Ledger
+      description: |
+        Location: Germany (Remote)
+
+        Build Go services for our accounting product and own them in
+        production.
+    expect:
+      verdict: pass
+      claims: []
+
+  - id: loc-pass-time-zone
+    group: location
+    job:
+      title: Platform Engineer
+      company: Harbor Metrics
+      description: |
+        Run our Kubernetes platform. You should work within ±2 hours of CET so
+        you overlap with the team.
+    expect:
+      verdict: pass
+      claims: []
+
+  - id: loc-pass-located-casablanca
+    group: location
+    questions:
+      - label: Are you located in Casablanca?
+        type: radio
+        options: [Yes, 'No']
+    expect:
+      verdict: pass
+      claims: []
+
+  - id: loc-pass-hybrid-rabat
+    group: location
+    job:
+      title: Backend Engineer
+      company: Atlas Grid
+      description: |
+        Build energy metering services in TypeScript. This role is hybrid in
+        our Rabat office, two days a week.
+    expect:
+      verdict: pass
+      claims: []
+
+  - id: loc-pass-remote-emea
+    group: location
+    job:
+      title: Backend Engineer
+      company: Tidewater Apps
+      description: |
+        Build the API behind our mobile apps in Node.js. Remote, EMEA only.
+    expect:
+      verdict: pass
+      claims: []
+
+  - id: loc-pass-list-with-other
+    group: location
+    questions:
+      - label: Which country are you based in?
+        type: select
+        options: [Germany, Austria, Other]
+    expect:
+      verdict: pass
+      claims: []
+
+  - id: loc-pass-list-with-morocco
+    group: location
+    questions:
+      - label: Which country do you live in?
+        type: select
+        options: [France, Spain, Morocco]
+    expect:
+      verdict: pass
+      claims: []
+
+  - id: loc-pass-onsite-with-relocation
+    group: location
+    job:
+      title: Embedded Engineer
+      company: Lindqvist Robotics
+      description: |
+        Write firmware for warehouse robots. On-site in Munich, relocation
+        package provided.
+    expect:
+      verdict: pass
+      claims: []
+
+  - id: loc-pass-relocation-and-form-asks
+    group: location
+    job:
+      title: Backend Engineer
+      company: Fernhill Mobility
+      description: |
+        Build routing services for our scooters in TypeScript. We offer
+        relocation support to Berlin for the right candidate.
+    questions:
+      - label: Are you located in Germany?
         type: radio
         options: [Yes, 'No']
     expect:
