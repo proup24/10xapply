@@ -5,3 +5,11 @@ export {
   expandCountries,
   isCountryToken,
 } from './countries.js';
+export {
+  DEFAULT_RULES_PATH,
+  RulesError,
+  checkRules,
+  loadRules,
+  type Rules,
+  type RulesCheck,
+} from './rules.js';
