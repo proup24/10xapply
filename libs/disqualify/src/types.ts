@@ -8,6 +8,8 @@ export const RULE_KINDS = [
   'requires-location',
   'asks-location',
 ] as const;
+/** Job-page kinds that exempt form questions: sponsorship and relocation offers. */
+export const OFFER_KINDS = ['offers-sponsorship', 'offers-relocation'] as const;
 export const LOG_KINDS = [
   'location-preference',
   'language-requirement',

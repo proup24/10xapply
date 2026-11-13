@@ -2,6 +2,7 @@ import type { Job } from '@xapply/answerer';
 import {
   CheckFailedError,
   decide,
+  OFFER_KINDS,
   type CheckJob,
   type CheckQuestion,
   type Claim,
@@ -92,9 +93,9 @@ export async function awaitCheck(
   return res.claims;
 }
 
-/** The job page's sponsorship offers, the only offers that count. */
+/** The job page's sponsorship and relocation offers, the only offers that count. */
 export const offersOf = (claims: Claim[]): Claim[] =>
-  claims.filter((c) => c.kind === 'offers-sponsorship');
+  claims.filter((c) => (OFFER_KINDS as readonly string[]).includes(c.kind));
 
 /** Ends the run as `disqualified` when the rules say so. */
 export function judge(w: Checked, claims: Claim[], offers: Claim[]): void {

@@ -46,7 +46,7 @@ export interface Walk {
   bank: FactBank;
   /** The form step being walked (1-based), null before the form opens. */
   step: number | null;
-  /** The job page's offers-sponsorship claims; they exempt form questions. */
+  /** The job page's sponsorship and relocation offer claims; they exempt form questions. */
   offers: Claim[];
 }
 

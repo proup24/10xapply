@@ -7,7 +7,7 @@ import {
   extractFromQuestions,
   type ExtractContext,
 } from '../extract.js';
-import type { Claim, CheckQuestion } from '../types.js';
+import { OFFER_KINDS, type Claim, type CheckQuestion } from '../types.js';
 import {
   DisqualifyGoldenError,
   type DisqCase,
@@ -83,7 +83,9 @@ async function runOnce(
       const r = await extractFromJob(job, ctx);
       calls.push(...r.calls);
       claims.push(...r.claims);
-      offers = r.claims.filter((x) => x.kind === 'offers-sponsorship');
+      offers = r.claims.filter((x) =>
+        (OFFER_KINDS as readonly string[]).includes(x.kind),
+      );
     }
     const q = await extractFromQuestions(questions, job, ctx);
     calls.push(...q.calls);

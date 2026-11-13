@@ -29,7 +29,7 @@ const offer = claim({
 
 function golden(over: Record<string, unknown> = {}): DisqualifyGolden {
   return {
-    rules: { authorizedCountries: ['MA'] },
+    rules: { authorizedCountries: ['MA'], locatedIn: ['MA'] },
     defaultJob: job,
     cases: [
       {
@@ -170,6 +170,44 @@ describe('runDisqualifyGolden', () => {
     });
     expect(r.cases[0]?.runs[0]).toMatchObject({ pass: true, verdict: 'pass' });
     expect(r.cases[0]?.runs[0]?.calls).toHaveLength(2);
+  });
+
+  it('relocation offers reach decide', async () => {
+    const caller = fakeCaller([
+      () => ({
+        claims: [
+          claim({
+            kind: 'offers-relocation',
+            countries: ['DE'],
+            quote: 'We offer visa support.',
+            source: 'job-page',
+          }),
+        ],
+      }),
+      () => ({
+        claims: [
+          claim({
+            kind: 'asks-location',
+            countries: ['DE'],
+            quote: label,
+            detail: 'asks where the candidate lives',
+          }),
+        ],
+      }),
+    ]);
+    const r = await runDisqualifyGolden({
+      golden: golden({
+        checkJob: true,
+        job,
+        expect: {
+          verdict: 'pass',
+          claims: [{ kind: 'asks-location', countries: ['DE'] }],
+        },
+      }),
+      ctx: ctxOf(caller),
+      repeat: 1,
+    });
+    expect(r.cases[0]?.runs[0]).toMatchObject({ pass: true, verdict: 'pass' });
   });
 
   it('does not run the job check when checkJob is false, and offers are none', async () => {

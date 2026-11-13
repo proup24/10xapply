@@ -477,6 +477,48 @@ describe('apply reports', () => {
       );
     });
 
+    it('location claims in the requirements table', () => {
+      const bank = makeBank();
+      const reqLoc = claim({
+        kind: 'requires-location',
+        countries: [],
+        source: 'job-page',
+        quote: 'QUOTE-LOC',
+        detail: 'DETAIL-LOC',
+      });
+      const pref = claim({
+        kind: 'location-preference',
+        countries: [],
+        source: 'job-page',
+        quote: 'QUOTE-PREF',
+        detail: 'DETAIL-PREF',
+      });
+      const run: ApplyRun = {
+        ...dq(bank),
+        checks: [
+          {
+            at: 'job-page',
+            step: null,
+            ok: true,
+            claims: [reqLoc, pref],
+            calls: [],
+          },
+        ],
+        disqualification: [reqLoc],
+      };
+      const md = formatRunMarkdown(run, bank);
+      expect(md).toContain('| job-page | requires-location | unclear |');
+      expect(md).toContain('| job-page | location-preference | - |');
+      const redacted = redactApplyRun(run, bank);
+      const json = JSON.stringify(redacted);
+      for (const m of ['DETAIL-LOC', 'DETAIL-PREF', 'QUOTE-LOC', 'detail'])
+        expect(json, m).not.toContain(m);
+      expect(redacted.disqualification?.[0]).toMatchObject({
+        kind: 'requires-location',
+        countries: [],
+      });
+    });
+
     const reached = (bank: FactBank): ApplyRun => ({
       ...makeRun(bank),
       outcome: 'reached-review',

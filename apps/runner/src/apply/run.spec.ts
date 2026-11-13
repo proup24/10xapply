@@ -1662,6 +1662,40 @@ describe('runApply', () => {
       expect(typed(h)).toEqual(['type #qa ok']);
     });
 
+    it('a relocation offer on the job page exempts a location question', async () => {
+      const h = harness({
+        screens: checked(synth({ fields: [A] })),
+        jobClaims: [claim('offers-relocation', ['DE'])],
+        stepClaims: () => [claim('asks-location', ['DE'], 's1-q1')],
+      });
+      const run = await runApply('123', h.deps);
+      expect(run.outcome).toBe('reached-review');
+      expect(run.disqualification).toBeNull();
+      expect(typed(h)).toEqual(['type #qa ok']);
+    });
+
+    it('a location question disqualifies a round', async () => {
+      const h = harness({
+        screens: checked(synth({ fields: [A] })),
+        stepClaims: () => [claim('asks-location', ['DE'], 's1-q1')],
+      });
+      const run = await runApply('123', h.deps);
+      expect(run.outcome).toBe('disqualified');
+      expect(h.answered).toEqual([]);
+      expect(typed(h)).toEqual([]);
+    });
+
+    it('a location requirement on the job page never opens the form', async () => {
+      const h = harness({
+        screens: fullFlow(),
+        jobClaims: [claim('requires-location', ['DE'])],
+      });
+      const run = await runApply('123', h.deps);
+      expect(run.outcome).toBe('disqualified');
+      expect(h.acts()).not.toContain(`click ${EASY_APPLY}`);
+      expect(h.acts()).toEqual([]);
+    });
+
     it('an offer in a form question exempts nothing', async () => {
       const h = harness({
         screens: checked(synth({ fields: [A] })),
