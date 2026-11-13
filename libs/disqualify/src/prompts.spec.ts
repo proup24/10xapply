@@ -40,7 +40,7 @@ describe('prompts', () => {
       'A relocation package, relocation support or help moving is not offers-sponsorship',
     );
     expect(EXTRACT_SYSTEM).toContain(
-      'Willingness to relocate ("Are you willing to relocate?", "Are you willing to relocate to Germany?") is not a claim',
+      'Willingness to relocate ("Are you willing to relocate?", "Are you willing to relocate to Germany?", "Candidates must be willing to relocate to Berlin") is not a claim',
     );
   });
 
@@ -59,6 +59,17 @@ describe('prompts', () => {
   it('region names', () => {
     for (const r of Object.keys(REGIONS)) expect(EXTRACT_SYSTEM).toContain(r);
     expect(EXTRACT_SYSTEM).toContain(Object.keys(REGIONS).join(', '));
+  });
+
+  it('location questions naming no place take the job place', () => {
+    expect(EXTRACT_SYSTEM).toContain(
+      'sponsorship, work authorization or location question',
+    );
+    expect(EXTRACT_SYSTEM).toContain("Are you located in the job's location?");
+    expect(EXTRACT_SYSTEM).toContain('Claims of kinds 1 to 8');
+    expect(EXTRACT_SYSTEM).toContain(
+      'Candidates must be willing to relocate to Berlin',
+    );
   });
 
   it('the job prompt holds the title and description', () => {
@@ -97,7 +108,7 @@ describe('prompts', () => {
 
   it("sends a sponsorship question naming no country to the job's country", () => {
     expect(EXTRACT_SYSTEM).toContain(
-      'names no country ("Will you now or in the future require sponsorship for employment visa status?"',
+      'names no country or place ("Will you now or in the future require sponsorship for employment visa status?"',
     );
     expect(EXTRACT_SYSTEM).toContain('is about the country of this job');
   });
