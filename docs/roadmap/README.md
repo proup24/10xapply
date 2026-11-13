@@ -83,10 +83,11 @@ The author gives the runner one LinkedIn job URL. A real Chrome window on the au
 | 04  | Fact bank file                                | 02          |
 | 05  | Answering form questions                      | 04          |
 | 05b | Disqualification                              | 06          |
+| 05c | Disqualification by location                  | 05b         |
 | 06  | Walk the form without submitting              | 03, 03b, 05 |
 | 07  | Submit, and never twice                       | 06, 05b     |
 
-03→03b and 04→05 are independent; 05b follows 06.
+03→03b and 04→05 are independent; 05b follows 06, and 05c follows 05b.
 
 ### 03 Local browser and the LinkedIn session
 
@@ -141,6 +142,22 @@ The author gives the runner one LinkedIn job URL. A real Chrome window on the au
   - A disqualified job is recorded and skipped. It is not a blocking question, because nothing the author answers would fix it.
 - **Locked:** the extractor is its own role and model in configuration, separate from the answerer, and it never sees the fact bank _(user)_. Disqualification is not the bank's job: the bank answers a work-authorization question truthfully like any other.
 - **Spec answers:** the rules file format, the extraction schema and where the verdict is recorded are left to this slice's own spec. In Phase 2 the same check can also run when a match arrives, before it reaches the approval list.
+
+### 05c Disqualification by location
+
+- **Scope:** some jobs accept only candidates who live in a given place. A form question such as "Are you located in Germany?", or a posting that says "must be based in Germany", should disqualify the job for a user who isn't there, the same way slice 05b does for work authorization _(user)_.
+  - It covers the many ways the same requirement is worded, in form questions and in job descriptions alike _(user)_.
+  - It builds on slice 05b: the same extractor, claims, checkpoints, rules file, `disqualified` outcome and golden eval. Slice 05b already logs `location-requirement` claims without acting on them. This slice decides which of them disqualify.
+- **Locked:** the decisions slice 05b locked still hold. The extractor never sees the fact bank or the rules, code decides from the claims, and a disqualified job is never retried.
+- **Spec answers:** brainstormed in this slice's own session _(user)_. Open questions to start from:
+  - **Where the user is:** the rules file holds where the user is authorized, not where they live. Does it gain a "located in" list (country, maybe city), and how does that relate to the bank's location field? The extractor still can't read the bank.
+  - **Requirement or preference:** which wordings are a hard requirement ("must reside in", "only candidates based in", "Are you located in…?") and which are not ("Berlin office", "preferably in Germany", "open to candidates in Europe")? The near-misses matter as much as the hits.
+  - **Relocation:** does "Are you willing to relocate to Germany?" or "on-site in Munich" disqualify, or does it pass when the user is willing to relocate? Willingness is a bank answer, and the extractor can't see the bank.
+  - **City and commuting distance:** "Are you within commuting distance of Berlin?" or "Do you live in the Munich area?" are below country level. Do they disqualify, and against what?
+  - **Remote with a region:** "Remote, EU only", "Remote (US)", "within ±2 hours of CET". Is a time-zone requirement a location requirement?
+  - **Overlap with authorization:** "US-based candidates only" can mean residence, work authorization or both. Which claim kind does it get, and can one sentence produce both?
+  - **On-site and hybrid with no question:** a posting that says "hybrid, 3 days a week in our Paris office" and asks nothing. Should that alone disqualify a user who lives elsewhere?
+  - **Evidence first:** slice 05b's redacted reports already count `location-requirement` claims per run. How often do they show up, and in which wordings, before the rules are designed? Language requirements stay logged only unless this slice decides otherwise.
 
 ### 06 Walk the form without submitting
 
