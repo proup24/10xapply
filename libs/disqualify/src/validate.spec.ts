@@ -27,6 +27,10 @@ describe('normalizeText', () => {
       "we can't \"go\" - now - ok ' \" 'x' - y",
     );
   });
+  it('treats a no-break space (U+00A0) as a space', () => {
+    expect(normalizeText('a\u00a0b')).toBe('a b');
+    expect(normalizeText('work\u00a0in the\u00a0US')).toBe('work in the us');
+  });
 });
 
 describe('validateClaims', () => {

@@ -13,7 +13,10 @@ export function normalizeText(s: string): string {
 }
 
 export interface ValidateContext {
-  /** Each source's text: the job page's title and description, or a question's label, help and options. */
+  /**
+   * Each source's text: the job page's title, company and description, or a
+   * question's step title, label, help and options.
+   */
   sources: Map<ClaimSource, string>;
   /** The job's title and description. */
   place: string;

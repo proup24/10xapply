@@ -70,7 +70,11 @@ async function extract(
   throw new CheckFailedError('invalid-claims', calls, problems);
 }
 
+/** Where a country can come from: the job's title and description only. */
 const placeOf = (job: CheckJob) => `${job.title}\n${job.description}`;
+/** The job page's text as the prompt shows it: the company too. */
+const jobSourceOf = (job: CheckJob) =>
+  `${job.title}\n${job.company}\n${job.description}`;
 
 export function extractFromJob(
   job: CheckJob,
@@ -78,7 +82,7 @@ export function extractFromJob(
 ): Promise<ExtractResult> {
   return extract(
     jobPrompt(job),
-    new Map([['job-page', placeOf(job)]]),
+    new Map([['job-page', jobSourceOf(job)]]),
     placeOf(job),
     ctx,
   );
@@ -93,7 +97,9 @@ export function extractFromQuestions(
   const sources = new Map(
     questions.map((q) => [
       q.id,
-      [q.label, q.helpText ?? '', ...(q.options ?? [])].join('\n'),
+      [q.stepTitle ?? '', q.label, q.helpText ?? '', ...(q.options ?? [])].join(
+        '\n',
+      ),
     ]),
   );
   return extract(questionsPrompt(questions, job), sources, placeOf(job), ctx);

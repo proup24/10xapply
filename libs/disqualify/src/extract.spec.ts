@@ -34,6 +34,18 @@ describe('extractFromJob', () => {
     expect(r.calls[0].role).toBe('extract');
   });
 
+  it("a quote from the job's company is found in the job page", async () => {
+    const c = claim({
+      kind: 'language-requirement',
+      quote: 'Acme',
+      detail: 'German',
+    });
+    const caller = fakeCaller([() => ({ claims: [c] })]);
+    const r = await extractFromJob(job, { caller, model: 'm' });
+    expect(r.calls).toHaveLength(1);
+    expect(r.claims).toEqual([c]);
+  });
+
   it('accepts an empty list', async () => {
     const caller = fakeCaller([() => ({ claims: [] })]);
     const r = await extractFromJob(job, { caller, model: 'm' });
@@ -125,6 +137,18 @@ describe('extractFromQuestions', () => {
     });
     expect(r.claims[0].source).toBe('s1-q1');
     expect(caller.requests[0].role).toBe('extract');
+  });
+
+  it("a quote from the question's step title is found in its source", async () => {
+    const c = qClaim({ quote: 'UK work permit' });
+    const caller = fakeCaller([() => ({ claims: [c] })]);
+    const r = await extractFromQuestions(
+      [{ ...questions[0], stepTitle: 'UK work permit' }],
+      job,
+      { caller, model: 'm' },
+    );
+    expect(r.calls).toHaveLength(1);
+    expect(r.claims).toEqual([c]);
   });
 
   it('rejects a job-page claim from the questions call', async () => {
