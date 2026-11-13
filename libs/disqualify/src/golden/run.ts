@@ -53,14 +53,21 @@ const sameCountries = (a: string[], b: string[]): boolean => {
   return x.size === y.size && [...x].every((c) => y.has(c));
 };
 
+const kindMatches = (expected: ExpectedClaim['kind'], kind: string) =>
+  Array.isArray(expected)
+    ? (expected as string[]).includes(kind)
+    : expected === kind;
+
 /**
- * Every expected claim needs a returned claim of the same kind with the same
- * expanded countries. One returned claim may satisfy several expected claims.
+ * Every expected claim needs a returned claim of the same kind (any one of
+ * them, for a list) with the same expanded countries. One returned claim may
+ * satisfy several expected claims.
  */
 function claimsMatch(expected: ExpectedClaim[], returned: Claim[]): boolean {
   return expected.every((e) =>
     returned.some(
-      (r) => r.kind === e.kind && sameCountries(e.countries, r.countries),
+      (r) =>
+        kindMatches(e.kind, r.kind) && sameCountries(e.countries, r.countries),
     ),
   );
 }

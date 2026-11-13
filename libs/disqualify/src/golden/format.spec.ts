@@ -108,6 +108,37 @@ describe('loadDisqualifyGolden', () => {
     expect(e.message).not.toContain('Narnia');
   });
 
+  it('an expected kind may be a list', () => {
+    const g = loadDisqualifyGolden(
+      write(`${header}
+  - id: a
+    group: location${q}
+    expect:
+      verdict: disqualified
+      claims: [{ kind: [requires-location, requires-authorization], countries: [US] }]
+`),
+    );
+    expect(g.cases[0]?.expect.claims).toEqual([
+      {
+        kind: ['requires-location', 'requires-authorization'],
+        countries: ['US'],
+      },
+    ]);
+    const e = thrown(() =>
+      loadDisqualifyGolden(
+        write(`${header}
+  - id: b
+    group: location${q}
+    expect:
+      verdict: disqualified
+      claims: [{ kind: [made-up], countries: [US] }]
+`),
+      ),
+    );
+    expect(e).toBeInstanceOf(DisqualifyGoldenError);
+    expect(e.message).toContain('case b');
+  });
+
   it('rejects bad rules', () => {
     const e = thrown(() =>
       loadDisqualifyGolden(

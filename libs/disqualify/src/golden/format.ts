@@ -25,7 +25,8 @@ export const GROUPS = [
 export type Group = (typeof GROUPS)[number];
 
 export interface ExpectedClaim {
-  kind: RuleKind;
+  /** A list means any one of those kinds satisfies it ("US-based candidates only"). */
+  kind: RuleKind | RuleKind[];
   /** Codes or region names; compared by expansion, so UK equals GB and [] equals []. */
   countries: string[];
 }
@@ -72,7 +73,12 @@ const caseSchema = z.strictObject({
   questions: z.array(questionSchema).optional(),
   expect: z.strictObject({
     verdict: z.enum(['pass', 'disqualified']),
-    claims: z.array(z.strictObject({ kind: z.enum(RULE_KINDS), countries })),
+    claims: z.array(
+      z.strictObject({
+        kind: z.union([z.enum(RULE_KINDS), z.array(z.enum(RULE_KINDS)).min(1)]),
+        countries,
+      }),
+    ),
   }),
 });
 const fileSchema = z.strictObject({

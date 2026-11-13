@@ -112,6 +112,30 @@ describe('runDisqualifyGolden', () => {
     expect(two.passed).toBe(true);
   });
 
+  it('a kind list matches any of its kinds', async () => {
+    const caller = fakeCaller([
+      () => ({ claims: [claim({ kind: 'requires-authorization' })] }),
+    ]);
+    const g = golden({
+      expect: {
+        verdict: 'disqualified',
+        claims: [
+          {
+            kind: ['requires-location', 'requires-authorization'],
+            countries: ['US'],
+          },
+        ],
+      },
+    });
+    const r = await runDisqualifyGolden({
+      golden: g,
+      ctx: ctxOf(caller),
+      repeat: 1,
+    });
+    expect(r.cases[0]?.runs[0]?.verdict).toBe('disqualified');
+    expect(r.passed).toBe(true);
+  });
+
   it('fails when the verdict differs', async () => {
     const caller = fakeCaller([
       () => ({ claims: [claim({ countries: ['MA'] })] }),
