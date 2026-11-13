@@ -17,7 +17,7 @@ describe('golden/example.yaml', () => {
   it.each([
     ['authorization', 10],
     ['sponsorship', 8],
-    ['job-page', 8],
+    ['job-page', 10],
     ['near-miss', 8],
     ['location', 3],
     ['language', 3],
@@ -42,6 +42,16 @@ describe('golden/example.yaml', () => {
     expect(c?.expect.claims).toEqual([
       { kind: 'asks-authorization', countries: ['MA'] },
     ]);
+  });
+
+  it('guards against a false "they sponsor"', () => {
+    for (const id of [
+      'jp-relocation-only-and-form-asks',
+      'jp-sponsors-germany-and-us-question',
+    ])
+      expect(golden.cases.find((c) => c.id === id)?.expect.verdict, id).toBe(
+        'disqualified',
+      );
   });
 
   it('expects disqualified for every authorization and sponsorship case', () => {

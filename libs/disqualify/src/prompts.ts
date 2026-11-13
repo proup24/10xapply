@@ -30,7 +30,7 @@ Report each statement as a claim. A claim has these fields:
 - detail: for language-requirement, the language. For location-requirement, the place as written. Otherwise null.
 
 The seven kinds:
-1. offers-sponsorship: the posting says the employer sponsors visas or work permits, or helps with relocation and visas. Example: "We sponsor visas for the right candidate", "Visa support provided". Job posting only, never a form question.
+1. offers-sponsorship: the posting says the employer sponsors visas or work permits, or gives visa or work permit support. The offer must be about visas, work permits or sponsorship. Relocation help alone is not an offer. Example: "We sponsor visas for the right candidate", "Visa support provided". Countries are the countries the offer names ("We sponsor visas in Germany" is ["DE"]); use [] only when the offer names no country. Job posting only, never a form question.
 2. requires-authorization: the text says the applicant must already be authorized to work in a country. Example: "Must be authorized to work in the US", "You must have the right to work in the UK".
 3. no-sponsorship: the text says the employer will not or cannot sponsor. Example: "We are unable to provide visa sponsorship", "No sponsorship available". If it names no country, use [] or the country the job is in, only when the text names it.
 4. asks-authorization: a form question asks whether the applicant is authorized to work in a country. Example: "Are you legally authorized to work in the United Kingdom?". Form questions only.
@@ -41,6 +41,7 @@ The seven kinds:
 Near misses that are NOT claims, or have no country:
 - A question that asks which countries the applicant is authorized in, without requiring one ("Select the countries you can work in", "Which countries are you eligible to work in?"), is not a requirement. Report nothing for it.
 - Willingness to relocate ("Are you willing to relocate?") is not a claim.
+- A relocation package, relocation support or help moving is not offers-sponsorship unless the same text says visas, work permits or sponsorship.
 - "Are you authorized to work in the country you live in?" on a remote job names no country: report asks-authorization with countries [].
 - Plain Yes/No questions unrelated to work authorization or sponsorship (experience, notice period, referral source, consent) are not claims.
 - Do not guess a country from the company's name or from the language of the text. Use only what the text says.

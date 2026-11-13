@@ -8,6 +8,17 @@ const job = {
 };
 
 describe('prompts', () => {
+  it('says relocation help alone is not a sponsorship offer', () => {
+    const kind1 = EXTRACT_SYSTEM.split('\n').find((l) =>
+      l.startsWith('1. offers-sponsorship'),
+    );
+    expect(kind1).toContain('Relocation help alone');
+    expect(kind1).not.toContain('helps with relocation and visas');
+    expect(EXTRACT_SYSTEM).toContain(
+      'A relocation package, relocation support or help moving is not offers-sponsorship',
+    );
+  });
+
   it('the job prompt holds the title and description', () => {
     const p = jobPrompt(job);
     expect(p).toContain('Senior Engineer');

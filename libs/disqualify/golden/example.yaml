@@ -331,6 +331,38 @@ cases:
       verdict: pass
       claims: [{ kind: asks-authorization, countries: [GB] }]
 
+  - id: jp-relocation-only-and-form-asks
+    group: job-page
+    job:
+      title: Backend Engineer
+      company: Acme Payments
+      description: |
+        Build payment services in TypeScript with our team in Amsterdam. A
+        relocation package is provided, and we help you find a flat.
+    questions:
+      - label: Will you now or in the future require sponsorship to work in the Netherlands?
+        type: radio
+        options: [Yes, 'No']
+    expect:
+      verdict: disqualified
+      claims: [{ kind: asks-sponsorship, countries: [NL] }]
+
+  - id: jp-sponsors-germany-and-us-question
+    group: job-page
+    job:
+      title: Backend Engineer
+      company: Acme Payments
+      description: |
+        Build payment services in TypeScript. We sponsor visas in Germany for
+        engineers joining our Berlin office.
+    questions:
+      - label: Will you now or in the future require visa sponsorship to work in the United States?
+        type: radio
+        options: [Yes, 'No']
+    expect:
+      verdict: disqualified
+      claims: [{ kind: asks-sponsorship, countries: [US] }]
+
   # -------------------------------------------------------------- near-miss
   - id: near-authorized-morocco
     group: near-miss
