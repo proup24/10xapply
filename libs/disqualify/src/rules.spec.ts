@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { checkRules, loadRules, RulesError } from './rules.js';
+import { checkRules, loadRules, parseRules, RulesError } from './rules.js';
 
 const examplePath = join(
   dirname(fileURLToPath(import.meta.url)),
@@ -28,21 +28,26 @@ describe('disqualify.example.yaml', () => {
     const r = checkRules(examplePath);
     expect(r.problems).toEqual([]);
     expect(r.ok).toBe(true);
-    expect(r.counts).toEqual({ authorizedCountries: 1 });
-    expect(loadRules(examplePath)).toEqual({ authorizedCountries: ['MA'] });
+    expect(r.counts).toEqual({ authorizedCountries: 1, locatedIn: 1 });
+    expect(loadRules(examplePath)).toEqual({
+      authorizedCountries: ['MA'],
+      locatedIn: ['MA'],
+    });
   });
 });
 
 describe('checkRules', () => {
   it('normalises lower case to upper case', () => {
     const r = checkRules(
-      write('lower.yaml', 'authorizedCountries: [ma, fr]\n'),
+      write('lower.yaml', 'authorizedCountries: [ma, fr]\nlocatedIn: [MA]\n'),
     );
     expect(r.rules?.authorizedCountries).toEqual(['MA', 'FR']);
   });
 
   it('de-duplicates silently', () => {
-    const r = checkRules(write('dup.yaml', 'authorizedCountries: [MA, ma]\n'));
+    const r = checkRules(
+      write('dup.yaml', 'authorizedCountries: [MA, ma]\nlocatedIn: [MA]\n'),
+    );
     expect(r.ok).toBe(true);
     expect(r.rules?.authorizedCountries).toEqual(['MA']);
     expect(r.counts.authorizedCountries).toBe(1);
@@ -56,18 +61,18 @@ describe('checkRules', () => {
   });
 
   it.each([
-    ['empty list', 'authorizedCountries: []\n', null],
-    ['region', 'authorizedCountries: [EU]\n', 'EU'],
-    ['unassigned code', 'authorizedCountries: [XX]\n', 'XX'],
-    ['UK alias', 'authorizedCountries: [UK]\n', 'UK'],
+    ['empty list', 'authorizedCountries: []\nlocatedIn: [MA]\n', null],
+    ['region', 'authorizedCountries: [EU]\nlocatedIn: [MA]\n', 'EU'],
+    ['unassigned code', 'authorizedCountries: [XX]\nlocatedIn: [MA]\n', 'XX'],
+    ['UK alias', 'authorizedCountries: [UK]\nlocatedIn: [MA]\n', 'UK'],
     [
       'unknown key',
-      'authorizedCountries: [MA]\nsecretkeyname: 1\n',
+      'authorizedCountries: [MA]\nlocatedIn: [MA]\nsecretkeyname: 1\n',
       'secretkeyname',
     ],
     ['missing key', 'other: 1\n', null],
     ['not a mapping', '- MA\n', null],
-    ['not a list', 'authorizedCountries: MA\n', 'MA'],
+    ['not a list', 'authorizedCountries: MA\nlocatedIn: [MA]\n', 'MA'],
     ['syntax error', 'authorizedCountries: [MA\n', null],
     ['empty file', '', null],
   ])('gives a problem for %s without echoing the value', (_n, text, bad) => {
@@ -80,16 +85,61 @@ describe('checkRules', () => {
   });
 
   it('names the position of a bad entry', () => {
-    const r = checkRules(write('pos.yaml', 'authorizedCountries: [MA, XX]\n'));
+    const r = checkRules(
+      write('pos.yaml', 'authorizedCountries: [MA, XX]\nlocatedIn: [MA]\n'),
+    );
     expect(r.problems).toEqual([
       'authorizedCountries[1]: is not a country code',
     ]);
   });
 });
 
+describe('locatedIn', () => {
+  it('parses locatedIn', () => {
+    expect(
+      parseRules({ authorizedCountries: ['ma'], locatedIn: ['ma', 'MA'] }),
+    ).toEqual({
+      ok: true,
+      rules: { authorizedCountries: ['MA'], locatedIn: ['MA'] },
+    });
+  });
+
+  it('a rules file without locatedIn is invalid', () => {
+    const r = parseRules({ authorizedCountries: ['MA'] });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.problems).toContain('locatedIn: is required');
+  });
+
+  it('locatedIn needs at least one code', () => {
+    const r = parseRules({ authorizedCountries: ['MA'], locatedIn: [] });
+    expect(r.ok).toBe(false);
+    if (!r.ok)
+      expect(r.problems).toContain(
+        'locatedIn: needs at least one country code',
+      );
+  });
+
+  it('locatedIn rejects regions', () => {
+    const r = parseRules({ authorizedCountries: ['MA'], locatedIn: ['EU'] });
+    expect(r.ok).toBe(false);
+    if (!r.ok)
+      expect(r.problems).toContain('locatedIn[0]: is not a country code');
+  });
+
+  it('checkRules counts locatedIn', () => {
+    const r = checkRules(
+      write('loc.yaml', 'authorizedCountries: [MA, FR]\nlocatedIn: [ma, MA]\n'),
+    );
+    expect(r.counts).toEqual({ authorizedCountries: 2, locatedIn: 1 });
+  });
+});
+
 describe('loadRules', () => {
   it('throws RulesError with the problems on a bad file', () => {
-    const p = write('bad2.yaml', 'authorizedCountries: [EU]\n');
+    const p = write(
+      'bad2.yaml',
+      'authorizedCountries: [EU]\nlocatedIn: [MA]\n',
+    );
     expect(() => loadRules(p)).toThrow(RulesError);
     try {
       loadRules(p);

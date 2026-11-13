@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { decide } from './decide.js';
 import type { Claim, ClaimKind } from './types.js';
 
-const rules = { authorizedCountries: ['MA'] };
+const rules = { authorizedCountries: ['MA'], locatedIn: ['MA'] };
 const c = (kind: ClaimKind, countries: string[], quote = kind): Claim => ({
   kind,
   countries,

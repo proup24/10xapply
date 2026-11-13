@@ -145,6 +145,7 @@ The author gives the runner one LinkedIn job URL. A real Chrome window on the au
 
 ### 05c Disqualification by location
 
+- **Spec:** [slice 05c spec](../superpowers/specs/2026-11-13-disqualification-by-location-design.md).
 - **Scope:** some jobs accept only candidates who live in a given place. A form question such as "Are you located in Germany?", or a posting that says "must be based in Germany", should disqualify the job for a user who isn't there, the same way slice 05b does for work authorization _(user)_.
   - It covers the many ways the same requirement is worded, in form questions and in job descriptions alike _(user)_.
   - It builds on slice 05b: the same extractor, claims, checkpoints, rules file, `disqualified` outcome and golden eval. Slice 05b already logs `location-requirement` claims without acting on them. This slice decides which of them disqualify.

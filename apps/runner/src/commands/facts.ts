@@ -40,6 +40,7 @@ export function formatRulesCheck(result: RulesCheck): string {
   const lines = [
     `rules: ${result.path}`,
     `authorized countries ${result.counts.authorizedCountries}`,
+    `located in ${result.counts.locatedIn}`,
   ];
   if (result.problems.length > 0) {
     lines.push('errors:', ...result.problems.map((p) => `  ${p}`));

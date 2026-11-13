@@ -9,12 +9,14 @@ export { DEFAULT_RULES_PATH };
 export interface Rules {
   /** Upper-case ISO 3166-1 alpha-2 codes, at least one, no regions. */
   authorizedCountries: string[];
+  /** Upper-case ISO 3166-1 alpha-2 codes of where the user lives, at least one, no regions. */
+  locatedIn: string[];
 }
 
 export interface RulesCheck {
   ok: boolean;
   path: string;
-  counts: { authorizedCountries: number };
+  counts: { authorizedCountries: number; locatedIn: number };
   problems: string[];
   rules?: Rules;
 }
@@ -31,15 +33,18 @@ export class RulesError extends Error {
 // Messages are fixed text. The schema's own messages are never shown, because
 // they can quote the file.
 const BAD_CODE = 'not-a-country-code';
-const schema = z.strictObject({
-  authorizedCountries: z
+const countryList = () =>
+  z
     .array(
       z
         .string()
         .transform((s) => s.trim().toUpperCase())
         .refine((s) => ISO_CODES.has(s), { message: BAD_CODE }),
     )
-    .min(1),
+    .min(1);
+const schema = z.strictObject({
+  authorizedCountries: countryList(),
+  locatedIn: countryList(),
 });
 
 type Path = PropertyKey[];
@@ -111,6 +116,7 @@ export function parseRules(
     ok: true,
     rules: {
       authorizedCountries: [...new Set(parsed.data.authorizedCountries)],
+      locatedIn: [...new Set(parsed.data.locatedIn)],
     },
   };
 }
@@ -119,7 +125,7 @@ export function checkRules(path: string = DEFAULT_RULES_PATH): RulesCheck {
   const result: RulesCheck = {
     ok: false,
     path,
-    counts: { authorizedCountries: 0 },
+    counts: { authorizedCountries: 0, locatedIn: 0 },
     problems: [],
   };
 
@@ -165,6 +171,7 @@ export function checkRules(path: string = DEFAULT_RULES_PATH): RulesCheck {
   result.ok = true;
   result.rules = rules;
   result.counts.authorizedCountries = rules.authorizedCountries.length;
+  result.counts.locatedIn = rules.locatedIn.length;
   return result;
 }
 

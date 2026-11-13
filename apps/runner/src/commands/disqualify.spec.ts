@@ -18,6 +18,7 @@ const QUOTE = 'legally authorized to work in the United States';
 const GOLDEN = `
 rules:
   authorizedCountries: [MA]
+  locatedIn: [MA]
 defaultJob:
   title: Backend Engineer
   company: Acme

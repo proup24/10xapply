@@ -17,6 +17,7 @@ function write(text: string): string {
 const header = `
 rules:
   authorizedCountries: [ma]
+  locatedIn: [ma]
 defaultJob:
   title: Backend Engineer
   company: Acme

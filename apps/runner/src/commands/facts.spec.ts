@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import type { CheckResult } from '@xapply/fact-bank';
 import { factsCheckCommand, formatCheck } from './facts.js';
 
-const GOOD_RULES = 'authorizedCountries: [MA, FR]\n';
+const GOOD_RULES = 'authorizedCountries: [MA, FR]\nlocatedIn: [MA]\n';
 
 const EXAMPLE = 'libs/fact-bank/fact-bank.example.yaml';
 
@@ -69,12 +69,13 @@ describe('factsCheckCommand', () => {
     expect(text).toContain('facts ');
     expect(text).toContain('rules: ');
     expect(text).toContain('authorized countries 2');
+    expect(text).toContain('located in 1');
     expect(text).not.toMatch(/\bMA\b|\bFR\b/);
   });
 
   it('returns 1 for a bad rules file and prints no code', () => {
     const rulesPath = tempRules(
-      'authorizedCountries: [MA, ZZ]\nextra: Zorblax\n',
+      'authorizedCountries: [MA, ZZ]\nlocatedIn: [MA]\nextra: Zorblax\n',
     );
     const lines: string[] = [];
     expect(

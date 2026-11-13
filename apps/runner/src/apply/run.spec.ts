@@ -360,7 +360,7 @@ function harness(s: Setup): Harness {
       calls.push({ op: 'check-step', sel: qs.map((q) => q.id).join(',') });
       return { claims: s.stepClaims?.(qs) ?? [], calls: [CALL] };
     },
-    rules: { authorizedCountries: ['MA'] },
+    rules: { authorizedCountries: ['MA'], locatedIn: ['MA'] },
   };
   const PACE_OPS = new Set([
     'click',

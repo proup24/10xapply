@@ -12,6 +12,7 @@
 # is then only context for the questions check.
 rules:
   authorizedCountries: [MA]
+  locatedIn: [MA]
 
 defaultJob:
   title: Backend Engineer

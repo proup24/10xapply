@@ -111,7 +111,10 @@ function harness(over: Partial<ApplyCommandDeps> = {}): Harness {
   const written: ApplyRun[] = [];
   const connect = vi.fn(async () => bridge);
   const loadBank = vi.fn(() => bank);
-  const loadRules = vi.fn((): Rules => ({ authorizedCountries: ['MA'] }));
+  const loadRules = vi.fn((): Rules => ({
+    authorizedCountries: ['MA'],
+    locatedIn: ['MA'],
+  }));
   const deps: Partial<ApplyCommandDeps> = {
     authorMode: false,
     out: (l) => void lines.push(l),
@@ -277,7 +280,7 @@ describe('applyCommand', () => {
     });
     await applyCommand([URL_OK, '--dry-run'], h.deps);
     const g = got as unknown as ApplyDeps;
-    expect(g.rules).toEqual({ authorizedCountries: ['MA'] });
+    expect(g.rules).toEqual({ authorizedCountries: ['MA'], locatedIn: ['MA'] });
     expect(reqs.map((r) => [r.role, r.model])).toEqual([
       ['extract', 'x'],
       ['extract', 'x'],

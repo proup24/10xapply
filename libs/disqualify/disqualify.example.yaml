@@ -5,3 +5,8 @@
 # countries where you are authorized to work without sponsorship. At least
 # one. Region names such as EU are not allowed here.
 authorizedCountries: [MA]
+#
+# locatedIn: ISO 3166-1 alpha-2 codes of the countries where you live. A city
+# counts as its country. At least one. Region names such as EU are not allowed
+# here.
+locatedIn: [MA]
