@@ -1,5 +1,10 @@
 import { dirname, resolve } from 'node:path';
 import {
+  checkRules,
+  DEFAULT_RULES_PATH,
+  type RulesCheck,
+} from '@xapply/disqualify';
+import {
   checkFactBank,
   DEFAULT_FACT_BANK_PATH,
   formatProblem,
@@ -30,12 +35,30 @@ export function formatCheck(result: CheckResult): string {
   return lines.join('\n');
 }
 
+/** The path, the country count and problems only. Never a country code. */
+export function formatRulesCheck(result: RulesCheck): string {
+  const lines = [
+    `rules: ${result.path}`,
+    `authorized countries ${result.counts.authorizedCountries}`,
+  ];
+  if (result.problems.length > 0) {
+    lines.push('errors:', ...result.problems.map((p) => `  ${p}`));
+  }
+  return lines.join('\n');
+}
+
 export function factsCheckCommand(
-  opts: { path?: string; log?: (line: string) => void } = {},
+  opts: {
+    path?: string;
+    rulesPath?: string;
+    log?: (line: string) => void;
+  } = {},
 ): number {
   const log = opts.log ?? console.log;
   const path = opts.path ? resolve(REPO_ROOT, opts.path) : undefined;
   const result = checkFactBank(path);
   log(formatCheck(result));
-  return result.ok ? 0 : 1;
+  const rules = checkRules(opts.rulesPath ?? DEFAULT_RULES_PATH);
+  log(formatRulesCheck(rules));
+  return result.ok && rules.ok ? 0 : 1;
 }

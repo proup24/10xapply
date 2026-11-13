@@ -110,6 +110,13 @@
           "command": "tsx --conditions=@xapply/source src/main.ts answers eval"
         }
       },
+      "disqualify-eval": {
+        "executor": "nx:run-commands",
+        "options": {
+          "cwd": "apps/runner",
+          "command": "tsx --conditions=@xapply/source src/main.ts disqualify eval"
+        }
+      },
       "facts-check": {
         "executor": "nx:run-commands",
         "options": {

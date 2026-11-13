@@ -5,6 +5,8 @@ import { afterEach, describe, expect, it } from 'vitest';
 import type { CheckResult } from '@xapply/fact-bank';
 import { factsCheckCommand, formatCheck } from './facts.js';
 
+const GOOD_RULES = 'authorizedCountries: [MA, FR]\n';
+
 const EXAMPLE = 'libs/fact-bank/fact-bank.example.yaml';
 
 const okResult: CheckResult = {
@@ -45,13 +47,60 @@ describe('formatCheck', () => {
   });
 });
 
+function tempRules(text: string): string {
+  const dir = mkdtempSync(join(tmpdir(), 'rules-'));
+  dirs.push(dir);
+  const file = join(dir, 'disqualify.yaml');
+  writeFileSync(file, text);
+  return file;
+}
+
 describe('factsCheckCommand', () => {
   it('returns 0 for the example file', () => {
     const lines: string[] = [];
     expect(
-      factsCheckCommand({ path: EXAMPLE, log: (l) => lines.push(l) }),
+      factsCheckCommand({
+        path: EXAMPLE,
+        rulesPath: tempRules(GOOD_RULES),
+        log: (l) => lines.push(l),
+      }),
     ).toBe(0);
-    expect(lines.join('\n')).toContain('facts ');
+    const text = lines.join('\n');
+    expect(text).toContain('facts ');
+    expect(text).toContain('rules: ');
+    expect(text).toContain('authorized countries 2');
+    expect(text).not.toMatch(/\bMA\b|\bFR\b/);
+  });
+
+  it('returns 1 for a bad rules file and prints no code', () => {
+    const rulesPath = tempRules(
+      'authorizedCountries: [MA, ZZ]\nextra: Zorblax\n',
+    );
+    const lines: string[] = [];
+    expect(
+      factsCheckCommand({
+        path: EXAMPLE,
+        rulesPath,
+        log: (l) => lines.push(l),
+      }),
+    ).toBe(1);
+    const text = lines.join('\n');
+    expect(text).toContain(`rules: ${rulesPath}`);
+    expect(text).toContain('authorized countries 0');
+    expect(text).toContain('unknown key');
+    expect(text).not.toMatch(/\bMA\b|\bZZ\b|Zorblax/);
+  });
+
+  it('returns 1 for a missing rules file', () => {
+    const lines: string[] = [];
+    expect(
+      factsCheckCommand({
+        path: EXAMPLE,
+        rulesPath: join(tmpdir(), 'no-such-rules-file.yaml'),
+        log: (l) => lines.push(l),
+      }),
+    ).toBe(1);
+    expect(lines.join('\n')).toContain('not found');
   });
 
   it('returns 1 for a broken file and logs none of its values', () => {
@@ -63,9 +112,13 @@ describe('factsCheckCommand', () => {
       'version: 1\nfullName: Zorblax Quindleton\nemail: not-an-email-zq9\nphone: 555-0199-zq9\n',
     );
     const lines: string[] = [];
-    expect(factsCheckCommand({ path: file, log: (l) => lines.push(l) })).toBe(
-      1,
-    );
+    expect(
+      factsCheckCommand({
+        path: file,
+        rulesPath: tempRules(GOOD_RULES),
+        log: (l) => lines.push(l),
+      }),
+    ).toBe(1);
     const text = lines.join('\n');
     expect(text).toContain('errors:');
     for (const secret of [
