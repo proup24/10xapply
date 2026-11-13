@@ -63,6 +63,18 @@ describe('extractFromJob', () => {
     expect(err.calls).toHaveLength(2);
   });
 
+  it("carries the last attempt's problems in our own words", async () => {
+    const caller = fakeCaller([() => bad, () => bad]);
+    const err = await extractFromJob(job, { caller, model: 'm' }).catch(
+      (e) => e,
+    );
+    expect(err.problems).toEqual(['claim 0: quote not found in its source']);
+    expect(err.message).toBe(
+      'check failed: invalid-claims: claim 0: quote not found in its source',
+    );
+    expect(err.message).not.toContain('invented sentence');
+  });
+
   it('maps ModelCallError to model-error, keeping earlier calls', async () => {
     const caller = fakeCaller([
       () => bad,
@@ -76,6 +88,8 @@ describe('extractFromJob', () => {
     expect(err).toBeInstanceOf(CheckFailedError);
     expect(err.why).toBe('model-error');
     expect(err.calls).toHaveLength(1);
+    expect(err.problems).toEqual(['boom']);
+    expect(err.message).toBe('check failed: model-error: boom');
   });
 
   it('lets ModelUnavailableError through', async () => {

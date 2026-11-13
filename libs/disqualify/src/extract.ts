@@ -22,13 +22,20 @@ export interface ExtractResult {
   calls: CallStat[];
 }
 
-/** The check could not be made. Safety stop `check-failed`; the job may be tried again. */
+/**
+ * The check could not be made. Safety stop `check-failed`; the job may be tried
+ * again. `problems` are the last attempt's validation problems, or the model
+ * call's error message: our own words, never page text or model output.
+ */
 export class CheckFailedError extends Error {
   constructor(
     readonly why: 'invalid-claims' | 'model-error',
     readonly calls: CallStat[],
+    readonly problems: string[] = [],
   ) {
-    super(`check failed: ${why}`);
+    super(
+      `check failed: ${why}${problems.length > 0 ? `: ${problems.join('; ')}` : ''}`,
+    );
     this.name = 'CheckFailedError';
   }
 }
@@ -57,10 +64,10 @@ async function extract(
     }
   } catch (e) {
     if (e instanceof ModelCallError)
-      throw new CheckFailedError('model-error', calls);
+      throw new CheckFailedError('model-error', calls, [e.message]);
     throw e;
   }
-  throw new CheckFailedError('invalid-claims', calls);
+  throw new CheckFailedError('invalid-claims', calls, problems);
 }
 
 const placeOf = (job: CheckJob) => `${job.title}\n${job.description}`;

@@ -196,7 +196,7 @@ describe('runDisqualifyGolden', () => {
     });
     const run = r.cases[0]?.runs[0];
     expect(run?.pass).toBe(false);
-    expect(run?.error).toContain('check failed');
+    expect(run?.error).toBe('check failed: model-error: boom');
     expect(r.passed).toBe(false);
   });
 
