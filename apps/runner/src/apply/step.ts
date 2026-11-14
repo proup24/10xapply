@@ -49,6 +49,11 @@ export interface Walk {
   step: number | null;
   /** The job page's sponsorship and relocation offer claims; they exempt form questions. */
   offers: Claim[];
+  /**
+   * Set just before the Submit click is sent, and never cleared: from then
+   * on nothing else is pressed in the run, on any path.
+   */
+  submitClicked?: boolean;
 }
 
 type FormRead = Exclude<StepRead, { kind: 'none' }>;

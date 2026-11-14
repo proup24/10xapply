@@ -5,14 +5,16 @@ import {
 } from '../linkedin/close.js';
 import type { Document } from '../linkedin/dom.js';
 import { all, textOf } from '../linkedin/el.js';
-import { stepKey } from '../linkedin/form-step.js';
+import { readStep, stepKey } from '../linkedin/form-step.js';
 import { readFormCompany, readJobPage } from '../linkedin/job-page.js';
 import { jobViewUrl } from '../linkedin/job-url.js';
 import {
   FORM_CONTENT,
   FORM_DIALOG,
   MORE_BUTTON,
+  SENT_DIALOG,
 } from '../linkedin/selectors.js';
+import { readSent } from '../linkedin/sent.js';
 import type { StepRead } from '../linkedin/types.js';
 import { pathPrefix } from '../reports/write-report.js';
 import { awaitCheck, checkJobOf, judge, offersOf } from './check.js';
@@ -33,13 +35,18 @@ const JOB_WAIT_MS = 10_000;
 const PROMPT_WAIT_MS = 5_000;
 /** How long a leftover `submitting` waits before the one reload that rechecks it. */
 export const LEFTOVER_RECHECK_MS = 10_000;
+/** How long LinkedIn's "application sent" dialog gets after Submit. */
+export const SENT_WAIT_MS = 15_000;
+/** How long each job-page load after Submit gets to show the Applied marker. */
+export const MARKER_WAIT_MS = 10_000;
 export const REVIEW_PROMPT =
   'Review page reached. Press Enter to close the window.';
 const STOP_PROMPT = 'The run stopped. Press Enter to close the window.';
 
 /**
- * Walks one job's Easy Apply form to the review page and stops there. It
- * never submits: no control whose text or aria-label reads "submit" is ever
+ * Walks one job's Easy Apply form to the review page. A dry run stops
+ * there; otherwise the form is submitted once (`submitForm`). Before the
+ * review page no control whose text or aria-label reads "submit" is ever
  * acted on. The page is closed whatever happens.
  */
 export async function runApply(
@@ -102,8 +109,9 @@ export async function runApply(
     };
     await openJob(w, decision === 'settle-leftover');
     formOpen = true;
-    await walkForm(w);
-    run.outcome = 'reached-review';
+    const review = await walkForm(w);
+    if (deps.submit) await submitForm(w, review);
+    else run.outcome = 'reached-review';
   } catch (e) {
     const end = asRunEnd(e, deps);
     run.outcome = end.outcome;
@@ -207,8 +215,13 @@ async function openJob(w: Walk, leftover: boolean): Promise<void> {
   await pace.click(page.locator(jr.easyApply));
 }
 
-/** Each step in turn until the review page; its fields too, if it has any. */
-async function walkForm(w: Walk): Promise<void> {
+type Review = Extract<StepRead, { kind: 'review' }>;
+
+/**
+ * Each step in turn until the review page; its fields too, if it has any.
+ * Returns the review page's last read.
+ */
+async function walkForm(w: Walk): Promise<Review> {
   let read = await settleStep(w, STEP_WAIT_MS, (r) => r.kind !== 'none');
   if (read.kind === 'none') {
     throw safety('unexpected-page', 'no Easy Apply form after the click');
@@ -223,13 +236,13 @@ async function walkForm(w: Walk): Promise<void> {
       read.fields.length === 0 &&
       read.unknown.length === 0
     ) {
-      return;
+      return read;
     }
     w.step = n;
     const t = w.deps.now();
     try {
       const done = await walkStep(w, read);
-      if (done.kind === 'review') return;
+      if (done.kind === 'review') return done;
       read = await advance(w, done);
     } finally {
       // A step that stopped is timed too.
@@ -270,6 +283,97 @@ async function advance(
   return after;
 }
 
+/**
+ * Submits the form, once. In order: the record is re-read and must be as
+ * the run found it; `submitting` is written (flushed) before anything is
+ * pressed; the Submit selector comes from a fresh read of the review page;
+ * `submitClicked` is set before the click goes out, so no path presses
+ * anything after it. Then LinkedIn's "application sent" dialog is waited
+ * for and closed, and the job page reloaded until it shows as applied (one
+ * more reload after `LEFTOVER_RECHECK_MS` if not). Submit is never clicked
+ * a second time, whatever the page does.
+ */
+async function submitForm(w: Walk, review: Review): Promise<void> {
+  const { deps, page, pace, run } = w;
+  if (w.submitClicked) throw new Error('Submit was already clicked');
+  if (review.submit === null) {
+    throw safety('unexpected-page', 'no single Submit button');
+  }
+  checkStop(deps);
+  const now = deps.record?.get(run.jobId) ?? null;
+  if (
+    (now?.status ?? null) !== run.record.before ||
+    (now?.updatedAt ?? null) !== run.record.beforeAt
+  ) {
+    throw safety('record-changed', 'the record changed during the run');
+  }
+  if (!recordSet(w, { status: 'submitting' })) {
+    throw safety('unexpected-page', 'could not write the record');
+  }
+  // LinkedIn re-renders ids: the selector must come from the page as it is.
+  const fresh = readStep(await look(w));
+  if (fresh.kind !== 'review' || fresh.submit === null) {
+    throw safety('unexpected-page', 'no single Submit button');
+  }
+  const timing: NonNullable<ApplyRun['timings']['submit']> = {
+    clickToSentMs: null,
+    sentToMarkerMs: null,
+  };
+  run.timings.submit = timing;
+  w.submitClicked = true;
+  await pace.click(page.locator(fresh.submit), {
+    within: page.locator(FORM_DIALOG),
+  });
+  const clickedAt = deps.now();
+  const sentAt = await closeSent(w);
+  if (sentAt !== null) timing.clickToSentMs = sentAt - clickedAt;
+  let applied = await reloadForMarker(w);
+  if (!applied) {
+    await deps.wait(LEFTOVER_RECHECK_MS);
+    applied = await reloadForMarker(w);
+  }
+  if (applied) {
+    if (sentAt !== null) timing.sentToMarkerMs = deps.now() - sentAt;
+    recordSet(w, { status: 'applied', source: 'submit' });
+    run.outcome = 'submitted';
+  } else {
+    recordSet(w, { status: 'failed', reason: 'submit-unconfirmed' });
+    run.outcome = 'submit-unconfirmed';
+  }
+}
+
+/**
+ * Waits up to `SENT_WAIT_MS` for the "application sent" dialog and closes
+ * it with its own Dismiss, inside the dialog. A dialog whose Dismiss can't
+ * be pinned is left for the reload. Returns when it was seen, or null.
+ */
+async function closeSent(w: Walk): Promise<number | null> {
+  const { deps, page, pace } = w;
+  for (let i = 0; ; i++) {
+    checkStop(deps);
+    const sent = readSent(await look(w));
+    if (sent) {
+      const at = deps.now();
+      if (sent.close !== null) {
+        await pace.click(page.locator(sent.close), {
+          within: page.locator(SENT_DIALOG),
+        });
+      }
+      return at;
+    }
+    if (i >= SENT_WAIT_MS / POLL_MS) return null;
+    await deps.wait(POLL_MS);
+  }
+}
+
+/** Loads the job page and settles it; true when it shows as applied. */
+async function reloadForMarker(w: Walk): Promise<boolean> {
+  checkStop(w.deps);
+  await w.page.goto(jobViewUrl(w.run.jobId));
+  const { jr } = await settleJobPage(w, MARKER_WAIT_MS);
+  return jr.applied;
+}
+
 const SUBMIT = /submit/i;
 
 type Next = NonNullable<Extract<StepRead, { kind: 'step' }>['next']>;
@@ -300,8 +404,9 @@ export const INTERRUPTED = 'interrupted';
  * an Enter to look at the page (on review or a safety stop), then the form
  * is dismissed and LinkedIn's "Save this application?" answered with
  * Discard, so no draft is kept. Ctrl+C still gets the Dismiss and Discard,
- * without the Enter; any other bridge stop goes straight to closing.
- * Whatever fails here, the page closes.
+ * without the Enter; any other bridge stop goes straight to closing. Once
+ * Submit was clicked (or was about to be), nothing is pressed and nothing
+ * asked: the page just closes. Whatever fails here, the page closes.
  */
 async function closeOut(w: Walk, formOpen: boolean): Promise<void> {
   const { deps, page, run } = w;
@@ -313,7 +418,7 @@ async function closeOut(w: Walk, formOpen: boolean): Promise<void> {
   const bridgeStop =
     run.stop?.kind === 'bridge' && run.stop.detail !== INTERRUPTED;
   try {
-    if (formOpen && !bridgeStop) {
+    if (formOpen && !bridgeStop && !w.submitClicked) {
       // Ctrl+C or end of input at the Enter still dismisses and discards.
       try {
         if (deps.io && run.outcome === 'reached-review') {
