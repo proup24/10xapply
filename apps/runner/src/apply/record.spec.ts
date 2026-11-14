@@ -1,4 +1,10 @@
-import { mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import {
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { beforeEach, describe, expect, it } from 'vitest';
@@ -21,6 +27,13 @@ const RUN = '2026-11-14T09:58:00.000Z';
 describe('openRecord', () => {
   it('a missing file is an empty record', () => {
     expect(openRecord(join(dir, 'a.json')).get('1')).toBeNull();
+  });
+
+  it('a read error other than a missing file is a RecordError, never empty', () => {
+    const p = join(dir, 'a.json');
+    mkdirSync(p); // reading a directory fails with EISDIR
+    expect(() => openRecord(p)).toThrow(RecordError);
+    expect(() => openRecord(p)).toThrow('applications record is unreadable');
   });
 
   it('a file that is not JSON is a RecordError', () => {

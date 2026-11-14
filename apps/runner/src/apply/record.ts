@@ -1,6 +1,5 @@
 import {
   closeSync,
-  existsSync,
   fsyncSync,
   mkdirSync,
   openSync,
@@ -148,15 +147,38 @@ export interface RecordStore {
 }
 
 function load(path: string): JobRecord {
-  if (!existsSync(path)) return { version: 1, jobs: {} };
   let text: string;
   try {
     text = readFileSync(path, 'utf8');
-  } catch {
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === 'ENOENT') {
+      return { version: 1, jobs: {} };
+    }
     throw new RecordError('applications record is unreadable');
   }
   return parseRecord(text);
 }
+
+/** Flush the directory entry so the rename survives a power loss. */
+function syncDir(dir: string): void {
+  let fd: number;
+  try {
+    fd = openSync(dir, 'r');
+  } catch (e) {
+    if (DIR_SYNC_REFUSED.has((e as NodeJS.ErrnoException).code ?? '')) return;
+    throw e;
+  }
+  try {
+    fsyncSync(fd);
+  } catch (e) {
+    if (!DIR_SYNC_REFUSED.has((e as NodeJS.ErrnoException).code ?? '')) {
+      throw e;
+    }
+  } finally {
+    closeSync(fd);
+  }
+}
+const DIR_SYNC_REFUSED = new Set(['EISDIR', 'EINVAL', 'EPERM']);
 
 function writeAtomic(path: string, text: string): void {
   mkdirSync(dirname(path), { recursive: true });
@@ -170,6 +192,7 @@ function writeAtomic(path: string, text: string): void {
       closeSync(fd);
     }
     renameSync(tmp, path);
+    syncDir(dirname(path));
   } catch (e) {
     try {
       unlinkSync(tmp);

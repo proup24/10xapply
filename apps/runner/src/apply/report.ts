@@ -181,15 +181,22 @@ export function closingLine(run: ApplyRun): string {
     case 'already-applied':
       return run.via === 'record'
         ? `already applied (record, ${dateOf(run.record.beforeAt)}); not opened`
-        : 'LinkedIn shows Applied; recorded';
+        : run.record.after === 'applied'
+          ? 'LinkedIn shows Applied; recorded'
+          : 'LinkedIn shows Applied; not recorded';
     case 'disqualified':
       return run.via === 'record'
         ? `disqualified earlier (record, ${dateOf(run.record.beforeAt)}); not retried`
         : 'disqualified; not applied';
     case 'submit-unconfirmed':
+      if (run.record.after === 'failed') {
+        return run.record.before === 'submitting'
+          ? 'previous submit unconfirmed; marked failed; run again to apply'
+          : 'Submit clicked but LinkedIn does not show Applied; marked failed. Check the job on LinkedIn before running again';
+      }
       return run.record.before === 'submitting'
-        ? 'previous submit unconfirmed; marked failed; run again to apply'
-        : 'Submit clicked but LinkedIn does not show Applied; marked failed. Check the job on LinkedIn before running again';
+        ? 'previous submit unconfirmed; the record was not updated; the next run settles it'
+        : 'Submit clicked but LinkedIn does not show Applied; the record was not updated. Check the job on LinkedIn before running again';
     case 'reached-review':
       return 'reached the review page; not submitted';
     case 'not-easy-apply':

@@ -2302,6 +2302,33 @@ describe('runApply', () => {
       expect(h.closed()).toBe(true);
     });
 
+    it('a refused Dismiss on the sent dialog still reloads for the marker', async () => {
+      const h = harness({ screens: happy(), submit: true });
+      const inner = h.deps.pace;
+      h.deps.pace = (p) => {
+        const pace = inner(p);
+        return {
+          ...pace,
+          click: async (t, o) => {
+            if ((t as unknown as { sel: string }).sel === SENT_CLOSE) {
+              throw new Error('pace: target has no box (hidden or detached)');
+            }
+            return pace.click(t, o);
+          },
+        };
+      };
+      const run = await runApply('123', h.deps);
+      expect(run.outcome).toBe('submitted');
+      expect(run.stop).toBeUndefined();
+      expect(run.record).toMatchObject({ after: 'applied' });
+      expect(h.sets.map((s) => s.change)).toEqual([
+        { status: 'submitting' },
+        { status: 'applied', source: 'submit' },
+      ]);
+      expect(h.submits()).toEqual([SUBMIT_SEL]);
+      expect(gotosAfterSubmit(h)).toBe(1);
+    });
+
     it('a one-page form fills its fields, then submits', async () => {
       const one = submitOf(ONE_PAGE);
       const h = harness({

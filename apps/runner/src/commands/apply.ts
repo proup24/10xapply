@@ -322,7 +322,9 @@ export async function applyCommand(
     return 2;
   }
 
-  // A bad record stops a real run; a dry run never reads or writes it.
+  // A bad record stops the run. A dry run reads it (refusing applied and
+  // disqualified jobs) and writes only `applied` from LinkedIn's marker and
+  // `disqualified`; it never writes `submitting` or `failed`.
   let record: RecordStore | null = null;
   try {
     record = d.openRecord(d.recordPath);

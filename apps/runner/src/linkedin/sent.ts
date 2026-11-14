@@ -14,9 +14,20 @@ export function readSent(doc: Document): { close: string | null } | null {
     all(d, 'h1, h2, h3').some((h) => SENT_HEADING.test(textOf(h))),
   );
   if (!dialog) return null;
-  if (all(doc, SENT_DIALOG).length === 1 && all(doc, SENT_DISMISS).length === 1)
-    return { close: SENT_DISMISS };
   const own = all(dialog, 'button[aria-label="Dismiss"]');
+  // The stable selector only when it resolves to this very dialog and to
+  // the Dismiss inside it; otherwise pin the element as found.
+  const dialogs = all(doc, SENT_DIALOG);
+  const dismisses = all(doc, SENT_DISMISS);
+  if (
+    dialogs.length === 1 &&
+    dialogs[0] === dialog &&
+    dismisses.length === 1 &&
+    own.length === 1 &&
+    dismisses[0] === own[0]
+  ) {
+    return { close: SENT_DISMISS };
+  }
   const [only] = own;
   return { close: own.length === 1 && only ? selectorFor(doc, only) : null };
 }

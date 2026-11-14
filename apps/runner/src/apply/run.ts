@@ -355,9 +355,21 @@ async function closeSent(w: Walk): Promise<number | null> {
     if (sent) {
       const at = deps.now();
       if (sent.close !== null) {
-        await pace.click(page.locator(sent.close), {
-          within: page.locator(SENT_DIALOG),
-        });
+        try {
+          await pace.click(page.locator(sent.close), {
+            within: page.locator(SENT_DIALOG),
+          });
+        } catch (e) {
+          // Submit already went out: a refused Dismiss must not end the run
+          // before the marker reload. Real stops (Ctrl+C, bridge gone,
+          // RunEnd) still propagate.
+          const end = asRunEnd(e, deps);
+          const refused =
+            !(e instanceof RunEnd) &&
+            end.outcome === 'safety-stop' &&
+            end.stop?.kind === 'unexpected-page';
+          if (!refused) throw e;
+        }
       }
       return at;
     }

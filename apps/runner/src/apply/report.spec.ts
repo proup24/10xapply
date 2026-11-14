@@ -648,8 +648,16 @@ describe('closingLine', () => {
       'already applied (record, 2026-11-14); not opened',
     ],
     [
-      { outcome: 'already-applied', via: 'linkedin' },
+      {
+        outcome: 'already-applied',
+        via: 'linkedin',
+        record: rec({ after: 'applied' }),
+      },
       'LinkedIn shows Applied; recorded',
+    ],
+    [
+      { outcome: 'already-applied', via: 'linkedin', record: rec({}) },
+      'LinkedIn shows Applied; not recorded',
     ],
     [
       {
@@ -660,12 +668,29 @@ describe('closingLine', () => {
       'disqualified earlier (record, 2026-11-13); not retried',
     ],
     [
-      { outcome: 'submit-unconfirmed', record: rec({ before: 'submitting' }) },
+      {
+        outcome: 'submit-unconfirmed',
+        record: rec({ before: 'submitting', after: 'failed' }),
+      },
       'previous submit unconfirmed; marked failed; run again to apply',
     ],
     [
-      { outcome: 'submit-unconfirmed', record: rec({ before: null }) },
+      {
+        outcome: 'submit-unconfirmed',
+        record: rec({ before: null, after: 'failed' }),
+      },
       'Submit clicked but LinkedIn does not show Applied; marked failed. Check the job on LinkedIn before running again',
+    ],
+    [
+      {
+        outcome: 'submit-unconfirmed',
+        record: rec({ before: 'submitting', after: 'submitting' }),
+      },
+      'previous submit unconfirmed; the record was not updated; the next run settles it',
+    ],
+    [
+      { outcome: 'submit-unconfirmed', record: rec({ before: null }) },
+      'Submit clicked but LinkedIn does not show Applied; the record was not updated. Check the job on LinkedIn before running again',
     ],
   ] as [Partial<ApplyRun>, string][])('closingLine %#', (over, line) => {
     expect(closingLine(base(over))).toBe(line);
