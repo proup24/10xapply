@@ -59,7 +59,7 @@ Build in small slices, one per session: brainstorm, then spec (`docs/superpowers
 - `pnpm nx run runner:facts-check [-- <path>]` checks the fact bank file and the disqualify rules file (`disqualify.yaml` in the private folder) and prints counts and problems, never a value or a country code. The optional path is the bank's, resolved from the repo root. In a non-TTY shell add `--outputStyle=stream` to see its output.
 - `pnpm nx run runner:answers-eval [-- --set example|private --answer-model m --verify-model m --judge-model m --repeat n --case id]` runs the answerer's golden eval. It uses the subscription, never in CI. The default set is `example`. The private set prints and reports only ids and counts, and writes the full results under `private/answers-eval/`. The author runs the private set; see Guardrails.
 - `pnpm nx run runner:disqualify-eval [-- --model m --repeat n --case id]` runs the disqualification extractor's golden eval on the committed example set. It uses the subscription, never in CI, and never touches LinkedIn. In a non-TTY shell add `--outputStyle=stream` before the `--` (after it, the runner rejects the flag).
-- `pnpm nx run runner:apply -- <job-url> --dry-run` walks an Easy Apply form, answers and fills it, and stops on the review page. It needs the disqualify rules file and can end `disqualified` (on the job page or a form step, for a work authorization or a location requirement) before filling anything. It never submits; without `--dry-run` it exits 2.
+- `pnpm nx run runner:apply -- <job-url> --dry-run` walks an Easy Apply form, answers and fills it, and stops on the review page. It needs the disqualify rules file and can end `disqualified` (on the job page or a form step, for a work authorization or a location requirement) before filling anything. Without `--dry-run` it also submits, only from the author's own terminal (author mode), else it exits 2. It first consults the applied-jobs record and refuses an `applied` or `disqualified` job before opening a window, then prints a closing line.
 - Quote a long LinkedIn job URL given to `runner:apply`, or replace it with `https://www.linkedin.com/jobs/view/<id>/`: an unquoted `&` backgrounds the command.
 - `pnpm nx run runner:snapshot -- <job-url>` opens the job in a run window while the author drives by hand and presses Enter to save each page's DOM (shadow roots included) under the private folder's `snapshots/`. It touches LinkedIn.
 - `pnpm nx run runner:snapshot-scrub` turns the raw snapshots into scrubbed copies in `snapshots/`, printing counts only. It never touches LinkedIn.
@@ -84,6 +84,7 @@ See [docs/roadmap/README.md](docs/roadmap/README.md): phases, slice order and th
 - Known guard false positive: any Bash command whose text names the `pace-recordings/runner/` folder is blocked as a runner launch. Use a glob.
 - The author's fact bank is `fact-bank.yaml` in the private folder (`private/`). Claude may run the check but never reads the file.
 - The author's disqualification rules are `disqualify.yaml` in the private folder (`authorizedCountries` and `locatedIn`). Claude may check it through `facts-check` but never reads it.
+- The applied-jobs record is `applications.json` in the private folder. The runner writes it; Claude never reads it. Clear an entry by editing it by hand (the web app later).
 - Personal overrides go in `.claude/settings.local.json`.
 - Prettier runs automatically on files Claude edits or writes.
 
@@ -102,7 +103,7 @@ See [docs/roadmap/README.md](docs/roadmap/README.md): phases, slice order and th
 - The recorder's LinkedIn match is `https://www.linkedin.com/*`, because LinkedIn is a single-page app. It records only on `/jobs/` paths.
 - The recorder captures timing and event shape plus numbers only (target box size, press offset, option counts, description length, window geometry). It never captures text or which key was pressed; it records only a key class (space, backspace, other) for key gaps.
 - The recorder's content script exists only while a recording command runs.
-- From slice 07, a real submit also asks for a typed confirmation at the keyboard. Slice 14 removes that prompt when the runner goes unattended, and relaxes the guard's runner rule.
+- Slice 14 relaxes the guard's runner rule and the author-mode-only submit when the runner goes unattended.
 
 <!-- nx configuration start-->
 <!-- Leave the start & end comments to automatically receive updates. -->

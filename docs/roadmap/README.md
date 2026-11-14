@@ -161,9 +161,10 @@ The author gives the runner one LinkedIn job URL. A real Chrome window on the au
 
 ### 07 Submit, and never twice
 
+- **Spec:** [slice 07 spec](../superpowers/specs/2026-11-14-submit-never-twice-design.md).
 - **Scope:** `apply <job-url>` without `--dry-run`. If every answer is confident, it submits. If something blocks, it asks the author in the terminal, then continues or stops. After submitting, it confirms LinkedIn shows the job as applied. A local record of applied jobs under `private/`, keyed on the LinkedIn job id, refuses a second application. LinkedIn's own "Applied" marker is checked too. The record also has a `disqualified` status (from slice 05b), and a disqualified job is never retried.
 - **Locked:** auto-submit unless blocked _(user)_. The local record is written before the Submit click, as "submitting", and updated after it, so a crash mid-submit never leads to a second attempt without the author checking.
-- **Spec answers:** whether a terminal answer is saved back into the fact bank for next time (answered in slice 06: yes, as a known answer); what happens if the browser crashes mid-run; the format of the local record (it moves to Postgres in slice 14).
+- **Spec answers:** settled in the spec. The record is `applications.json` under `private/`, keyed on the job id, with statuses `submitting`, `applied`, `disqualified` and `failed`. A leftover `submitting` is settled from LinkedIn's Applied marker (`applied`), else `failed`, and the next run retries it. There is no typed confirmation; a real submit runs only in author mode. A terminal answer is saved back into the fact bank as a known answer (slice 06).
 
 ## Phase 2: Steady stream for the author
 
