@@ -94,5 +94,14 @@ export type StepRead =
       unknown: UnknownField[];
       /** Selector for the one Submit button in the form, or null. */
       submit: string | null;
+      /**
+       * LinkedIn's "Follow <company> to stay up to date with their page"
+       * checkbox, ticked by default when present; the runner unticks it.
+       * `box` is the one checkbox input inside the form dialog (its state
+       * is read live: the captures hold none); `press` is where a person
+       * clicks it (its `label[for]`, else the input). Null when absent, or
+       * when no selector picks out exactly one.
+       */
+      follow: { box: string; press: string } | null;
     }
   | { kind: 'none' }; // no Easy Apply dialog on the page

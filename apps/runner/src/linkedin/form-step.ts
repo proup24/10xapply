@@ -10,6 +10,7 @@ import {
 } from './el.js';
 import {
   FIELD_WRAPPER,
+  FOLLOW_CHECKBOX,
   FOLLOW_CHECKBOX_LABEL,
   FOOTER_BUTTONS,
   FORM_ERRORS,
@@ -68,6 +69,7 @@ export function readStep(doc: Document): StepRead {
       fields,
       unknown,
       submit: submits.length === 1 && only ? selectorFor(doc, only) : null,
+      follow: readFollow(doc, dialog),
     };
   }
   return {
@@ -124,6 +126,27 @@ function readNext(
     }
   }
   return null;
+}
+
+/**
+ * The review page's "Follow <company>" checkbox: `box` reads its state,
+ * `press` is where a person clicks (its one `label[for]`, else the box).
+ * Null when the form has none, or when the selector doesn't pick out
+ * exactly one box inside this form, so nothing is pressed on a guess.
+ */
+function readFollow(
+  doc: Document,
+  dialog: El,
+): Extract<StepRead, { kind: 'review' }>['follow'] {
+  const boxes = all(doc, FOLLOW_CHECKBOX);
+  const [box] = boxes;
+  if (boxes.length !== 1 || !box || box.closest('dialog') !== dialog) {
+    return null;
+  }
+  return {
+    box: FOLLOW_CHECKBOX,
+    press: pressSelectorFor(doc, box, FOLLOW_CHECKBOX),
+  };
 }
 
 function readErrors(dialog: El): string[] {

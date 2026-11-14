@@ -54,7 +54,7 @@ What's new compared with slice 06 is **in bold**.
 
 **No typed confirmation** _(user)_. The run submits on its own once the form is filled. This replaces the `CLAUDE.md` line that said slice 07 would ask for one, and slice 14 no longer has a prompt to remove.
 
-**LinkedIn's review-page extras**, such as the "Follow {company}" checkbox, are left at LinkedIn's default, as a person clicking straight through would leave them _(my call)_.
+**The "Follow {company}" checkbox is unticked** _(user: "sometimes the field is there sometimes it's not, but if it exists it's always checked by default; we want to unselect it")_. On reaching the review page, dry run or not, the runner reads the box's state live; ticked, it gets one press through the pace module, inside the form, and must read unticked after, or the run stops (`unexpected-page`) before `submitting` is written or Submit is pressed. Unticked or absent, nothing is pressed. The box's label names the company, so it never goes into a report or the record. LinkedIn's other review-page extras, if any, are left at LinkedIn's default _(my call)_.
 
 ## Never twice
 

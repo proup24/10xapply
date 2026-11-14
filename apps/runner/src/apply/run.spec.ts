@@ -187,6 +187,8 @@ interface Setup {
   rejectAsk?: string;
   /** Selectors typing doesn't change. */
   deaf?: string[];
+  /** Selectors a click doesn't change the checked state of. */
+  stuck?: string[];
   /** Once this selector is pressed, every checked-state read times out. */
   readsFailAfter?: string;
   /** The job-page check's claims; none by default. */
@@ -304,7 +306,15 @@ function harness(s: Setup): Harness {
   const page: ApplyPage = {
     locator: loc,
     value: async (sel) => values[sel] ?? '',
-    checked: async (sel) => (soft(), checked[sel] ?? false),
+    // A selector not set directly reads its one element's state by id, as
+    // a label[for] press sets it.
+    checked: async (sel) => {
+      soft();
+      if (sel in checked) return checked[sel] ?? false;
+      const els = [...docOf(screen().html).querySelectorAll(sel)];
+      const id = els.length === 1 ? els[0]?.getAttribute('id') : null;
+      return id ? (checked[byId(id)] ?? false) : false;
+    },
     // Stable reads go through the screen's own DOM to the inputs' ids.
     anyChecked: async (sel) => {
       soft();
@@ -343,6 +353,7 @@ function harness(s: Setup): Harness {
     defaulted: [],
     click: async (t, o) => {
       act('click', t, undefined, o);
+      if (s.stuck?.includes(selOf(t))) return;
       // A label[for] press changes its input's state.
       const sel = inputOf(selOf(t));
       checked[sel] = !(checked[sel] ?? false);
@@ -2673,6 +2684,132 @@ describe('runApply', () => {
         expect(run.timings.submit).toBeNull();
       },
     );
+
+    describe('the Follow <company> box', () => {
+      const follow = readStep(docOf(REVIEW));
+      if (follow.kind !== 'review' || !follow.follow) {
+        throw new Error('review.html has no follow box');
+      }
+      const { press: FOLLOW_PRESS } = follow.follow;
+      /** review.html's Follow input, by the id its label names. */
+      const FOLLOW_INPUT = inputOf(FOLLOW_PRESS);
+      const TICKED = { [FOLLOW_INPUT]: true };
+      const presses = (h: Harness) =>
+        h.acts().filter((a) => a === `click ${FOLLOW_PRESS}`);
+
+      it('the fixture reads as the tests need', () => {
+        expect(FOLLOW_PRESS).toMatch(/^label\[for=/);
+        expect(FOLLOW_INPUT).not.toBe(FOLLOW_PRESS);
+      });
+
+      it('ticked: one press on its label, inside the form, before submitting', async () => {
+        const h = harness({ screens: happy(), submit: true, checked: TICKED });
+        const run = await runApply('123', h.deps);
+        expect(run.outcome).toBe('submitted');
+        expect(presses(h)).toHaveLength(1);
+        expect(h.calls).toContainEqual({
+          op: 'click',
+          sel: FOLLOW_PRESS,
+          within: FORM_DIALOG,
+        });
+        const order = h.order();
+        expect(order.indexOf(`click ${FOLLOW_PRESS}`)).toBeLessThan(
+          order.indexOf('set submitting'),
+        );
+        expect(fromSubmitting(h)).toEqual([
+          'set submitting',
+          `click ${SUBMIT_SEL}`,
+          `click ${SENT_CLOSE}`,
+          'goto',
+          'set applied',
+        ]);
+        expect(h.submits()).toEqual([SUBMIT_SEL]);
+        // The company is page text: never in the run.
+        expect(JSON.stringify(run)).not.toMatch(/stay up to date/);
+      });
+
+      it('unticked: nothing pressed, the submit goes ahead', async () => {
+        const h = harness({ screens: happy(), submit: true });
+        const run = await runApply('123', h.deps);
+        expect(run.outcome).toBe('submitted');
+        expect(presses(h)).toEqual([]);
+        expect(h.submits()).toEqual([SUBMIT_SEL]);
+      });
+
+      it('still ticked after the press: a safety stop, no submitting, no Submit', async () => {
+        const h = harness({
+          screens: happy(),
+          submit: true,
+          checked: TICKED,
+          stuck: [FOLLOW_PRESS],
+        });
+        const run = await runApply('123', h.deps);
+        expect(run.outcome).toBe('safety-stop');
+        expect(run.stop).toMatchObject({
+          kind: 'unexpected-page',
+          detail: 'the follow box stayed ticked',
+        });
+        expect(presses(h)).toHaveLength(1);
+        expect(h.sets).toEqual([]);
+        expect(h.submits()).toEqual([]);
+        expect(run.timings.submit).toBeNull();
+      });
+
+      it('a read that fails: a safety stop before anything is pressed', async () => {
+        const h = harness({
+          screens: {
+            ...happy(),
+            job: { html: JOB, on: { [EASY_APPLY]: 'review' } },
+          },
+          submit: true,
+          checked: TICKED,
+          // Every checked read times out once the form opened.
+          readsFailAfter: EASY_APPLY,
+        });
+        const run = await runApply('123', h.deps);
+        expect(run.outcome).toBe('safety-stop');
+        expect(run.stop).toMatchObject({
+          kind: 'unexpected-page',
+          detail: 'could not read the follow box',
+        });
+        expect(presses(h)).toEqual([]);
+        expect(h.sets).toEqual([]);
+        expect(h.submits()).toEqual([]);
+      });
+
+      it('a dry run unticks it too and stops at review, no Submit', async () => {
+        const h = harness({ screens: fullFlow(), checked: TICKED });
+        const run = await runApply('123', h.deps);
+        expect(run.outcome).toBe('reached-review');
+        expect(presses(h)).toHaveLength(1);
+        expect(h.sets).toEqual([]);
+        expect(h.submits()).toEqual([]);
+      });
+
+      it('absent: nothing pressed, the submit goes ahead as before', async () => {
+        const review = synth({ next: null, submit: true });
+        expect(readStep(docOf(review))).toMatchObject({ follow: null });
+        const h = harness({
+          submit: true,
+          screens: {
+            job: { html: JOB, on: { [EASY_APPLY]: 'review' } },
+            review: { html: review, on: { '#send': 'sent' } },
+            sent: { html: SENT, on: { goto: 'applied' } },
+            applied: { html: APPLIED },
+          },
+        });
+        const run = await runApply('123', h.deps);
+        expect(run.outcome).toBe('submitted');
+        expect(fromSubmitting(h)).toEqual([
+          'set submitting',
+          'click #send',
+          `click ${SENT_CLOSE}`,
+          'goto',
+          'set applied',
+        ]);
+        expect(h.acts().filter((a) => a.includes('label[for='))).toEqual([]);
+      });
+    });
 
     it('in author mode a submitted run asks no Enter before closing', async () => {
       const h = harness({ screens: happy(), submit: true, author: [] });

@@ -18,6 +18,7 @@ import { readSent } from '../linkedin/sent.js';
 import type { StepRead } from '../linkedin/types.js';
 import { pathPrefix } from '../reports/write-report.js';
 import { awaitCheck, checkJobOf, judge, offersOf } from './check.js';
+import { ReadMismatchError } from './fill.js';
 import { recordDisqualified, recordSet } from './record-run.js';
 import { startDecision } from './record.js';
 import { RunEnd, asRunEnd, checkStop, guardPace, safety } from './stop.js';
@@ -110,6 +111,8 @@ export async function runApply(
     await openJob(w, decision === 'settle-leftover');
     formOpen = true;
     const review = await walkForm(w);
+    // Dry runs too: the form is discarded anyway, and the path is exercised.
+    await untickFollow(w, review);
     if (deps.submit) await submitForm(w, review);
     else run.outcome = 'reached-review';
   } catch (e) {
@@ -281,6 +284,39 @@ async function advance(
     );
   }
   return after;
+}
+
+/**
+ * LinkedIn's "Follow <company>" box on the review page comes ticked; the
+ * author wants it unticked. Its state is read live: ticked, it gets one
+ * press, inside the form, and must read unticked after, or the run stops
+ * before anything is written or submitted. Unticked, nothing is pressed.
+ * Details are fixed words: the box's label names the company.
+ */
+async function untickFollow(w: Walk, review: Review): Promise<void> {
+  const { follow } = review;
+  if (follow === null) return;
+  const { page, pace } = w;
+  if (!(await followTicked(w, follow.box))) return;
+  await pace.click(page.locator(follow.press), {
+    within: page.locator(FORM_DIALOG),
+  });
+  if (await followTicked(w, follow.box)) {
+    throw safety('unexpected-page', 'the follow box stayed ticked');
+  }
+}
+
+/** The box's checked state; a read that times out or misses is a stop. */
+async function followTicked(w: Walk, box: string): Promise<boolean> {
+  try {
+    return await w.page.checked(box);
+  } catch (e) {
+    const soft =
+      e instanceof ReadMismatchError ||
+      (e instanceof Error && e.name === 'TimeoutError');
+    if (soft) throw safety('unexpected-page', 'could not read the follow box');
+    throw e;
+  }
 }
 
 /**
