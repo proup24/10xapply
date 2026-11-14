@@ -5,7 +5,10 @@ const PHONE_LIKE = /^[\d\s().+-]+$/;
 const NAME_GAP = '[\\s _.-]*';
 const DIGIT_GAP = '[\\s().+-]*';
 /** A phone number with its country code set apart: "+44 7700 900123". */
-const INTERNATIONAL = /^\s*\+\d{1,4}[\s().-]+(\d[\d\s().-]*)$/;
+const INTERNATIONAL = /^\s*\+(\d{1,4})[\s().-]+(\d[\d\s().-]*)$/;
+// A number may open with "(", "+" or "(+"; the match takes them too, so no
+// stray "+" or "(" is left beside the replacement.
+const PHONE_OPEN = '\\(?\\+?';
 
 function escapeRegex(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&');
@@ -24,12 +27,20 @@ function namePattern(secret: string): string {
 function patternFor(secret: string, names: Set<string>): string {
   if (names.has(secret)) return namePattern(secret);
   if (PHONE_LIKE.test(secret) && /\d/.test(secret)) {
-    const forms = [secret.replace(/\D/g, '')];
-    // "+44 7700 900123" is also written "07700 900123" at home.
-    const national = INTERNATIONAL.exec(secret)?.[1];
-    if (national) forms.push(`0${national.replace(/\D/g, '')}`);
-    const any = forms.map((d) => d.split('').join(DIGIT_GAP)).join('|');
-    return `(?<!\\d)(?:${any})(?!\\d)`;
+    const gaps = (d: string) => d.split('').join(DIGIT_GAP);
+    const forms = [`${PHONE_OPEN}${gaps(secret.replace(/\D/g, ''))}`];
+    const intl = INTERNATIONAL.exec(secret);
+    if (intl?.[1] && intl[2]) {
+      const code = gaps(intl[1]);
+      const national = gaps(intl[2].replace(/\D/g, ''));
+      // "+44 7700 900123" is also written "07700 900123" or "(0)7700 900123"
+      // at home, "+44 (0)7700 900123" or "0044 7700 900123" abroad.
+      forms.push(`\\(?0${DIGIT_GAP}${national}`);
+      forms.push(
+        `${PHONE_OPEN}(?:00)?${code}${DIGIT_GAP}(?:0${DIGIT_GAP})?${national}`,
+      );
+    }
+    return `(?<!\\d)(?:${forms.join('|')})(?!\\d)`;
   }
   const body = secret
     .split(/\s+/)
@@ -46,8 +57,9 @@ function patternFor(secret: string, names: Set<string>): string {
  * One case-insensitive pattern for all secrets, longest first. A secret that
  * starts or ends with a word character matches only on word boundaries, spaces
  * inside it match any run of whitespace and separators, and a phone number
- * matches its digits in any layout (one written with its country code also
- * in its national form, a 0 in place of the code). Secrets listed in
+ * matches its digits in any layout, with any "(" or "+" in front of it (one
+ * written with its country code also in its national form, a 0 or "(0)" in
+ * place of the code, as "+44 (0)..." and as "0044 ..."). Secrets listed in
  * nameSecrets match inside words, with no boundary.
  */
 export function secretPattern(

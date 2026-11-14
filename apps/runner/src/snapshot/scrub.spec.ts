@@ -1,7 +1,13 @@
+import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { loadFactBank } from '@xapply/fact-bank';
-import { bankNameSecrets, bankSecrets, scrubSnapshot } from './scrub.js';
+import {
+  bankNameSecrets,
+  bankSecrets,
+  leakCheck,
+  scrubSnapshot,
+} from './scrub.js';
 
 const EXAMPLE = join(
   import.meta.dirname,
@@ -329,9 +335,7 @@ describe('scrubSnapshot, fix round 1', () => {
       '<label>+44 7700 900123, (+44) 7700-900-123, 447700900123, +447700900123</label>',
       ['+447700900123'],
     );
-    expect(html).toBe(
-      '<label>+[secret], (+[secret], [secret], +[secret]</label>',
-    );
+    expect(html).toBe('<label>[secret], [secret], [secret], [secret]</label>');
     expect(counts.secretsReplaced).toBe(4);
     const near = scrub('<label>9447700900123</label>', ['+447700900123']);
     expect(near.html).toContain('9447700900123');
@@ -451,5 +455,120 @@ describe('bankSecrets', () => {
     expect(secrets.every((s) => s.length >= 3)).toBe(true);
     const lengths = secrets.map((s) => s.length);
     expect(lengths).toEqual([...lengths].sort((a, b) => b - a));
+  });
+});
+
+describe('leakCheck', () => {
+  const bank = loadFactBank(EXAMPLE);
+  const kinds = (html: string) =>
+    Object.fromEntries(leakCheck(html, bank).map((l) => [l.kind, l.count]));
+
+  it("finds the example bank's phone in +447700900123, 07700 900123, (0)7700-900-123", () => {
+    for (const form of [
+      '+447700900123',
+      '07700 900123',
+      '(0)7700-900-123',
+      '+44 (0)7700 900123',
+      '7700900123',
+      '447700900123',
+    ]) {
+      expect(leakCheck(`<p>Call ${form} now</p>`, bank), form).toEqual([
+        { kind: 'phone', count: 1 },
+      ]);
+    }
+    expect(kinds('<p>07700 900123 or +44 7700-900-123</p>')).toEqual({
+      phone: 2,
+    });
+  });
+
+  it('does not count the phone digits inside a long id or a longer number', () => {
+    for (const html of [
+      '<div data-urn="urn:li:fsd:1234567700900123456">x</div>',
+      '<p>9447700900123</p>',
+      '<p>77009001234</p>',
+      '<p>id 4490324628</p>',
+    ]) {
+      expect(leakCheck(html, bank), html).toEqual([]);
+    }
+  });
+
+  it('finds the phone beside an unrelated digit group', () => {
+    expect(kinds('<p>ref 123 07700 900123</p>')).toEqual({ phone: 1 });
+  });
+
+  it('finds the email in mixed case', () => {
+    expect(leakCheck('<p>Write to SAM@Example.COM today</p>', bank)).toEqual([
+      { kind: 'email', count: 1 },
+    ]);
+  });
+
+  it('finds names, on word boundaries for first and last name', () => {
+    expect(kinds('<p>Sam Example</p>')).toEqual({ name: 1 });
+    expect(kinds('<p>SamExampleCV.pdf</p>')).toEqual({ name: 1 });
+    expect(kinds('<p>sam_example and sam</p>')).toEqual({ name: 2 });
+    expect(kinds('<p>Samples of examples</p>')).toEqual({});
+  });
+
+  it('finds personal links without scheme, www or trailing slash', () => {
+    expect(
+      kinds(
+        '<p>HTTPS://WWW.linkedin.com/in/sam-example/ and github.com/sam-example and sam.example/</p>',
+      ),
+    ).toEqual({ link: 3 });
+  });
+
+  it('finds facts and answers across whitespace, ignoring case', () => {
+    expect(kinds('<p>I am a British\n   citizen.</p>')).toEqual({ fact: 1 });
+    expect(kinds('<span>5000 usd per month</span>')).toEqual({ answer: 1 });
+    expect(kinds('<p>The queue bug that only appeared under load</p>')).toEqual(
+      { answer: 1 },
+    );
+  });
+
+  it('skips short and generic values', () => {
+    expect(
+      leakCheck('<p>Yes</p><p>No</p><p>5</p><p>[secret]</p>', bank),
+    ).toEqual([]);
+  });
+
+  it('never returns the matched text', () => {
+    const out = JSON.stringify(
+      leakCheck('<p>sam@example.com 07700 900123 Sam Example</p>', bank),
+    );
+    expect(out).not.toMatch(/sam|7700|example/i);
+  });
+
+  it('returns [] on every committed fixture', () => {
+    const dir = join(import.meta.dirname, '..', 'apply', 'fixtures');
+    const files = readdirSync(dir).filter((f) => f.endsWith('.html'));
+    expect(files.length).toBeGreaterThan(0);
+    for (const f of files) {
+      expect(leakCheck(readFileSync(join(dir, f), 'utf8'), bank), f).toEqual(
+        [],
+      );
+    }
+  });
+});
+
+describe('scrubSnapshot, phone forms', () => {
+  const bank = loadFactBank(EXAMPLE);
+
+  it('scrubSnapshot removes +447700900123', () => {
+    for (const form of [
+      '+447700900123',
+      '07700 900123',
+      '(0)7700-900-123',
+      '+44 (0)7700 900123',
+      '(+44) 7700-900-123',
+      '0044 7700 900123',
+    ]) {
+      const { html } = scrubSnapshot(
+        `<label>Call ${form} now</label>`,
+        bankSecrets(bank),
+        bankNameSecrets(bank),
+      );
+      expect(html, form).toBe('<label>Call [secret] now</label>');
+      expect(leakCheck(html, bank), form).toEqual([]);
+    }
   });
 });

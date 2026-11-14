@@ -322,3 +322,193 @@ function linkedinSlug(bank: FactBank): string | undefined {
     return slug;
   }
 }
+
+export type LeakKind = 'email' | 'phone' | 'name' | 'fact' | 'answer' | 'link';
+export interface Leak {
+  kind: LeakKind;
+  count: number;
+}
+
+const LEAK_KINDS: LeakKind[] = [
+  'email',
+  'phone',
+  'name',
+  'fact',
+  'answer',
+  'link',
+];
+/**
+ * A fact or answer is searched for only when it has at least this many
+ * characters and two words, so option wording (Yes, No, 5) can't count.
+ */
+const MIN_TEXT_LEAK = 12;
+const NOT_WORD_BEFORE = '(?<![\\p{L}\\p{N}])';
+const NOT_WORD_AFTER = '(?![\\p{L}\\p{N}])';
+// Found text is masked with this, which is neither a word character nor a
+// phone separator, so a later kind can't count it again.
+const MASK = '\u0001';
+// Digits with phone separators between them. Each run of digits inside is a
+// group; a phone number must be made of whole groups.
+const PHONE_SPAN = /\d[\d\s().+-]*\d|\d/g;
+
+const escapeLeak = (s: string) => s.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&');
+const spaced = (s: string) =>
+  s.trim().split(/\s+/).map(escapeLeak).join('\\s+');
+
+function textLeakPieces(value: string | undefined): string[] {
+  if (value === undefined) return [];
+  // A placeholder ({company}) fills in from the job, so only the text around
+  // it is the user's.
+  return value
+    .split(/\{[^}]*\}/)
+    .map((p) => p.trim().replace(/\s+/g, ' '))
+    .filter((p) => p.length >= MIN_TEXT_LEAK && /\s/.test(p));
+}
+
+function normalizeLink(url: string | undefined): string {
+  return (url ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/^https?:\/\//, '')
+    .replace(/^www\./, '')
+    .replace(/\/+$/, '');
+}
+
+/** Patterns come longest value first, so the longest match wins. */
+function countAndMask(
+  text: string,
+  patterns: string[],
+): { text: string; count: number } {
+  const usable = [...new Set(patterns)];
+  if (usable.length === 0) return { text, count: 0 };
+  let count = 0;
+  const next = text.replace(new RegExp(usable.join('|'), 'giu'), () => {
+    count++;
+    return MASK;
+  });
+  return { text: next, count };
+}
+
+function phoneForms(bank: FactBank): Set<string> {
+  const code = bank.fields.phone.countryCode.replace(/\D/g, '');
+  const digits = bank.fields.phone.number.replace(/\D/g, '');
+  const national = digits.replace(/^0+/, '');
+  const forms = new Set<string>();
+  if (national.length < 6) return forms;
+  for (const n of [national, `0${national}`]) {
+    forms.add(n);
+    if (code) {
+      forms.add(`${code}${n}`);
+      forms.add(`00${code}${n}`);
+    }
+  }
+  return forms;
+}
+
+function countPhones(text: string, forms: Set<string>): number {
+  if (forms.size === 0) return 0;
+  const longest = Math.max(...[...forms].map((f) => f.length));
+  let count = 0;
+  for (const span of text.match(PHONE_SPAN) ?? []) {
+    const groups = span.match(/\d+/g) ?? [];
+    let i = 0;
+    while (i < groups.length) {
+      let joined = '';
+      let end = -1;
+      for (let j = i; j < groups.length; j++) {
+        joined += groups[j];
+        if (joined.length > longest) break;
+        if (forms.has(joined)) end = j;
+      }
+      if (end >= 0) {
+        count++;
+        i = end + 1;
+      } else {
+        i++;
+      }
+    }
+  }
+  return count;
+}
+
+/**
+ * Looks for the bank's personal data in a scrubbed snapshot: the email, the
+ * phone number (digits only, with or without its country code and a leading
+ * 0, made of whole digit groups so a long id holding the same digits doesn't
+ * count), names, facts, answers and stories (12 characters and two words at
+ * least), and personal links (without scheme, www or trailing slash). Case is
+ * ignored. Returns kinds and counts only, never the text found; empty means
+ * clean.
+ */
+export function leakCheck(scrubbed: string, bank: FactBank): Leak[] {
+  const f = bank.fields;
+  const counts = new Map<LeakKind, number>();
+  let text = scrubbed;
+  const byLength = (values: string[]) =>
+    [...values].sort((a, b) => b.length - a.length);
+  const run = (kind: LeakKind, patterns: string[]) => {
+    const r = countAndMask(text, patterns);
+    text = r.text;
+    if (r.count > 0) counts.set(kind, (counts.get(kind) ?? 0) + r.count);
+  };
+
+  run('email', [
+    `(?<![\\p{L}\\p{N}._%+-])${escapeLeak(f.email.trim())}${NOT_WORD_AFTER}`,
+  ]);
+  run(
+    'link',
+    byLength(
+      [f.links.linkedin, f.links.github, f.links.portfolio, f.links.website]
+        .map(normalizeLink)
+        .filter((l) => l.length >= 4),
+    ).map(
+      (l) =>
+        `(?<![\\p{L}\\p{N}.-])(?:https?://)?(?:www\\.)?${escapeLeak(l)}(?![\\p{L}\\p{N}_-])`,
+    ),
+  );
+  run(
+    'fact',
+    byLength(bank.facts.flatMap((fact) => textLeakPieces(fact.text))).map(
+      spaced,
+    ),
+  );
+  run(
+    'answer',
+    byLength([
+      ...bank.answers.flatMap((a) => [
+        ...textLeakPieces(a.answer),
+        ...(a.variants ?? []).flatMap((v) => textLeakPieces(v.answer)),
+      ]),
+      ...bank.stories.flatMap((s) => [
+        ...textLeakPieces(s.title),
+        ...textLeakPieces(s.story),
+      ]),
+    ]).map(spaced),
+  );
+
+  const phones = countPhones(text, phoneForms(bank));
+  if (phones > 0) counts.set('phone', phones);
+
+  // The full name and the profile slug match inside words (SamExampleCV),
+  // a first or last name alone only as a whole word.
+  const joined = (s: string) =>
+    s
+      .split(/[\s_.-]+/)
+      .filter((p) => p.length > 0)
+      .map(escapeLeak)
+      .join('[\\s _.-]*');
+  const whole = (s: string) =>
+    `${NOT_WORD_BEFORE}${escapeLeak(s)}${NOT_WORD_AFTER}`;
+  const single = new Set([f.firstName.trim(), f.lastName.trim()]);
+  run(
+    'name',
+    byLength(bankNameSecrets(bank)).map((n) =>
+      single.has(n) ? whole(n) : joined(n),
+    ),
+  );
+
+  return LEAK_KINDS.filter((k) => counts.has(k)).map((kind) => ({
+    kind,
+    count: counts.get(kind) ?? 0,
+  }));
+}

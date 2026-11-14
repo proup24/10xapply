@@ -181,6 +181,42 @@ describe('snapshotScrubCommand', () => {
     expect(text).not.toContain('hello');
   });
 
+  it('prints leaks: 0 when every scrubbed file is clean', async () => {
+    const rawDir = tmp();
+    writeFileSync(
+      join(rawDir, '01-jobs.html'),
+      `<label>Call ${EXAMPLE_BANK.fields.phone.full} or ${EXAMPLE_BANK.fields.email}</label>`,
+    );
+    const out: string[] = [];
+    const code = await snapshotScrubCommand(
+      deps({ rawDir, io: io([], out), author: false }),
+    );
+    expect(code).toBe(0);
+    expect(out).toContain('leaks: 0');
+  });
+
+  it('exits 1 on a leak in any scrubbed file, naming only file, kinds and counts', async () => {
+    const rawDir = tmp();
+    const scrubbedDir = tmp();
+    mkdirSync(join(scrubbedDir, 'run1'));
+    writeFileSync(
+      join(scrubbedDir, 'run1', '01-jobs.html'),
+      `<p>${EXAMPLE_BANK.fields.email} 07700 900123 and 07700-900-123</p>`,
+    );
+    writeFileSync(join(scrubbedDir, 'run1', '02-jobs.html'), '<p>fine</p>');
+    const out: string[] = [];
+    const code = await snapshotScrubCommand(
+      deps({ rawDir, scrubbedDir, io: io([], out), author: false }),
+    );
+    expect(code).toBe(1);
+    expect(out).toContain('run1/01-jobs.html: leak email 1, phone 2');
+    expect(out).toContain('leaks: 3');
+    const text = out.join('\n');
+    expect(text).not.toContain('02-jobs.html: leak');
+    expect(text).not.toContain(EXAMPLE_BANK.fields.email);
+    expect(text).not.toMatch(/7700/);
+  });
+
   it('refuses when the bank does not load', async () => {
     const out: string[] = [];
     const rawDir = tmp();
