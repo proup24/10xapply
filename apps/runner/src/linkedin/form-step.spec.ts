@@ -280,7 +280,7 @@ describe('readStep on the fixtures', () => {
     );
   });
 
-  it.each(['review.html', 'review-save-prompt.html'])(
+  it.each(['review.html', 'review-save-prompt.html', 'review-follow.html'])(
     '%s has no fields (the Follow checkbox is not a question)',
     (file) => {
       expect(readStep(load(file))).toEqual({
@@ -672,17 +672,19 @@ describe('readStep buttons and states', () => {
     expect(r.kind).toBe('review');
   });
 
-  it.each(['review.html', 'review-one-page.html', 'review-save-prompt.html'])(
-    '%s: submit is one button reading submit',
-    (f) => {
-      const doc = load(f);
-      const r = readStep(doc);
-      if (r.kind !== 'review') throw new Error('not review');
-      expect(r.submit).not.toBeNull();
-      expect(doc.querySelectorAll(r.submit!)).toHaveLength(1);
-      expect(textOf(doc, r.submit!)).toMatch(/submit/i);
-    },
-  );
+  it.each([
+    'review.html',
+    'review-one-page.html',
+    'review-save-prompt.html',
+    'review-follow.html',
+  ])('%s: submit is one button reading submit', (f) => {
+    const doc = load(f);
+    const r = readStep(doc);
+    if (r.kind !== 'review') throw new Error('not review');
+    expect(r.submit).not.toBeNull();
+    expect(doc.querySelectorAll(r.submit!)).toHaveLength(1);
+    expect(textOf(doc, r.submit!)).toMatch(/submit/i);
+  });
 
   it('two submit buttons give submit null', () => {
     const r = readStep(
