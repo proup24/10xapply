@@ -290,12 +290,16 @@ async function advance(
  * LinkedIn's "Follow <company>" box on the review page comes ticked; the
  * author wants it unticked. Its state is read live: ticked, it gets one
  * press, inside the form, and must read unticked after, or the run stops
- * before anything is written or submitted. Unticked, nothing is pressed.
+ * before anything is written or submitted. Unticked or absent, nothing is
+ * pressed; one seen but not singled out is a stop too.
  * Details are fixed words: the box's label names the company.
  */
 async function untickFollow(w: Walk, review: Review): Promise<void> {
   const { follow } = review;
   if (follow === null) return;
+  if (follow === 'unclear') {
+    throw safety('unexpected-page', 'the follow box could not be singled out');
+  }
   const { page, pace } = w;
   if (!(await followTicked(w, follow.box))) return;
   await pace.click(page.locator(follow.press), {

@@ -99,9 +99,10 @@ export type StepRead =
        * checkbox, ticked by default when present; the runner unticks it.
        * `box` is the one checkbox input inside the form dialog (its state
        * is read live: the captures hold none); `press` is where a person
-       * clicks it (its `label[for]`, else the input). Null when absent, or
-       * when no selector picks out exactly one.
+       * clicks it (its `label[for]` inside the form, else the input). Null
+       * when absent; 'unclear' when one is seen but no selector picks out
+       * exactly one inside the form (the run then stops).
        */
-      follow: { box: string; press: string } | null;
+      follow: { box: string; press: string } | 'unclear' | null;
     }
   | { kind: 'none' }; // no Easy Apply dialog on the page

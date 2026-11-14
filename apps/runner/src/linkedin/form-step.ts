@@ -130,9 +130,10 @@ function readNext(
 
 /**
  * The review page's "Follow <company>" checkbox: `box` reads its state,
- * `press` is where a person clicks (its one `label[for]`, else the box).
- * Null when the form has none, or when the selector doesn't pick out
- * exactly one box inside this form, so nothing is pressed on a guess.
+ * `press` is where a person clicks (its one `label[for]` inside the form,
+ * else the box). Null when the form has none. 'unclear' when one is seen
+ * but no selector picks out exactly one box inside this form (several, or
+ * one in another dialog), so the run stops rather than guess or leave it.
  */
 function readFollow(
   doc: Document,
@@ -140,13 +141,18 @@ function readFollow(
 ): Extract<StepRead, { kind: 'review' }>['follow'] {
   const boxes = all(doc, FOLLOW_CHECKBOX);
   const [box] = boxes;
-  if (boxes.length !== 1 || !box || box.closest('dialog') !== dialog) {
-    return null;
+  if (boxes.length === 1 && box && box.closest('dialog') === dialog) {
+    return {
+      box: FOLLOW_CHECKBOX,
+      press: pressSelectorFor(doc, box, FOLLOW_CHECKBOX, dialog),
+    };
   }
-  return {
-    box: FOLLOW_CHECKBOX,
-    press: pressSelectorFor(doc, box, FOLLOW_CHECKBOX),
-  };
+  const seen =
+    boxes.length > 0 ||
+    all(dialog, 'input[type="checkbox"]').some((b) =>
+      FOLLOW_CHECKBOX_LABEL.test(label(b)),
+    );
+  return seen ? 'unclear' : null;
 }
 
 function readErrors(dialog: El): string[] {
@@ -157,18 +163,34 @@ function readErrors(dialog: El): string[] {
 }
 
 /**
- * Where to press a radio or checkbox: its `label[for="<id>"]` when exactly one matches
- * on the page, else `fallback` (the input's own selector).
+ * Where to press a radio or checkbox: its `label[for="<id>"]` when exactly
+ * one matches on the page and it is inside `within` (the form's dialog),
+ * else `fallback` (the input's own selector).
  */
 export function pressSelectorFor(
   doc: Document,
   el: El,
   fallback: string,
+  within: El,
 ): string {
   const id = el.getAttribute('id');
   if (!id) return fallback;
   const sel = `label${attr('for', id)}`;
-  return all(doc, sel).length === 1 ? sel : fallback;
+  const labels = all(doc, sel);
+  const [only] = labels;
+  const inside =
+    labels.length === 1 &&
+    only !== undefined &&
+    (only === within || ancestorOf(within, only));
+  return inside ? sel : fallback;
+}
+
+/** True when `top` is an ancestor of `el`. */
+function ancestorOf(top: El, el: El): boolean {
+  for (let a = el.parentElement; a; a = a.parentElement) {
+    if (a === top) return true;
+  }
+  return false;
 }
 
 /**
@@ -437,12 +459,12 @@ function readFields(
       field.optionSelectors = sels;
       if ((q.type === 'radio' || q.type === 'checkbox-group') && options) {
         field.optionPressSelectors = options.map((o, i) =>
-          pressSelectorFor(doc, o, sels[i] ?? ''),
+          pressSelectorFor(doc, o, sels[i] ?? '', dialog),
         );
       }
     }
     if (q.type === 'checkbox' && target) {
-      field.pressSelector = pressSelectorFor(doc, target, selector);
+      field.pressSelector = pressSelectorFor(doc, target, selector, dialog);
       const stable = stableGroupFor(doc, [target]);
       if (stable) field.stableGroup = stable;
     }
@@ -656,7 +678,7 @@ function readFields(
         return {
           fileName: c.fileName,
           selector,
-          pressSelector: pressSelectorFor(doc, c.el, selector),
+          pressSelector: pressSelectorFor(doc, c.el, selector, dialog),
           stateSelector: stableGroupFor(doc, sameName)?.selector ?? selector,
         };
       }),

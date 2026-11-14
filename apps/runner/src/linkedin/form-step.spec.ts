@@ -35,7 +35,9 @@ function selectorsOf(r: StepRead): string[] {
     );
   }
   if (r.kind === 'step' && r.next) out.push(r.next.selector);
-  if (r.kind === 'review' && r.follow) out.push(r.follow.box, r.follow.press);
+  if (r.kind === 'review' && r.follow && r.follow !== 'unclear') {
+    out.push(r.follow.box, r.follow.press);
+  }
   return out;
 }
 const textOf = (doc: Document, sel: string): string => {
@@ -833,9 +835,10 @@ describe("readStep: the review page's Follow checkbox", () => {
     (file) => {
       const doc = load(file);
       const f = followOf(doc);
-      expect(f?.box).toBe(FOLLOW_CHECKBOX);
-      expect(f?.press).toMatch(/^label\[for="_r_\w+_"\]$/);
-      expect(doc.querySelectorAll(f?.press ?? '')).toHaveLength(1);
+      if (f === null || f === 'unclear') throw new Error('no follow box');
+      expect(f.box).toBe(FOLLOW_CHECKBOX);
+      expect(f.press).toMatch(/^label\[for="_r_\w+_"\]$/);
+      expect(doc.querySelectorAll(f.press)).toHaveLength(1);
     },
   );
 
@@ -851,17 +854,38 @@ describe("readStep: the review page's Follow checkbox", () => {
     expect(followOf(review('', outside))).toBeNull();
   });
 
-  it('null when two Follow boxes are in the form', () => {
+  it('unclear (not null) when two Follow boxes are in the form', () => {
     const two =
       BOX +
       '<input id="f2" type="checkbox" aria-label="Follow Other to stay up to date with their page"><label for="f2"></label>';
-    expect(followOf(review(two))).toBeNull();
+    expect(followOf(review(two))).toBe('unclear');
   });
 
   it('a Follow button inside the form is not the box', () => {
     expect(
       followOf(review('<button aria-label="Follow Acme">Follow</button>')),
     ).toBeNull();
+  });
+
+  it('unclear when the one Follow box is in a second form dialog', () => {
+    // Two dialogs labelled by the form header: the box is in the other one.
+    const doc = parsePage(
+      '<body><dialog aria-labelledby="dialog-header" open><header id="dialog-header"><h2>Apply to Acme</h2></header>' +
+        '<footer><button id="send">Submit application</button></footer></dialog>' +
+        `<dialog aria-labelledby="dialog-header" open>${BOX}</dialog></body>`,
+    );
+    expect(followOf(doc)).toBe('unclear');
+  });
+
+  it('a label for the box outside the form is never the press', () => {
+    const doc = review(
+      '<input id="f1" type="checkbox" aria-label="Follow Acme to stay up to date with their page">',
+      '<label for="f1"></label>',
+    );
+    expect(followOf(doc)).toEqual({
+      box: FOLLOW_CHECKBOX,
+      press: FOLLOW_CHECKBOX,
+    });
   });
 
   it('pressed on the input itself when it has no label', () => {

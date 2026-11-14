@@ -50,11 +50,11 @@ What's new compared with slice 06 is **in bold**.
    3. Wait for LinkedIn's confirmation (the "application sent" dialog or its equivalent), close it the way a person would, and reload or re-read the job page until it shows as applied.
    4. Applied seen: update the record to `applied` (source: `submit`), outcome `submitted`.
    5. Applied not seen within the wait: see "Submit with no Applied" below.
-7. With `--dry-run`, the review page behaves exactly as in slice 06.
+7. With `--dry-run`, the review page behaves as in slice 06, except that the "Follow {company}" checkbox is unticked first (see below).
 
 **No typed confirmation** _(user)_. The run submits on its own once the form is filled. This replaces the `CLAUDE.md` line that said slice 07 would ask for one, and slice 14 no longer has a prompt to remove.
 
-**The "Follow {company}" checkbox is unticked** _(user: "sometimes the field is there sometimes it's not, but if it exists it's always checked by default; we want to unselect it")_. On reaching the review page, dry run or not, the runner reads the box's state live; ticked, it gets one press through the pace module, inside the form, and must read unticked after, or the run stops (`unexpected-page`) before `submitting` is written or Submit is pressed. Unticked or absent, nothing is pressed. The box's label names the company, so it never goes into a report or the record. LinkedIn's other review-page extras, if any, are left at LinkedIn's default _(my call)_.
+**The "Follow {company}" checkbox is unticked** _(user: "sometimes the field is there sometimes it's not, but if it exists it's always checked by default; we want to unselect it")_. On reaching the review page, dry run or not, the runner reads the box's state live; ticked, it gets one press through the pace module, inside the form, and must read unticked after, or the run stops (`unexpected-page`) before `submitting` is written or Submit is pressed. Unticked or absent, nothing is pressed. A box that is seen but can't be singled out (several, or one outside the form) stops the run (`unexpected-page`) before anything is pressed or written, dry run or not. The box's label names the company, so it never goes into a report or the record. LinkedIn's other review-page extras, if any, are left at LinkedIn's default _(my call)_.
 
 ## Never twice
 

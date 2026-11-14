@@ -2687,7 +2687,11 @@ describe('runApply', () => {
 
     describe('the Follow <company> box', () => {
       const follow = readStep(docOf(REVIEW));
-      if (follow.kind !== 'review' || !follow.follow) {
+      if (
+        follow.kind !== 'review' ||
+        !follow.follow ||
+        follow.follow === 'unclear'
+      ) {
         throw new Error('review.html has no follow box');
       }
       const { press: FOLLOW_PRESS } = follow.follow;
@@ -2785,6 +2789,43 @@ describe('runApply', () => {
         expect(h.sets).toEqual([]);
         expect(h.submits()).toEqual([]);
       });
+
+      /** A review with two Follow boxes: seen, but not one to press. */
+      const TWO_BOXES = synth({
+        next: null,
+        submit: true,
+        extra:
+          '<input id="f1" type="checkbox" aria-label="Follow Acme to stay up to date with their page"><label for="f1"></label>' +
+          '<input id="f2" type="checkbox" aria-label="Follow Beta to stay up to date with their page"><label for="f2"></label>',
+      });
+      const twoBoxes = (): Record<string, Screen> => ({
+        job: { html: JOB, on: { [EASY_APPLY]: 'review' } },
+        review: { html: TWO_BOXES, on: { '#send': 'sent' } },
+        sent: { html: SENT, on: { goto: 'applied' } },
+        applied: { html: APPLIED },
+      });
+
+      it.each([
+        ['a real run', true],
+        ['a dry run', false],
+      ])(
+        'unclear (%s): a safety stop, nothing pressed, no submitting, no Submit',
+        async (_name, submit) => {
+          expect(readStep(docOf(TWO_BOXES))).toMatchObject({
+            follow: 'unclear',
+          });
+          const h = harness({ screens: twoBoxes(), submit });
+          const run = await runApply('123', h.deps);
+          expect(run.outcome).toBe('safety-stop');
+          expect(run.stop).toMatchObject({
+            kind: 'unexpected-page',
+            detail: 'the follow box could not be singled out',
+          });
+          expect(h.acts().filter((a) => a.includes('label[for='))).toEqual([]);
+          expect(h.sets).toEqual([]);
+          expect(h.submits()).toEqual([]);
+        },
+      );
 
       it('absent: nothing pressed, the submit goes ahead as before', async () => {
         const review = synth({ next: null, submit: true });
