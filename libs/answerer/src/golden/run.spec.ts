@@ -40,7 +40,14 @@ const kubeMath = out({
   value: '5',
   derivation: 'math',
   sources: [src({ text: KUBE }), src({ kind: 'run-date' })],
-  math: { kind: 'years-since', year: 2021, month: 3, expression: null },
+  math: {
+    kind: 'years-since',
+    year: 2021,
+    month: 3,
+    expression: null,
+    amount: null,
+    unit: null,
+  },
 });
 const silent = out({ outcome: 'cannot-answer', reason: 'bank-silent' });
 const kubeText = out({

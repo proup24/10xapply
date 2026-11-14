@@ -279,3 +279,90 @@ export function optionContains(option: string, n: number): boolean | null {
   }
   return null;
 }
+
+const DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
+
+/** The date's parts when it is a real calendar date written YYYY-MM-DD, else null. */
+export function parseDate(
+  date: string,
+): { year: number; month: number; day: number } | null {
+  const m = DATE.exec(date);
+  if (!m) return null;
+  const [year, month, day] = [Number(m[1]), Number(m[2]), Number(m[3])];
+  const d = new Date(Date.UTC(year, month - 1, day));
+  if (
+    d.getUTCFullYear() !== year ||
+    d.getUTCMonth() !== month - 1 ||
+    d.getUTCDate() !== day
+  ) {
+    return null;
+  }
+  return { year, month, day };
+}
+
+/**
+ * `runDate` (YYYY-MM-DD) plus a whole number of days, weeks or months, as
+ * YYYY-MM-DD. A month offset past the target month's end lands on its last
+ * day: 31 January plus a month is 28 (or 29) February.
+ */
+export function addOffset(
+  runDate: string,
+  amount: number,
+  unit: 'day' | 'week' | 'month',
+): string {
+  const start = parseDate(runDate);
+  if (!start) throw new MathError('invalid run date');
+  if (!Number.isInteger(amount) || amount < 0) {
+    throw new MathError('invalid offset');
+  }
+  let d: Date;
+  if (unit === 'month') {
+    const firstOfTarget = new Date(
+      Date.UTC(start.year, start.month - 1 + amount, 1),
+    );
+    const y = firstOfTarget.getUTCFullYear();
+    const m = firstOfTarget.getUTCMonth();
+    const lastDay = new Date(Date.UTC(y, m + 1, 0)).getUTCDate();
+    d = new Date(Date.UTC(y, m, Math.min(start.day, lastDay)));
+  } else {
+    const days = unit === 'week' ? amount * 7 : amount;
+    d = new Date(Date.UTC(start.year, start.month - 1, start.day + days));
+  }
+  return d.toISOString().slice(0, 10);
+}
+
+const OFFSET_UNIT_WORDS: Record<'day' | 'week' | 'month', string> = {
+  day: 'days?',
+  week: 'weeks?',
+  month: 'months?',
+};
+
+/**
+ * True when the text says the amount right before the unit: "one week",
+ * "2 weeks", "a month", "3-month". Number words are read by `numbersIn`;
+ * "one", "a" and "an" also count as 1, but only next to the unit.
+ */
+export function statesOffset(
+  text: string,
+  amount: number,
+  unit: 'day' | 'week' | 'month',
+): boolean {
+  const form = new RegExp(
+    String.raw`([\w.,]+)[\s-]+(?:${OFFSET_UNIT_WORDS[unit]})\b`,
+    'gi',
+  );
+  for (const m of text.matchAll(form)) {
+    const word = m[1].toLowerCase();
+    if (amount === 1 && ['one', 'a', 'an'].includes(word)) return true;
+    const found = numbersIn(word);
+    if (found.length === 1 && found[0] === amount) return true;
+  }
+  return false;
+}
+
+/** True when the amount appears in the text, "one" included for 1. */
+export function hasAmount(text: string, amount: number): boolean {
+  return (
+    numbersIn(text).includes(amount) || (amount === 1 && /\bone\b/i.test(text))
+  );
+}

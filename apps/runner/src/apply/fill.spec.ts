@@ -219,6 +219,12 @@ describe('fillField', () => {
     expect(result).toEqual({ ok: false, reason: 'not-typeable' });
   });
 
+  it('a date field is not-typeable, before any pace call', async () => {
+    const { calls, result } = await run(field('date'), '2026-11-19');
+    expect(calls).toEqual([]);
+    expect(result).toEqual({ ok: false, reason: 'not-typeable' });
+  });
+
   it('a newline in a text field is not-typeable, before any pace call', async () => {
     for (const type of ['text', 'number', 'typeahead'] as const) {
       const { calls, result } = await run(

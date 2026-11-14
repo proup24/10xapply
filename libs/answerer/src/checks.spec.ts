@@ -977,3 +977,66 @@ describe('checkCandidate: math', () => {
     fails(r, 'math does not match');
   });
 });
+
+describe('checkCandidate: date-offset', () => {
+  const date = q({ label: 'Earliest start date', type: 'date' });
+  const notice: Source = {
+    kind: 'fact',
+    text: 'My notice period is one week.',
+  };
+  const offset = (
+    amount: number,
+    unit: 'day' | 'week' | 'month',
+  ): Answer['math'] => ({ kind: 'date-offset', amount, unit });
+  const start = (value: string, math = offset(1, 'week'), question = date) =>
+    check(
+      question,
+      ans({ value, derivation: 'math', sources: [notice, runDate], math }),
+    );
+
+  it('passes when the value is the run date plus the cited period', () => {
+    expect(start('2026-11-19')).toEqual({ ok: true, value: '2026-11-19' });
+  });
+  it('fails a value that is not the computed date', () => {
+    fails(start('2026-11-20'), 'math does not match');
+  });
+  it('fails an amount not in the cited fact', () => {
+    fails(start('2026-11-26', offset(2, 'week')), 'number not in sources');
+  });
+  it('fails a unit not in the cited fact', () => {
+    fails(start('2026-12-12', offset(1, 'month')), 'math does not match');
+  });
+  it('fails a date-offset on a question that is not a date', () => {
+    fails(start('2026-11-19', offset(1, 'week'), q()), 'math does not match');
+    fails(
+      start('5', offset(1, 'week'), q({ type: 'number' })),
+      'math does not match',
+    );
+  });
+  it('fails other math kinds on a date question', () => {
+    fails(
+      start('2026-11-19', { kind: 'arithmetic', expression: '1 + 1' }),
+      'math does not match',
+    );
+  });
+  it('fails a date value that is not YYYY-MM-DD', () => {
+    fails(start('19/11/2026'), 'not a date');
+    fails(start('2026-02-30'), 'not a date');
+    fails(
+      check(
+        date,
+        ans({ value: 'next week', derivation: 'composed', sources: [notice] }),
+      ),
+      'not a date',
+    );
+  });
+  it('a date with no math must have every number in a cited source', () => {
+    fails(
+      check(
+        date,
+        ans({ value: '2026-11-19', derivation: 'composed', sources: [notice] }),
+      ),
+      'number not in sources',
+    );
+  });
+});

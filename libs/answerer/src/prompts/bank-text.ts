@@ -65,7 +65,7 @@ export function renderContext(ctx: PromptContext): string {
     [
       '<run_date>',
       ctx.runDate,
-      'Today\'s date, YYYY-MM-DD. It is a citable source: cite it as a source of kind "run-date" for years-since math.',
+      'Today\'s date, YYYY-MM-DD. It is a citable source: cite it as a source of kind "run-date" for years-since and date-offset math.',
       '</run_date>',
     ].join('\n'),
   ].join('\n\n');

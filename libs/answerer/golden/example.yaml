@@ -459,6 +459,32 @@ cases:
       sources: [{ fact: 6 }]
       derivation: math
 
+  # A date by date-offset math: the run date 2026-11-12 plus the one-week
+  # notice period is 2026-11-19, as YYYY-MM-DD.
+  - id: date-start-from-notice
+    question: { label: Earliest start date, type: date, required: true }
+    expect:
+      status: backed
+      value: '2026-11-19'
+      sources: [{ fact: 3 }]
+      derivation: math
+
+  # A date the bank never states: no entry dates the degree, so it blocks.
+  - id: date-no-source
+    question:
+      label: Date you completed your degree
+      type: date
+      required: true
+    expect: { status: blocked }
+
+  # An optional date the bank says nothing about is never guessed.
+  - id: date-type-not-guessed
+    question:
+      label: Date you last updated your security clearance
+      type: date
+      required: false
+    expect: { status: blocked }
+
   # A bucket: one week falls inside exactly one option (the spec's example).
   - id: notice-bucket-under-two-weeks
     question:
@@ -519,8 +545,8 @@ cases:
     expect: { status: blocked, reason: unsupported-field }
 
   # A field type the answerer does not handle.
-  - id: date-field-type
-    question: { label: Earliest start date, type: date, required: true }
+  - id: unsupported-field-type
+    question: { label: Preferred interview time, type: time, required: true }
     expect: { status: blocked, reason: unsupported-field }
 
   # A maxLength too short for a field value: code fills fields as written

@@ -265,6 +265,9 @@ async function fillGuarded(
       return fillCheckbox(f, value, ctx);
     case 'file':
       return fillResume(f, ctx);
+    case 'date':
+      // No date filler yet: a date is refused before anything is done.
+      return fail('not-typeable');
   }
 }
 

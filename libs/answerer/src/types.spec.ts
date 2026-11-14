@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { CHOICE_TYPES, FIELD_TYPES, TEXT_TYPES } from './types.js';
 
 describe('field types', () => {
-  it('lists exactly the nine field types', () => {
+  it('lists exactly the ten field types', () => {
     expect([...FIELD_TYPES]).toEqual([
       'text',
       'textarea',
@@ -13,6 +13,7 @@ describe('field types', () => {
       'checkbox',
       'file',
       'typeahead',
+      'date',
     ]);
   });
 

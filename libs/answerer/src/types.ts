@@ -11,6 +11,7 @@ export const FIELD_TYPES = [
   'checkbox',
   'file',
   'typeahead',
+  'date',
 ] as const;
 export type FieldType = (typeof FIELD_TYPES)[number];
 
@@ -94,7 +95,10 @@ export interface Inference {
 
 export type MathSpec =
   | { kind: 'years-since'; year: number; month?: number }
-  | { kind: 'arithmetic'; expression: string };
+  | { kind: 'arithmetic'; expression: string }
+  | { kind: 'date-offset'; amount: number; unit: OffsetUnit };
+
+export type OffsetUnit = 'day' | 'week' | 'month';
 
 export type Role = 'answer' | 'verify' | 'judge' | 'extract';
 

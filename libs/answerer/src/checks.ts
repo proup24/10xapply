@@ -1,10 +1,14 @@
 import {
+  addOffset,
   evaluate,
   expressionNumbers,
+  hasAmount,
   MathError,
   MONTHS,
   numbersIn,
   optionContains,
+  parseDate,
+  statesOffset,
   yearsSince,
 } from './math.js';
 import { matchOption, sourceText } from './sources.js';
@@ -103,6 +107,8 @@ function checkMath(
 ): CheckResult | { result: number } {
   const spec = c.math;
   if (!spec) return fail('math missing');
+  // A date offset gives a date, so it only answers a date question.
+  if (spec.kind === 'date-offset') return fail('math does not match');
   try {
     let result: number;
     if (spec.kind === 'years-since') {
@@ -139,6 +145,37 @@ function checkMath(
     if (e instanceof MathError) return fail('math does not match');
     throw e;
   }
+}
+
+/**
+ * A date question's math: the run date plus an amount and unit that one cited
+ * entry of the author's states together ("one week"). The value must be the
+ * computed date.
+ */
+function checkDateOffset(
+  c: AnswerCandidate,
+  authorTexts: string[],
+  runDate: string,
+  value: string,
+): CheckResult {
+  const spec = c.math;
+  if (!spec) return fail('math missing');
+  if (spec.kind !== 'date-offset') return fail('math does not match');
+  if (!authorTexts.some((t) => hasAmount(t, spec.amount))) {
+    return fail('number not in sources');
+  }
+  if (!authorTexts.some((t) => statesOffset(t, spec.amount, spec.unit))) {
+    return fail('math does not match');
+  }
+  try {
+    if (value !== addOffset(runDate, spec.amount, spec.unit)) {
+      return fail('math does not match');
+    }
+  } catch (e) {
+    if (e instanceof MathError) return fail('math does not match');
+    throw e;
+  }
+  return { ok: true, value };
 }
 
 function checkChoice(
@@ -205,7 +242,8 @@ export function checkCandidate(
   const isText = (TEXT_TYPES as readonly string[]).includes(q.type);
   const isNumber = q.type === 'number';
   const isFile = q.type === 'file';
-  if (!isChoice && !isText && !isNumber && !isFile)
+  const isDate = q.type === 'date';
+  if (!isChoice && !isText && !isNumber && !isFile && !isDate)
     return fail('wrong value shape');
 
   const wantsArray = q.type === 'checkbox-group';
@@ -271,6 +309,11 @@ export function checkCandidate(
   if (q.maxLength !== undefined && value.length > q.maxLength)
     return fail('too long');
   if (isNumber && !NUMBER_ONLY.test(value)) return fail('not a number');
+  // A date's canonical value is YYYY-MM-DD; the runner formats it for the field.
+  if (isDate && parseDate(value) === null) return fail('not a date');
+  if (isDate && c.derivation === 'math') {
+    return checkDateOffset(c, authorTexts, ctx.runDate, value);
+  }
 
   if (c.derivation === 'as-written') {
     const answers = c.sources.filter((s: Source) => s.kind === 'answer');

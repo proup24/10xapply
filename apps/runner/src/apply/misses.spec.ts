@@ -290,6 +290,22 @@ describe('missesToGolden', () => {
     ]);
   });
 
+  it('a typed date miss expects its YYYY-MM-DD value', () => {
+    const file = fileOf([
+      rec({
+        question: question({
+          id: 'a',
+          label: 'Earliest start date',
+          type: 'date',
+        }),
+        filled: '2026-11-19',
+      }),
+    ]);
+    expect(missesToGolden(file).cases.map((c) => c.expect)).toEqual([
+      { status: 'backed', value: '2026-11-19' },
+    ]);
+  });
+
   it('a typed text, textarea or typeahead miss expects backed only', () => {
     const file = fileOf(
       (['text', 'textarea', 'typeahead'] as const).map((type) =>

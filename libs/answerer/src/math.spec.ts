@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  addOffset,
   evaluate,
   expressionNumbers,
   MathError,
@@ -157,5 +158,24 @@ describe('optionContains', () => {
     ] as Array<[string, number]>) {
       expect(optionContains(option, n), option).toBeNull();
     }
+  });
+});
+
+describe('addOffset', () => {
+  it('adds days, weeks and months to a YYYY-MM-DD date', () => {
+    expect(addOffset('2026-11-14', 1, 'week')).toBe('2026-11-21');
+    expect(addOffset('2026-11-14', 0, 'day')).toBe('2026-11-14');
+    expect(addOffset('2026-12-28', 5, 'day')).toBe('2027-01-02');
+    expect(addOffset('2026-11-14', 3, 'month')).toBe('2027-02-14');
+  });
+  it('clamps a month offset to the month end', () => {
+    expect(addOffset('2026-01-31', 1, 'month')).toBe('2026-02-28');
+    expect(addOffset('2028-01-31', 1, 'month')).toBe('2028-02-29');
+  });
+  it('throws a MathError on a bad run date or amount', () => {
+    expect(() => addOffset('14/11/2026', 1, 'week')).toThrow(MathError);
+    expect(() => addOffset('2026-02-30', 1, 'week')).toThrow(MathError);
+    expect(() => addOffset('2026-11-14', -1, 'week')).toThrow(MathError);
+    expect(() => addOffset('2026-11-14', 1.5, 'week')).toThrow(MathError);
   });
 });
