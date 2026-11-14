@@ -31,7 +31,12 @@
       "Bash(git branch -vv)"
     ],
     "ask": ["Bash(git push:*)", "Bash(gh pr create:*)"],
-    "deny": ["Read(./.env)", "Read(./.env.local)", "Read(./private/**)"]
+    "deny": [
+      "Read(./.env)",
+      "Read(./.env.local)",
+      "Edit(./private/applications.json)",
+      "Write(./private/applications.json)"
+    ]
   },
   "hooks": {
     "PreToolUse": [
