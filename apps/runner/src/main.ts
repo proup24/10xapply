@@ -20,7 +20,7 @@ import { RelayPortInUseError } from './relay/relay.js';
 
 const USAGE = `usage: runner <command>
   session          sign in to LinkedIn through the bridge
-  apply <job-url> --dry-run   walk an Easy Apply form to the review page; never submits
+  apply <job-url> [--dry-run]   fill an Easy Apply form and submit it; --dry-run stops at review
   snapshot <url>   save pages of a job's apply flow by hand (Enter = save, q = finish)
   snapshot scrub   scrub the raw saves into snapshots/
   bot-check        run the bot-detection check (--repeat N: repeat the behaviour pages; --record: record the run)

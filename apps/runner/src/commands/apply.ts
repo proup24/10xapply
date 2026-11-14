@@ -22,8 +22,15 @@ import {
   loadFactBank,
   type FactBank,
 } from '@xapply/fact-bank';
+import {
+  DEFAULT_RECORD_PATH,
+  openRecord,
+  RecordError,
+  type RecordStore,
+} from '../apply/record.js';
 import { ReadMismatchError, type Resume } from '../apply/fill.js';
 import {
+  closingLine,
   formatRedactedSummary,
   formatRunMarkdown,
   redactApplyRun,
@@ -45,7 +52,10 @@ import { createPace } from '../pace/pace.js';
 import { loadProfile, type PaceProfile } from '../pace/profile.js';
 import { isAuthorMode, nodeTerminal } from '../terminal/author-mode.js';
 
-export const NO_DRY_RUN = 'apply: submitting comes in slice 07; use --dry-run';
+export const NOT_AUTHOR =
+  'apply: a real submit runs only from your own terminal; use --dry-run here';
+export const BAD_RECORD =
+  'apply: the applications record did not load; fix or move it first';
 const BAD_URL =
   'apply: give a LinkedIn job URL (/jobs/view/<id> or currentJobId); quote a long URL';
 const NO_BANK = 'apply: the fact bank did not load; fix it first';
@@ -73,6 +83,8 @@ export interface ApplyCommandDeps {
   loadBank: (path: string) => FactBank;
   rulesPath: string;
   loadRules: (path: string) => Rules;
+  recordPath: string;
+  openRecord: (path: string) => RecordStore;
   installResume: (bankResumePath: string) => Resume;
   loadConfig: () => RunnerConfig;
   loadAnswerConfig: () => AnswerConfig;
@@ -104,6 +116,8 @@ function defaultDeps(): ApplyCommandDeps {
     loadBank: (p) => loadFactBank(p),
     rulesPath: DEFAULT_RULES_PATH,
     loadRules: (p) => loadRules(p),
+    recordPath: DEFAULT_RECORD_PATH,
+    openRecord: (p) => openRecord(p),
     installResume: (p) => installResume(p, realExec),
     loadConfig: () => loadConfig(),
     loadAnswerConfig: () => loadAnswerConfig(),
@@ -261,23 +275,26 @@ function unavailableRun(jobId: string, startedAt: Date, why: string): ApplyRun {
 }
 
 /**
- * `runner apply <job-url> --dry-run`: walks one job's Easy Apply form to
- * the review page and stops there. Never submits. Outside author mode it
- * prints only the redacted summary and the redacted report's path.
+ * `runner apply <job-url> [--dry-run]`: walks one job's Easy Apply form.
+ * With `--dry-run` it stops at the review page and never submits; without
+ * it, only in author mode, it submits. Outside author mode it prints only
+ * the redacted summary and the redacted report's path.
  */
 export async function applyCommand(
   argv: string[],
   over: Partial<ApplyCommandDeps> = {},
 ): Promise<number> {
   const d: ApplyCommandDeps = { ...defaultDeps(), ...over };
-  if (!argv.includes('--dry-run')) {
-    d.out(NO_DRY_RUN);
-    return 2;
-  }
+  const dryRun = argv.includes('--dry-run');
   const url = argv.find((a) => !a.startsWith('--'));
   const jobId = url === undefined ? null : parseJobUrl(url);
   if (jobId === null) {
     d.out(BAD_URL);
+    return 2;
+  }
+  // A real submit runs only from the author's own terminal.
+  if (!dryRun && !d.authorMode) {
+    d.out(NOT_AUTHOR);
     return 2;
   }
 
@@ -303,6 +320,18 @@ export async function applyCommand(
   if (!existsSync(bank.fields.resume)) {
     d.out(NO_RESUME);
     return 2;
+  }
+
+  // A bad record stops a real run; a dry run never reads or writes it.
+  let record: RecordStore | null = null;
+  try {
+    record = d.openRecord(d.recordPath);
+  } catch (e) {
+    if (!(e instanceof RecordError)) throw e;
+    if (!dryRun) {
+      failed(d, BAD_RECORD, e);
+      return 2;
+    }
   }
 
   const startedAt = d.now();
@@ -378,9 +407,8 @@ export async function applyCommand(
         checkJob: (job) => extractFromJob(job, extract),
         checkQuestions: (qs, job) => extractFromQuestions(qs, job, extract),
         rules,
-        // Task 5 wires the real record and the Submit flag.
-        record: null,
-        submit: false,
+        record,
+        submit: !dryRun,
       });
     } finally {
       offSigint();
@@ -403,5 +431,8 @@ export async function applyCommand(
     d.out(formatRedactedSummary(redactApplyRun(run, bank)).trimEnd());
     d.out(`report: ${paths.redacted}`);
   }
-  return run.outcome === 'reached-review' ? 0 : 2;
+  d.out(closingLine(run));
+  return run.outcome === 'reached-review' || run.outcome === 'submitted'
+    ? 0
+    : 2;
 }

@@ -73,6 +73,8 @@ export interface RedactedApplyRun {
   unknownFields: Omit<UnknownField, 'label'>[];
   checks: RedactedCheck[];
   disqualification: RedactedClaim[] | null;
+  via: ApplyRun['via'];
+  record: ApplyRun['record'];
   timings: ApplyRun['timings'];
 }
 
@@ -125,6 +127,12 @@ export function redactApplyRun(
     disqualification: run.disqualification
       ? run.disqualification.map(redactClaim)
       : null,
+    via: run.via,
+    record: {
+      before: run.record.before,
+      beforeAt: run.record.beforeAt,
+      after: run.record.after,
+    },
     timings: {
       totalMs: run.timings.totalMs,
       perStepMs: [...run.timings.perStepMs],
@@ -154,6 +162,48 @@ export function formatRedactedSummary(r: RedactedApplyRun): string {
     );
   }
   return `${lines.join('\n')}\n`;
+}
+
+const dateOf = (iso: string | null): string =>
+  iso === null ? 'unknown date' : iso.slice(0, 10);
+
+/**
+ * The run's last line: fixed words and a date, never a label, a value or a
+ * quote. After a Submit click that ended in a stop, it never implies that
+ * nothing was sent.
+ */
+export function closingLine(run: ApplyRun): string {
+  switch (run.outcome) {
+    case 'submitted':
+      return run.record.after === 'applied'
+        ? 'submitted; LinkedIn shows Applied'
+        : 'submitted; LinkedIn shows Applied, but the record was not updated; the next run settles it';
+    case 'already-applied':
+      return run.via === 'record'
+        ? `already applied (record, ${dateOf(run.record.beforeAt)}); not opened`
+        : 'LinkedIn shows Applied; recorded';
+    case 'disqualified':
+      return run.via === 'record'
+        ? `disqualified earlier (record, ${dateOf(run.record.beforeAt)}); not retried`
+        : 'disqualified; not applied';
+    case 'submit-unconfirmed':
+      return run.record.before === 'submitting'
+        ? 'previous submit unconfirmed; marked failed; run again to apply'
+        : 'Submit clicked but LinkedIn does not show Applied; marked failed. Check the job on LinkedIn before running again';
+    case 'reached-review':
+      return 'reached the review page; not submitted';
+    case 'not-easy-apply':
+      return 'not an Easy Apply job; nothing submitted';
+    case 'needs-author':
+      return 'a question needs you; nothing submitted';
+    case 'bridge-unavailable':
+      return 'bridge unavailable; nothing submitted';
+    case 'stopped':
+    case 'safety-stop':
+      return run.record.after === 'submitting' && run.timings.submit !== null
+        ? 'stopped after the Submit click; Submit may have gone through; the next run settles it'
+        : 'stopped; nothing submitted';
+  }
 }
 
 /** `disqualified: <kind> <countries|unclear> at <source>`. */
@@ -285,7 +335,8 @@ function verdict(run: ApplyRun): string {
   const [head] = run.disqualification ?? [];
   if (run.outcome === 'disqualified' && head)
     return headline(redactClaim(head));
-  if (run.outcome === 'reached-review') return 'pass';
+  if (run.outcome === 'reached-review' || run.outcome === 'submitted')
+    return 'pass';
   return `not decided (${run.outcome}${run.stop ? `/${run.stop.kind}` : ''})`;
 }
 
@@ -374,12 +425,21 @@ export function formatRunMarkdown(run: ApplyRun, bank: FactBank): string {
       `Unknown fields: ${run.unknownFields.map((u) => `${u.tag}/${u.role ?? '-'}/${u.inputType ?? '-'}`).join(', ')}`,
     );
   }
+  out.push(
+    `Via: ${run.via ?? '-'}`,
+    `Record: ${run.record.before ?? '-'} -> ${run.record.after ?? '-'}`,
+  );
   out.push('', ...requirements(run));
   out.push(
     '## Timings',
     '',
     `Total: ${run.timings.totalMs} ms`,
     `Per step: ${run.timings.perStepMs.join(', ')} ms`,
+    ...(run.timings.submit
+      ? [
+          `Submit: click to sent ${run.timings.submit.clickToSentMs ?? '-'} ms, sent to marker ${run.timings.submit.sentToMarkerMs ?? '-'} ms`,
+        ]
+      : []),
     '',
   );
   return out.join('\n');
