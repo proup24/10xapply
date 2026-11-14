@@ -225,8 +225,8 @@ The author gives the runner one LinkedIn job URL. A real Chrome window on the au
 ### 14 The runner takes approved jobs
 
 - **Scope:** the local runner from Phase 1 runs as a long-lived process on the author's machine. It picks up approved jobs from Postgres one at a time, applies at a human pace with gaps between applications, respects a daily cap and quiet hours, and writes each run's status and report back to the database. The Phase 1 local record of applied jobs moves into Postgres, with a unique constraint on user and job.
-- **Locked:** one run at a time per account; daily cap; stop on the safety stops, and a stop pauses the whole runner until the author looks, not only that job _(my call)_. From this slice on, Claude may start the runner, real submits included; the guard is relaxed here.
-- **Spec answers:** how the runner authenticates to the database from the author's machine (a scoped key or the author's own session; not the service role key unless justified); the cap, gaps and hours as configuration with starting values; how a run left in "submitting" after a crash is resolved.
+- **Locked:** one run at a time per account; daily cap; stop on the safety stops, and a stop pauses the whole runner until the author looks, not only that job _(my call)_. From this slice on, Claude may start the runner, real submits included; the guard's runner rule is relaxed here, and so is the author-mode-only submit.
+- **Spec answers:** how the runner authenticates to the database from the author's machine (a scoped key or the author's own session; not the service role key unless justified); the cap, gaps and hours as configuration with starting values; (how a run left in "submitting" after a crash is resolved was settled in slice 07).
 
 ### 15 Blocking questions in the web app
 
