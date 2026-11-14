@@ -7,10 +7,11 @@ export type {
 export { ModelCallError, ModelUnavailableError } from './model/caller.js';
 export { createClaudeCliCaller } from './model/claude-cli.js';
 export { answerQuestion } from './answer.js';
-export { mapField, type FieldMapping } from './fields.js';
+export { mapField, normalizeLabel, type FieldMapping } from './fields.js';
 export { redactResult, type RedactedResult } from './redact.js';
 export {
   GoldenError,
+  goldenFileSchema,
   loadGolden,
   type Expect,
   type ExpectSource,

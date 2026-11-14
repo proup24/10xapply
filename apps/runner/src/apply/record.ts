@@ -12,7 +12,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
 
-const REPO_ROOT = join(
+export const REPO_ROOT = join(
   dirname(fileURLToPath(import.meta.url)),
   '..',
   '..',
@@ -180,7 +180,7 @@ function syncDir(dir: string): void {
 }
 const DIR_SYNC_REFUSED = new Set(['EISDIR', 'EINVAL', 'EPERM']);
 
-function writeAtomic(path: string, text: string): void {
+export function writeAtomic(path: string, text: string): void {
   mkdirSync(dirname(path), { recursive: true });
   const tmp = `${path}.${process.pid}.tmp`;
   try {
