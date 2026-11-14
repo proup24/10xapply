@@ -60,8 +60,15 @@ export function readStep(doc: Document): StepRead {
   const dialog = all(doc, 'dialog').find((d) => one(d, FORM_HEADER));
   if (!dialog) return { kind: 'none' };
   const { fields, unknown } = readFields(doc, dialog);
-  if (all(dialog, 'button, input[type="submit"]').some(isSubmit)) {
-    return { kind: 'review', fields, unknown };
+  const submits = all(dialog, 'button, input[type="submit"]').filter(isSubmit);
+  if (submits.length > 0) {
+    const [only] = submits;
+    return {
+      kind: 'review',
+      fields,
+      unknown,
+      submit: submits.length === 1 && only ? selectorFor(doc, only) : null,
+    };
   }
   return {
     kind: 'step',

@@ -88,5 +88,11 @@ export type StepRead =
    * A Submit button is showing. A one-page form still has its question
    * fields here, to fill before stopping; a normal review page has none.
    */
-  | { kind: 'review'; fields: ReadField[]; unknown: UnknownField[] }
+  | {
+      kind: 'review';
+      fields: ReadField[];
+      unknown: UnknownField[];
+      /** Selector for the one Submit button in the form, or null. */
+      submit: string | null;
+    }
   | { kind: 'none' }; // no Easy Apply dialog on the page

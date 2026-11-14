@@ -90,6 +90,18 @@ export const SAVE_PROMPT_DIALOG =
   'dialog[data-testid="dialog"]:not([aria-labelledby="dialog-header"])';
 export const DISCARD_TEXT = 'Discard';
 
+/**
+ * LinkedIn's "Your application was sent" dialog: a `role="dialog"` labelled
+ * by `post-apply-modal` (job-applied.html). The Premium banner's own Dismiss
+ * is outside it. Used as `within` for the dialog's Dismiss.
+ */
+export const SENT_DIALOG =
+  '[role="dialog"][aria-labelledby="post-apply-modal"]';
+/** The sent dialog's heading starts with this (job-applied.html). */
+export const SENT_HEADING = /^Your application was sent/i;
+/** The sent dialog's Dismiss button (job-applied.html). */
+export const SENT_DISMISS = `${SENT_DIALOG} button[aria-label="Dismiss"]`;
+
 /** `[attr="value"]` with the value quoted for CSS. */
 export function attr(name: string, value: string): string {
   const escaped = value

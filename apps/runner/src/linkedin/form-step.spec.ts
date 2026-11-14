@@ -287,6 +287,7 @@ describe('readStep on the fixtures', () => {
         kind: 'review',
         fields: [],
         unknown: [],
+        submit: expect.any(String),
       });
     },
   );
@@ -669,6 +670,29 @@ describe('readStep buttons and states', () => {
       ),
     );
     expect(r.kind).toBe('review');
+  });
+
+  it.each(['review.html', 'review-one-page.html', 'review-save-prompt.html'])(
+    '%s: submit is one button reading submit',
+    (f) => {
+      const doc = load(f);
+      const r = readStep(doc);
+      if (r.kind !== 'review') throw new Error('not review');
+      expect(r.submit).not.toBeNull();
+      expect(doc.querySelectorAll(r.submit!)).toHaveLength(1);
+      expect(textOf(doc, r.submit!)).toMatch(/submit/i);
+    },
+  );
+
+  it('two submit buttons give submit null', () => {
+    const r = readStep(
+      form(
+        '<input id="a" aria-label="A">',
+        '<button aria-label="Submit application"></button><button aria-label="Submit application"></button>',
+      ),
+    );
+    if (r.kind !== 'review') throw new Error('not review');
+    expect(r.submit).toBeNull();
   });
 
   it('reads Review as next with label review', () => {
