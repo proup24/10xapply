@@ -254,7 +254,9 @@ function unavailableRun(jobId: string, startedAt: Date, why: string): ApplyRun {
     unknownFields: [],
     checks: [],
     disqualification: null,
-    timings: { totalMs: 0, perStepMs: [] },
+    via: null,
+    record: { before: null, beforeAt: null, after: null },
+    timings: { totalMs: 0, perStepMs: [], submit: null },
   };
 }
 
@@ -376,6 +378,9 @@ export async function applyCommand(
         checkJob: (job) => extractFromJob(job, extract),
         checkQuestions: (qs, job) => extractFromQuestions(qs, job, extract),
         rules,
+        // Task 5 wires the real record and the Submit flag.
+        record: null,
+        submit: false,
       });
     } finally {
       offSigint();

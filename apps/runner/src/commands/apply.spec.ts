@@ -71,7 +71,9 @@ function markedRun(): ApplyRun {
     unknownFields: [],
     checks: [],
     disqualification: null,
-    timings: { totalMs: 10, perStepMs: [5, 5] },
+    via: null,
+    record: { before: null, beforeAt: null, after: null },
+    timings: { totalMs: 10, perStepMs: [5, 5], submit: null },
   };
 }
 

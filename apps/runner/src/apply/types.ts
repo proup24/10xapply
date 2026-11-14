@@ -15,6 +15,7 @@ import type {
 import type { FactBank } from '@xapply/fact-bank';
 import type { UnknownField } from '../linkedin/types.js';
 import type { Pace } from '../pace/pace.js';
+import type { JobStatus, RecordStore } from './record.js';
 import type { TerminalIO } from '../terminal/author-mode.js';
 import type { FillPage, FillProblem, Resume } from './fill.js';
 
@@ -25,7 +26,8 @@ export type SafetyStop =
   | 'unexpected-page'
   | 'step-did-not-change'
   | 'too-many-rounds'
-  | 'check-failed';
+  | 'check-failed'
+  | 'record-changed';
 
 export type StopKind =
   SafetyStop | 'bridge' | 'error' | 'author' | 'needs-author';
@@ -35,6 +37,8 @@ export type ApplyOutcome =
   | 'disqualified'
   | 'not-easy-apply'
   | 'already-applied'
+  | 'submitted'
+  | 'submit-unconfirmed'
   | 'safety-stop'
   | 'needs-author'
   | 'stopped'
@@ -100,7 +104,25 @@ export interface ApplyRun {
   checks: CheckRecord[];
   /** `disqualified` only: the claims that disqualified, the first the headline. */
   disqualification: Claim[] | null;
-  timings: { totalMs: number; perStepMs: number[] };
+  /**
+   * `already-applied` and `disqualified` only: whether the record or
+   * LinkedIn's own page said so.
+   */
+  via: 'record' | 'linkedin' | null;
+  /** The job's status in the record before the run and after it. */
+  record: {
+    before: JobStatus | null;
+    beforeAt: string | null;
+    after: JobStatus | null;
+  };
+  timings: {
+    totalMs: number;
+    perStepMs: number[];
+    submit: {
+      clickToSentMs: number | null;
+      sentToMarkerMs: number | null;
+    } | null;
+  };
 }
 
 /** The run tab. `goto` and `close` are navigation, not input. */
@@ -134,4 +156,8 @@ export interface ApplyDeps {
   /** One round's requirements check, over all its fresh questions. */
   checkQuestions(qs: CheckQuestion[], job: CheckJob): Promise<ExtractResult>;
   rules: Rules;
+  /** Null: a dry run whose record didn't load; nothing is read or written. */
+  record: RecordStore | null;
+  /** False for `--dry-run`. */
+  submit: boolean;
 }

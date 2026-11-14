@@ -128,6 +128,7 @@ export function redactApplyRun(
     timings: {
       totalMs: run.timings.totalMs,
       perStepMs: [...run.timings.perStepMs],
+      submit: run.timings.submit ? { ...run.timings.submit } : null,
     },
   };
 }

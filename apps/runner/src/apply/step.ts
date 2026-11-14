@@ -1,6 +1,7 @@
 import type { AnswerValue, FormQuestion, Job } from '@xapply/answerer';
 import type { Claim } from '@xapply/disqualify';
 import type { FactBank } from '@xapply/fact-bank';
+import { recordDisqualified } from './record-run.js';
 import { all } from '../linkedin/el.js';
 import { readDiscard } from '../linkedin/close.js';
 import { FORM_CONTENT } from '../linkedin/selectors.js';
@@ -167,7 +168,7 @@ export async function walkStep(w: Walk, first: FormRead): Promise<FormRead> {
         step,
         w.deps.checkQuestions(qs, job),
       );
-      judge(w, claims, w.offers);
+      judge(w, claims, w.offers, (reasons) => recordDisqualified(w, reasons));
     }
     if (read.unknown.length > 0) {
       w.run.unknownFields.push(...read.unknown);

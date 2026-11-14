@@ -32,7 +32,13 @@ import {
 import { ConfigError } from '../config.js';
 import type { Pace } from '../pace/pace.js';
 import type { TerminalIO } from '../terminal/author-mode.js';
-import { REVIEW_PROMPT, guardNext, runApply } from './run.js';
+import {
+  LEFTOVER_RECHECK_MS,
+  REVIEW_PROMPT,
+  guardNext,
+  runApply,
+} from './run.js';
+import type { JobEntry, JobStatus, StatusChange } from './record.js';
 import { ReadMismatchError } from './fill.js';
 import type { ApplyDeps, ApplyPage, ApplyRun } from './types.js';
 
@@ -85,6 +91,7 @@ interface Screen {
   /** After this many reads of its HTML, the page becomes the named screen. */
   then?: { after: number; to: string };
 }
+// A screen's `on` key 'goto' moves to the named screen on the next `goto`.
 
 interface Call {
   op: string;
@@ -134,7 +141,24 @@ interface Harness {
   jobChecks: CheckJob[];
   /** What each round's check was given. */
   stepChecks: CheckQuestion[][];
+  /** Every record write, in order. */
+  sets: { jobId: string; change: StatusChange }[];
+  /** Every `deps.wait` argument. */
+  waits: () => number[];
+  /** Record sets (`set <status>`), pace clicks (`click <sel>`) and `goto`s. */
+  order: () => string[];
 }
+
+/** A record entry as the store holds it. */
+const entry = (
+  status: JobStatus,
+  extra: StatusChange = { status },
+): JobEntry => ({
+  ...extra,
+  status,
+  updatedAt: '2026-11-13T10:00:00.000Z',
+  history: [],
+});
 
 interface Setup {
   screens: Record<string, Screen>;
@@ -158,6 +182,16 @@ interface Setup {
   jobClaims?: Claim[];
   /** Each round's check: its claims; none by default. */
   stepClaims?: (qs: CheckQuestion[]) => Claim[];
+  /**
+   * The record's initial entries; omitted: empty; null: `deps.record` is
+   * null.
+   */
+  record?: Record<string, JobEntry> | null;
+  /** Default false (a dry run). */
+  submit?: boolean;
+  /** A record `set` to this status throws. */
+  setFails?: JobStatus;
+  onSet?: (jobId: string, change: StatusChange) => void;
 }
 
 type Reply = AnswerValue | { blocked: true };
@@ -213,6 +247,8 @@ function harness(s: Setup): Harness {
   const stepChecks: CheckQuestion[][] = [];
   const replies = [...(s.author ?? [])];
   const reads: Record<string, number> = {};
+  const sets: { jobId: string; change: StatusChange }[] = [];
+  const entries: Record<string, JobEntry> = { ...(s.record ?? {}) };
 
   const screen = () => {
     const sc = s.screens[current];
@@ -269,8 +305,9 @@ function harness(s: Setup): Harness {
     selectedText: async () => null,
     suggestion: async () => null,
     goto: async (url) => {
+      const to = current === '' ? undefined : screen().on?.goto;
       calls.push({ op: 'goto', sel: url });
-      current = s.start ?? 'job';
+      current = to ?? s.start ?? 'job';
     },
     path: () => screen().path ?? JOB_PATH,
     html: async () => {
@@ -361,6 +398,30 @@ function harness(s: Setup): Harness {
       return { claims: s.stepClaims?.(qs) ?? [], calls: [CALL] };
     },
     rules: { authorizedCountries: ['MA'], locatedIn: ['MA'] },
+    submit: s.submit ?? false,
+    record:
+      s.record === null
+        ? null
+        : {
+            get: (jobId) => entries[jobId] ?? null,
+            set: (jobId, change, runStartedAt) => {
+              if (s.setFails === change.status) throw new Error('disk full');
+              sets.push({ jobId, change });
+              calls.push({ op: 'set', sel: change.status });
+              s.onSet?.(jobId, change);
+              const prev = entries[jobId];
+              const e: JobEntry = {
+                ...change,
+                updatedAt: '2026-11-14T10:00:00.000Z',
+                history: [
+                  ...(prev?.history ?? []),
+                  { ...change, at: '2026-11-14T10:00:00.000Z', runStartedAt },
+                ],
+              };
+              entries[jobId] = e;
+              return e;
+            },
+          },
   };
   const PACE_OPS = new Set([
     'click',
@@ -388,6 +449,18 @@ function harness(s: Setup): Harness {
     answered,
     jobChecks,
     stepChecks,
+    sets,
+    waits: () => calls.filter((c) => c.op === 'wait').map((c) => Number(c.arg)),
+    order: () =>
+      calls.flatMap((c) =>
+        c.op === 'set'
+          ? [`set ${c.sel}`]
+          : c.op === 'click'
+            ? [`click ${c.sel}`]
+            : c.op === 'goto'
+              ? ['goto']
+              : [],
+      ),
   };
 }
 
@@ -489,6 +562,229 @@ const D = textField('qd', 'Question D');
 // -------------------------------------------------------------------- tests
 
 const stopKind = (r: ApplyRun) => r.stop?.kind;
+
+describe('the record at the start', () => {
+  const checked = (step: string): Record<string, Screen> => ({
+    job: { html: JOB, on: { [EASY_APPLY]: 'step' } },
+    step: {
+      html: step,
+      on: { [nextOf(step)]: 'review', [DISMISS]: 'prompt' },
+    },
+    ...reviewScreens(),
+  });
+  it('applied in the record: refused before a window opens', async () => {
+    const h = harness({
+      screens: fullFlow(),
+      record: { '123': entry('applied') },
+    });
+    const run = await runApply('123', h.deps);
+    expect(run).toMatchObject({
+      outcome: 'already-applied',
+      via: 'record',
+      record: { before: 'applied', after: 'applied' },
+    });
+    expect(h.calls).toEqual([]);
+    expect(h.sets).toEqual([]);
+  });
+
+  it.each([false, true])(
+    'disqualified in the record: refused before a window opens (submit %s)',
+    async (submit) => {
+      const h = harness({
+        screens: fullFlow(),
+        submit,
+        record: { '123': entry('disqualified') },
+      });
+      const run = await runApply('123', h.deps);
+      expect(run).toMatchObject({
+        outcome: 'disqualified',
+        via: 'record',
+        record: { before: 'disqualified', after: 'disqualified' },
+      });
+      expect(h.calls).toEqual([]);
+    },
+  );
+
+  it.each([false, true])(
+    'a marker on a job the record does not know is recorded applied (submit %s)',
+    async (submit) => {
+      const h = harness({
+        submit,
+        screens: { job: { html: fixture('job-applied.html') } },
+      });
+      const run = await runApply('123', h.deps);
+      expect(run).toMatchObject({
+        outcome: 'already-applied',
+        via: 'linkedin',
+        record: { before: null, after: 'applied' },
+      });
+      expect(h.sets).toEqual([
+        {
+          jobId: '123',
+          change: { status: 'applied', source: 'linkedin-marker' },
+        },
+      ]);
+      expect(h.acts()).toEqual([]);
+    },
+  );
+
+  it('a job-page disqualification is recorded with its reason', async () => {
+    const h = harness({
+      screens: fullFlow(),
+      jobClaims: [claim('requires-location', ['DE'])],
+    });
+    const run = await runApply('123', h.deps);
+    expect(run).toMatchObject({
+      outcome: 'disqualified',
+      via: 'linkedin',
+      record: { before: null, after: 'disqualified' },
+    });
+    expect(h.sets).toEqual([
+      {
+        jobId: '123',
+        change: { status: 'disqualified', reason: 'requires-location:DE' },
+      },
+    ]);
+  });
+
+  it('a form-step disqualification is recorded too', async () => {
+    const h = harness({
+      screens: checked(synth({ fields: [A] })),
+      stepClaims: () => [claim('requires-location', ['DE'], 's1-q1')],
+    });
+    const run = await runApply('123', h.deps);
+    expect(run.outcome).toBe('disqualified');
+    expect(h.sets).toEqual([
+      {
+        jobId: '123',
+        change: { status: 'disqualified', reason: 'requires-location:DE' },
+      },
+    ]);
+  });
+
+  it('a record set that throws on disqualified still ends disqualified', async () => {
+    const h = harness({
+      screens: fullFlow(),
+      jobClaims: [claim('requires-location', ['DE'])],
+      record: { '123': entry('failed') },
+      setFails: 'disqualified',
+    });
+    const run = await runApply('123', h.deps);
+    expect(run.outcome).toBe('disqualified');
+    expect(run.record).toMatchObject({ before: 'failed', after: 'failed' });
+    expect(h.sets).toEqual([]);
+  });
+
+  it('failed in the record walks the form as usual', async () => {
+    const h = harness({
+      screens: fullFlow(),
+      record: { '123': entry('failed') },
+    });
+    const run = await runApply('123', h.deps);
+    expect(run.outcome).toBe('reached-review');
+    expect(run.record).toMatchObject({ before: 'failed', after: 'failed' });
+    expect(h.sets).toEqual([]);
+  });
+
+  it('a null record (dry run) reads and writes nothing', async () => {
+    const h = harness({
+      screens: { job: { html: fixture('job-applied.html') } },
+      record: null,
+    });
+    const run = await runApply('123', h.deps);
+    expect(run).toMatchObject({
+      outcome: 'already-applied',
+      via: 'linkedin',
+      record: { before: null, after: null },
+    });
+    expect(h.sets).toEqual([]);
+  });
+
+  describe('a leftover submitting', () => {
+    const left = { '123': entry('submitting') };
+
+    it('with the marker: applied from linkedin-marker, form never opened', async () => {
+      const h = harness({
+        submit: true,
+        screens: { job: { html: fixture('job-applied.html') } },
+        record: left,
+      });
+      const run = await runApply('123', h.deps);
+      expect(run).toMatchObject({
+        outcome: 'already-applied',
+        via: 'linkedin',
+        record: { before: 'submitting', after: 'applied' },
+      });
+      expect(h.sets).toEqual([
+        {
+          jobId: '123',
+          change: { status: 'applied', source: 'linkedin-marker' },
+        },
+      ]);
+      expect(h.acts()).toEqual([]);
+      expect(h.waits()).not.toContain(LEFTOVER_RECHECK_MS);
+    });
+
+    it('without the marker: one reload after LEFTOVER_RECHECK_MS, then failed submit-unconfirmed, form never opened', async () => {
+      const h = harness({
+        submit: true,
+        screens: { job: { html: JOB } },
+        record: left,
+      });
+      const run = await runApply('123', h.deps);
+      expect(run.outcome).toBe('submit-unconfirmed');
+      expect(run.record).toMatchObject({
+        before: 'submitting',
+        after: 'failed',
+      });
+      expect(h.calls.filter((c) => c.op === 'goto')).toHaveLength(2);
+      expect(h.waits()).toContain(LEFTOVER_RECHECK_MS);
+      expect(h.sets).toEqual([
+        {
+          jobId: '123',
+          change: { status: 'failed', reason: 'submit-unconfirmed' },
+        },
+      ]);
+      expect(h.acts()).not.toContain(`click ${EASY_APPLY}`);
+    });
+
+    it('the marker on the reload: applied', async () => {
+      const h = harness({
+        submit: true,
+        screens: {
+          job: { html: JOB, on: { goto: 'job2' } },
+          job2: { html: fixture('job-applied.html') },
+        },
+        record: left,
+      });
+      const run = await runApply('123', h.deps);
+      expect(run).toMatchObject({
+        outcome: 'already-applied',
+        via: 'linkedin',
+        record: { after: 'applied' },
+      });
+      expect(h.sets).toEqual([
+        {
+          jobId: '123',
+          change: { status: 'applied', source: 'linkedin-marker' },
+        },
+      ]);
+      expect(h.calls.filter((c) => c.op === 'goto')).toHaveLength(2);
+      expect(h.acts()).toEqual([]);
+    });
+
+    it('a dry run walks it and writes nothing', async () => {
+      const h = harness({ screens: fullFlow(), record: left });
+      const run = await runApply('123', h.deps);
+      expect(run.outcome).toBe('reached-review');
+      expect(run.record).toMatchObject({
+        before: 'submitting',
+        after: 'submitting',
+      });
+      expect(h.sets).toEqual([]);
+    });
+  });
+});
 
 describe('runApply', () => {
   // The never-submit rule, checked after every test's run.

@@ -16,6 +16,8 @@ import {
 import type { StepRead } from '../linkedin/types.js';
 import { pathPrefix } from '../reports/write-report.js';
 import { awaitCheck, checkJobOf, judge, offersOf } from './check.js';
+import { recordDisqualified, recordSet } from './record-run.js';
+import { startDecision } from './record.js';
 import { RunEnd, asRunEnd, checkStop, guardPace, safety } from './stop.js';
 import { POLL_MS, look, settleStep, walkStep, type Walk } from './step.js';
 import type { ApplyDeps, ApplyPage, ApplyRun } from './types.js';
@@ -29,6 +31,8 @@ const STEP_WAIT_MS = 10_000;
 const JOB_WAIT_MS = 10_000;
 /** How long the "Save this application?" prompt gets after Dismiss. */
 const PROMPT_WAIT_MS = 5_000;
+/** How long a leftover `submitting` waits before the one reload that rechecks it. */
+export const LEFTOVER_RECHECK_MS = 10_000;
 export const REVIEW_PROMPT =
   'Review page reached. Press Enter to close the window.';
 const STOP_PROMPT = 'The run stopped. Press Enter to close the window.';
@@ -52,7 +56,9 @@ export async function runApply(
     unknownFields: [],
     checks: [],
     disqualification: null,
-    timings: { totalMs: 0, perStepMs: [] },
+    via: null,
+    record: { before: null, beforeAt: null, after: null },
+    timings: { totalMs: 0, perStepMs: [], submit: null },
   };
   let page: ApplyPage | null = null;
   let w: Walk | null = null;
@@ -60,6 +66,20 @@ export async function runApply(
   try {
     checkStop(deps);
     const bank = deps.loadBank();
+    checkStop(deps);
+    const before = deps.record?.get(jobId) ?? null;
+    run.record = {
+      before: before?.status ?? null,
+      beforeAt: before?.updatedAt ?? null,
+      after: before?.status ?? null,
+    };
+    const decision = startDecision(before, !deps.submit);
+    if (decision === 'refuse-applied' || decision === 'refuse-disqualified') {
+      run.via = 'record';
+      throw new RunEnd(
+        decision === 'refuse-applied' ? 'already-applied' : 'disqualified',
+      );
+    }
     checkStop(deps);
     try {
       page = await deps.openPage();
@@ -80,7 +100,7 @@ export async function runApply(
       step: null,
       offers: [],
     };
-    await openJob(w);
+    await openJob(w, decision === 'settle-leftover');
     formOpen = true;
     await walkForm(w);
     run.outcome = 'reached-review';
@@ -140,12 +160,27 @@ async function settleJobPage(w: Walk, ms: number) {
  * requirements check runs while the post is read; Easy Apply is clicked
  * only once it has returned and passed.
  */
-async function openJob(w: Walk): Promise<void> {
+async function openJob(w: Walk, leftover: boolean): Promise<void> {
   const { page, pace, run } = w;
   checkStop(w.deps);
   await page.goto(jobViewUrl(run.jobId));
-  const { doc, jr } = await settleJobPage(w, JOB_WAIT_MS);
-  if (jr.applied) throw new RunEnd('already-applied');
+  let { doc, jr } = await settleJobPage(w, JOB_WAIT_MS);
+  if (leftover && !jr.applied) {
+    // A Submit that may have gone through: give LinkedIn time, look once more.
+    await w.deps.wait(LEFTOVER_RECHECK_MS);
+    checkStop(w.deps);
+    await page.goto(jobViewUrl(run.jobId));
+    ({ doc, jr } = await settleJobPage(w, JOB_WAIT_MS));
+    if (!jr.applied) {
+      recordSet(w, { status: 'failed', reason: 'submit-unconfirmed' });
+      throw new RunEnd('submit-unconfirmed');
+    }
+  }
+  if (jr.applied) {
+    run.via = 'linkedin';
+    recordSet(w, { status: 'applied', source: 'linkedin-marker' });
+    throw new RunEnd('already-applied');
+  }
   // A page still missing its description is never judged on its button.
   if (jr.description === null) {
     throw safety('unexpected-page', 'no job description on the page');
@@ -168,7 +203,7 @@ async function openJob(w: Walk): Promise<void> {
   await pace.pause();
   const claims = await awaitCheck(w, 'job-page', null, check);
   w.offers = offersOf(claims);
-  judge(w, claims, w.offers);
+  judge(w, claims, w.offers, (reasons) => recordDisqualified(w, reasons));
   await pace.click(page.locator(jr.easyApply));
 }
 

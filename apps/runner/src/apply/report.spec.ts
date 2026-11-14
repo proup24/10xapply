@@ -177,7 +177,9 @@ function makeRun(bank: FactBank): ApplyRun {
     ],
     checks: [],
     disqualification: null,
-    timings: { totalMs: 1234, perStepMs: [100, 200] },
+    via: null,
+    record: { before: null, beforeAt: null, after: null },
+    timings: { totalMs: 1234, perStepMs: [100, 200], submit: null },
   };
 }
 

@@ -98,10 +98,16 @@ export const offersOf = (claims: Claim[]): Claim[] =>
   claims.filter((c) => OFFER_KINDS.some((k) => k === c.kind));
 
 /** Ends the run as `disqualified` when the rules say so. */
-export function judge(w: Checked, claims: Claim[], offers: Claim[]): void {
+export function judge(
+  w: Checked,
+  claims: Claim[],
+  offers: Claim[],
+  onDisqualified: (reasons: Claim[]) => void,
+): void {
   const verdict = decide(claims, w.deps.rules, offers);
   if (verdict.kind === 'disqualified') {
     w.run.disqualification = verdict.reasons;
+    onDisqualified(verdict.reasons);
     throw new RunEnd('disqualified');
   }
 }
