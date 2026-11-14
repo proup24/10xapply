@@ -8,7 +8,7 @@ import {
   recordCommand,
   summaryCommand,
 } from './commands/pace.js';
-import { answersEvalCommand } from './commands/answers.js';
+import { answersEvalCommand, type EvalSet } from './commands/answers.js';
 import { applyCommand } from './commands/apply.js';
 import { disqualifyEvalCommand } from './commands/disqualify.js';
 import { factsCheckCommand } from './commands/facts.js';
@@ -32,7 +32,7 @@ const USAGE = `usage: runner <command>
   pace compare     compare the runner's recordings with yours (shape, timing, variety)
   bridge check     check the bridge extension (--crash: also check the crash stop)
   facts check      check the fact bank file and the disqualify rules (optional bank path; prints no values)
-  answers eval     run the answerer's golden eval (--set example|private, --answer-model, --verify-model, --judge-model, --repeat N, --case ID)
+  answers eval     run the answerer's golden eval (--set example|private|misses, --answer-model, --verify-model, --judge-model, --repeat N, --case ID)
   disqualify eval  run the disqualification golden eval (--model, --repeat N, --case ID)`;
 
 /** The value after `--flag`, as a positive integer, or undefined. */
@@ -67,12 +67,14 @@ function refuseEqualsForms(argv: string[]): void {
   }
 }
 
-function setFlag(argv: string[]): 'example' | 'private' | undefined {
+const SETS: readonly EvalSet[] = ['example', 'private', 'misses'];
+
+function setFlag(argv: string[]): EvalSet | undefined {
   const v = stringFlag(argv, '--set');
-  if (v !== undefined && v !== 'example' && v !== 'private') {
-    throw new ConfigError('--set must be example or private');
+  if (v !== undefined && !(SETS as readonly string[]).includes(v)) {
+    throw new ConfigError('--set must be example, private or misses');
   }
-  return v;
+  return v as EvalSet | undefined;
 }
 
 export async function main(argv: string[]): Promise<number> {

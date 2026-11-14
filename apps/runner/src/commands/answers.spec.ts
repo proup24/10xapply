@@ -12,6 +12,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { ModelUnavailableError, type ModelCaller } from '@xapply/answerer';
+import { saveMisses, type Miss, type MissesFile } from '../apply/misses.js';
 import { answersEvalCommand } from './answers.js';
 
 const REPO = join(import.meta.dirname, '..', '..', '..', '..');
@@ -299,5 +300,117 @@ describe('answersEvalCommand', () => {
     const { code, out } = await run(paths, { set: 'private' });
     expect(code).toBe(1);
     expect(out).toContain('cannot read golden file');
+  });
+
+  describe('misses set', () => {
+    const TYPED_SECRET = 'Plonkanswer';
+
+    const miss = (over: Partial<Miss>): Miss => ({
+      id: 'x',
+      jobId: '4242',
+      firstSeenAt: '2026-11-12T10:00:00.000Z',
+      lastSeenAt: '2026-11-12T10:00:00.000Z',
+      runDate: '2026-11-12',
+      question: { label: 'First name', type: 'text', required: true },
+      answer: { kind: 'typed', value: TYPED_SECRET, via: 'terminal' },
+      reason: 'bank-silent',
+      detail: 'generator: bank-silent',
+      sources: [],
+      savedAs: null,
+      ...over,
+    });
+
+    function missesLayout(misses: Miss[]) {
+      const paths = layout(BLOCKED);
+      const file: MissesFile = {
+        version: 1,
+        jobs: {
+          '4242': {
+            title: 'Engineer',
+            company: 'Acme',
+            description: 'Build services.',
+            source: 'linkedin',
+          },
+          // A job whose title and company were never read.
+          '5151': { title: '', company: '', description: '', source: 'linkedin' },
+        },
+        misses,
+      };
+      saveMisses(join(paths.root, 'private/answer-misses.yaml'), file);
+      return paths;
+    }
+
+    it('misses set loads the misses file and the private bank, and prints ids and counts only', async () => {
+      const paths = missesLayout([
+        miss({ id: '4242-first-name-text' }),
+        miss({
+          id: '4242-years-of-go-select',
+          question: {
+            label: `Years of ${SECRET} Go?`,
+            type: 'select',
+            required: true,
+            options: ['1', '2', TYPED_SECRET],
+          },
+        }),
+        // An unread label and job: must not crash the eval.
+        miss({
+          id: '5151--text',
+          jobId: '5151',
+          question: { label: '', type: 'text', required: false },
+        }),
+        miss({ id: '4242-left-blank-text', answer: { kind: 'blank' } }),
+      ]);
+      const { out } = await run(paths, { set: 'misses' });
+      // The private bank backs First name from its own field.
+      expect(out).toContain('PASS 4242-first-name-text');
+      expect(out).toContain('4242-years-of-go-select');
+      expect(out).toContain('5151--text');
+      expect(out).not.toContain('4242-left-blank-text');
+      expect(out).toContain('cases 1/3 passed');
+      for (const secret of [SECRET, TYPED_SECRET, 'Years of']) {
+        expect(out).not.toContain(secret);
+      }
+      const dir = join(paths.root, 'run-reports/answers-eval');
+      const [name] = files(dir);
+      expect(name).toBe('2026-11-12T10-20-30.000Z-misses.json');
+      const text = readFileSync(join(dir, name), 'utf8');
+      for (const secret of [SECRET, TYPED_SECRET, 'Years of']) {
+        expect(text).not.toContain(secret);
+      }
+      const full = join(paths.root, 'private/answers-eval');
+      expect(files(full)).toHaveLength(1);
+      expect(readFileSync(join(full, files(full)[0]), 'utf8')).toContain(
+        SECRET,
+      );
+    });
+
+    it('misses set with no answered misses prints "no answered misses" and exits 0', async () => {
+      const paths = missesLayout([
+        miss({ id: '4242-left-blank-text', answer: { kind: 'blank' } }),
+      ]);
+      const { code, out } = await run(paths, { set: 'misses' });
+      expect(code).toBe(0);
+      expect(out).toBe('no answered misses');
+      expect(files(join(paths.root, 'run-reports/answers-eval'))).toEqual([]);
+    });
+
+    it('misses set with no misses file prints "no answered misses" and exits 0', async () => {
+      const paths = layout(BLOCKED);
+      const { code, out } = await run(paths, { set: 'misses' });
+      expect(code).toBe(0);
+      expect(out).toBe('no answered misses');
+    });
+
+    it('a broken misses file prints its fixed message and returns 1', async () => {
+      const paths = layout(BLOCKED);
+      writeFileSync(
+        join(paths.root, 'private/answer-misses.yaml'),
+        `version: 2\nsecret: ${SECRET}\n`,
+      );
+      const { code, out } = await run(paths, { set: 'misses' });
+      expect(code).toBe(1);
+      expect(out).toContain('misses file');
+      expect(out).not.toContain(SECRET);
+    });
   });
 });

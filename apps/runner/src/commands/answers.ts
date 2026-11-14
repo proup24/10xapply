@@ -19,11 +19,12 @@ import {
   loadFactBank,
   type FactBank,
 } from '@xapply/fact-bank';
+import { loadMisses, MissesError, missesToGolden } from '../apply/misses.js';
 import { ConfigError, ENV_FILE, loadAnswerConfig } from '../config.js';
 
 const REPO_ROOT = dirname(dirname(DEFAULT_FACT_BANK_PATH));
 
-type EvalSet = 'example' | 'private';
+export type EvalSet = 'example' | 'private' | 'misses';
 
 export interface AnswersPaths {
   /** Where the golden files, the banks and the report folders live. */
@@ -158,9 +159,10 @@ function writeJson(path: string, data: unknown): void {
 
 /**
  * Runs a golden set through the answerer with the author's subscription.
- * Exit code: 0 when the bars held, else 1. On the private set nothing but
- * ids, enums and counts goes to stdout or run-reports; the full results go
- * to private/answers-eval/.
+ * Exit code: 0 when the bars held, else 1. On the private and misses sets
+ * nothing but ids, enums and counts goes to stdout or run-reports; the full
+ * results go to private/answers-eval/. The misses set is the answered misses
+ * in private/answer-misses.yaml, against the private bank.
  */
 export async function answersEvalCommand(
   opts: AnswersEvalOptions = {},
@@ -170,7 +172,8 @@ export async function answersEvalCommand(
   const root = opts.paths?.root ?? REPO_ROOT;
   const envFile = opts.paths?.envFile ?? ENV_FILE;
   const set = opts.set ?? 'example';
-  const isPrivate = set === 'private';
+  // The misses set is the author's own questions and answers: redacted as the private set.
+  const isPrivate = set !== 'example';
   try {
     const defaults = loadAnswerConfig(process.env, envFile);
     const models = {
@@ -179,13 +182,23 @@ export async function answersEvalCommand(
       judgeModel: opts.judgeModel ?? defaults.judgeModel,
       maxRegenerations: defaults.maxRegenerations,
     };
-    const goldenPath = isPrivate
-      ? join(root, 'private', 'answer-golden.yaml')
-      : join(root, 'libs', 'answerer', 'golden', 'example.yaml');
     const bankPath = isPrivate
       ? join(root, 'private', 'fact-bank.yaml')
       : join(root, 'libs', 'fact-bank', 'fact-bank.example.yaml');
-    const file = loadGolden(goldenPath);
+    // Not through loadGolden: a text miss expects only `backed`, which its
+    // "unpinned" check refuses by design.
+    const file =
+      set === 'misses'
+        ? missesToGolden(loadMisses(join(root, 'private', 'answer-misses.yaml')))
+        : loadGolden(
+            set === 'private'
+              ? join(root, 'private', 'answer-golden.yaml')
+              : join(root, 'libs', 'answerer', 'golden', 'example.yaml'),
+          );
+    if (set === 'misses' && file.cases.length === 0) {
+      log('no answered misses');
+      return 0;
+    }
     const bank = loadFactBank(bankPath);
     const repeat = opts.repeat ?? 1;
     const startedAt = now();
@@ -240,6 +253,7 @@ export async function answersEvalCommand(
     if (
       e instanceof ModelUnavailableError ||
       e instanceof GoldenError ||
+      e instanceof MissesError ||
       e instanceof ConfigError ||
       e instanceof FactBankError
     ) {
