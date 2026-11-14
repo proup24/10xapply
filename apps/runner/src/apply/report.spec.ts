@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest';
 import type { AnswerResult } from '@xapply/answerer';
 import type { FactBank } from '@xapply/fact-bank';
 import {
+  closingLine,
   formatRedactedSummary,
   formatRunMarkdown,
   redactApplyRun,
@@ -177,7 +178,9 @@ function makeRun(bank: FactBank): ApplyRun {
     ],
     checks: [],
     disqualification: null,
-    timings: { totalMs: 1234, perStepMs: [100, 200] },
+    via: null,
+    record: { before: null, beforeAt: null, after: null },
+    timings: { totalMs: 1234, perStepMs: [100, 200], submit: null },
   };
 }
 
@@ -609,5 +612,158 @@ describe('apply reports', () => {
       expect(none).not.toContain('No requirements found.');
       expect(none).toContain('Verdict: not decided (stopped/bridge)');
     });
+  });
+});
+
+describe('closingLine', () => {
+  const base = (over: Partial<ApplyRun>): ApplyRun => ({
+    ...makeRun(makeBank()),
+    stop: undefined,
+    via: null,
+    record: { before: null, beforeAt: null, after: null },
+    ...over,
+  });
+  const rec = (r: Partial<ApplyRun['record']>): ApplyRun['record'] => ({
+    before: null,
+    beforeAt: null,
+    after: null,
+    ...r,
+  });
+
+  it.each([
+    [
+      { outcome: 'submitted', record: rec({ after: 'applied' }) },
+      'submitted; LinkedIn shows Applied',
+    ],
+    [
+      { outcome: 'submitted', record: rec({ after: 'submitting' }) },
+      'submitted; LinkedIn shows Applied, but the record was not updated; the next run settles it',
+    ],
+    [
+      {
+        outcome: 'already-applied',
+        via: 'record',
+        record: rec({ beforeAt: '2026-11-14T10:00:00.000Z' }),
+      },
+      'already applied (record, 2026-11-14); not opened',
+    ],
+    [
+      {
+        outcome: 'already-applied',
+        via: 'linkedin',
+        record: rec({ after: 'applied' }),
+      },
+      'LinkedIn shows Applied; recorded',
+    ],
+    [
+      { outcome: 'already-applied', via: 'linkedin', record: rec({}) },
+      'LinkedIn shows Applied; not recorded',
+    ],
+    [
+      {
+        outcome: 'disqualified',
+        via: 'record',
+        record: rec({ beforeAt: '2026-11-13T09:00:00.000Z' }),
+      },
+      'disqualified earlier (record, 2026-11-13); not retried',
+    ],
+    [
+      {
+        outcome: 'submit-unconfirmed',
+        record: rec({ before: 'submitting', after: 'failed' }),
+      },
+      'previous submit unconfirmed; marked failed; run again to apply',
+    ],
+    [
+      {
+        outcome: 'submit-unconfirmed',
+        record: rec({ before: null, after: 'failed' }),
+      },
+      'Submit clicked but LinkedIn does not show Applied; marked failed. Check the job on LinkedIn before running again',
+    ],
+    [
+      {
+        outcome: 'submit-unconfirmed',
+        record: rec({ before: 'submitting', after: 'submitting' }),
+      },
+      'previous submit unconfirmed; the record was not updated; the next run settles it',
+    ],
+    [
+      { outcome: 'submit-unconfirmed', record: rec({ before: null }) },
+      'Submit clicked but LinkedIn does not show Applied; the record was not updated. Check the job on LinkedIn before running again',
+    ],
+  ] as [Partial<ApplyRun>, string][])('closingLine %#', (over, line) => {
+    expect(closingLine(base(over))).toBe(line);
+  });
+
+  it.each(['stopped', 'safety-stop'] as const)(
+    '%s after the Submit click says it may have gone through',
+    (outcome) => {
+      const line = closingLine(
+        base({
+          outcome,
+          record: rec({ after: 'submitting' }),
+          timings: {
+            totalMs: 1,
+            perStepMs: [],
+            submit: { clickToSentMs: null, sentToMarkerMs: null },
+          },
+        }),
+      );
+      expect(line).toContain('Submit may have gone through');
+      expect(line).toContain('next run settles it');
+      expect(line).not.toMatch(/nothing (was )?submitted/);
+    },
+  );
+
+  it('other outcomes use fixed words only', () => {
+    const run = makeRun(makeBank());
+    for (const outcome of [
+      'reached-review',
+      'not-easy-apply',
+      'needs-author',
+      'stopped',
+      'safety-stop',
+      'bridge-unavailable',
+      'disqualified',
+    ] as const) {
+      const line = closingLine({ ...run, outcome, via: null });
+      for (const m of markers) expect(line, m).not.toContain(m);
+    }
+  });
+
+  it('the redacted report carries via, record and submit timings and no label', () => {
+    const bank = makeBank();
+    const run = makeRun(bank);
+    const r = redactApplyRun(
+      {
+        ...run,
+        via: 'record',
+        record: rec({ before: 'submitting', after: 'failed' }),
+        timings: {
+          totalMs: 1,
+          perStepMs: [],
+          submit: { clickToSentMs: 5, sentToMarkerMs: 7 },
+        },
+      },
+      bank,
+    );
+    expect(r.via).toBe('record');
+    expect(r.record).toEqual({
+      before: 'submitting',
+      beforeAt: null,
+      after: 'failed',
+    });
+    expect(r.timings.submit).toEqual({ clickToSentMs: 5, sentToMarkerMs: 7 });
+    for (const m of markers) expect(JSON.stringify(r)).not.toContain(m);
+  });
+
+  it('verdict: submitted is pass', () => {
+    const bank = makeBank();
+    const md = formatRunMarkdown(
+      { ...makeRun(bank), outcome: 'submitted', stop: undefined },
+      bank,
+    );
+    expect(md).toContain('Verdict: pass');
   });
 });

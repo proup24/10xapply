@@ -57,6 +57,15 @@ export const FOOTER_BUTTONS = 'footer button';
 export const FIELD_WRAPPER = '[componentkey^="easyApplyFieldFocus_"]';
 /** The "Follow <company> to stay up to date with their page" checkbox (review.html). */
 export const FOLLOW_CHECKBOX_LABEL = /^Follow .+ to stay up to date/i;
+/**
+ * That checkbox as the runner aims at it: a checkbox inside the form's
+ * dialog whose aria-label starts "Follow " (review-follow.html, and every
+ * review fixture). The aria-label prefix survives LinkedIn's re-renders,
+ * unlike the React id, and keeps the company name out of the selector. The
+ * job page's own "Follow <company>" is a button outside the dialog, and the
+ * job-alert switch's label starts "Set alert", so neither matches.
+ */
+export const FOLLOW_CHECKBOX = `${FORM_DIALOG} input[type="checkbox"][aria-label^="Follow "]`;
 /** Resume radios are labelled with their file name (step-resume.html). */
 export const RESUME_FILE = /\.(pdf|docx?)$/i;
 /**
@@ -89,6 +98,18 @@ export const SAVE_PROMPT_TITLE = 'Save this application?';
 export const SAVE_PROMPT_DIALOG =
   'dialog[data-testid="dialog"]:not([aria-labelledby="dialog-header"])';
 export const DISCARD_TEXT = 'Discard';
+
+/**
+ * LinkedIn's "Your application was sent" dialog: a `role="dialog"` labelled
+ * by `post-apply-modal` (job-applied.html). The Premium banner's own Dismiss
+ * is outside it. Used as `within` for the dialog's Dismiss.
+ */
+export const SENT_DIALOG =
+  '[role="dialog"][aria-labelledby="post-apply-modal"]';
+/** The sent dialog's heading starts with this (job-applied.html). */
+export const SENT_HEADING = /^Your application was sent/i;
+/** The sent dialog's Dismiss button (job-applied.html). */
+export const SENT_DISMISS = `${SENT_DIALOG} button[aria-label="Dismiss"]`;
 
 /** `[attr="value"]` with the value quoted for CSS. */
 export function attr(name: string, value: string): string {

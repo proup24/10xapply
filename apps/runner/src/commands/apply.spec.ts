@@ -8,11 +8,14 @@ import type { ModelCaller, ModelRequest } from '@xapply/answerer';
 import type { Bridge } from '../bridge/bridge.js';
 import { INTERRUPTED } from '../apply/run.js';
 import { ReadMismatchError } from '../apply/fill.js';
+import { RecordError, type RecordStore } from '../apply/record.js';
 import type { ApplyDeps, ApplyRun } from '../apply/types.js';
 import type { Page } from 'patchright-core';
 import {
   adaptApplyPage,
   applyCommand,
+  BAD_RECORD,
+  NOT_AUTHOR,
   type ApplyCommandDeps,
 } from './apply.js';
 
@@ -71,8 +74,19 @@ function markedRun(): ApplyRun {
     unknownFields: [],
     checks: [],
     disqualification: null,
-    timings: { totalMs: 10, perStepMs: [5, 5] },
+    via: null,
+    record: { before: null, beforeAt: null, after: null },
+    timings: { totalMs: 10, perStepMs: [5, 5], submit: null },
   };
+}
+
+function fakeRecord(): RecordStore {
+  return {
+    get: () => null,
+    set: () => {
+      throw new Error('unused');
+    },
+  } as unknown as RecordStore;
 }
 
 function fakeBridge(): Bridge & { closed: number } {
@@ -144,6 +158,8 @@ function harness(over: Partial<ApplyCommandDeps> = {}): Harness {
         redacted: '/reports/apply-redacted.json',
       };
     },
+    recordPath: '/nowhere/applications.json',
+    openRecord: () => fakeRecord(),
     onSigint: () => () => undefined,
     ...over,
   };
@@ -151,14 +167,128 @@ function harness(over: Partial<ApplyCommandDeps> = {}): Harness {
 }
 
 describe('applyCommand', () => {
-  it('refuses without --dry-run before connecting', async () => {
+  it('without --dry-run outside author mode exits 2 before connecting', async () => {
     const h = harness();
     expect(await applyCommand([URL_OK], h.deps)).toBe(2);
-    expect(h.lines).toEqual([
-      'apply: submitting comes in slice 07; use --dry-run',
-    ]);
+    expect(h.lines).toEqual([NOT_AUTHOR]);
     expect(h.connect).not.toHaveBeenCalled();
     expect(h.loadBank).not.toHaveBeenCalled();
+  });
+
+  it('without --dry-run in author mode runs with submit true', async () => {
+    let got: ApplyDeps | null = null;
+    const h = harness({
+      authorMode: true,
+      runApply: async (_id: string, deps: ApplyDeps) => {
+        got = deps;
+        return markedRun();
+      },
+    });
+    await applyCommand([URL_OK], h.deps);
+    const g = got as unknown as ApplyDeps;
+    expect(g.submit).toBe(true);
+    expect(g.record).not.toBeNull();
+  });
+
+  it('--dry-run passes submit false', async () => {
+    let got: ApplyDeps | null = null;
+    const h = harness({
+      runApply: async (_id: string, deps: ApplyDeps) => {
+        got = deps;
+        return markedRun();
+      },
+    });
+    await applyCommand([URL_OK, '--dry-run'], h.deps);
+    expect((got as unknown as ApplyDeps).submit).toBe(false);
+  });
+
+  it('opens the record from recordPath after the resume check, before connecting', async () => {
+    const open = vi.fn(() => fakeRecord());
+    const h = harness({ openRecord: open, recordPath: '/nowhere/rec.json' });
+    await applyCommand([URL_OK, '--dry-run'], h.deps);
+    expect(open).toHaveBeenCalledWith('/nowhere/rec.json');
+    expect(open.mock.invocationCallOrder[0]).toBeLessThan(
+      h.connect.mock.invocationCallOrder[0] ?? 0,
+    );
+  });
+
+  it('a bad record stops a real run before connecting', async () => {
+    const h = harness({
+      authorMode: true,
+      openRecord: () => {
+        throw new RecordError('MARKER-RECORD');
+      },
+    });
+    expect(await applyCommand([URL_OK], h.deps)).toBe(2);
+    expect(h.lines[0]).toBe(BAD_RECORD);
+    expect(h.connect).not.toHaveBeenCalled();
+  });
+
+  it('a bad record lets a dry run go ahead with record null', async () => {
+    let got: ApplyDeps | null = null;
+    const h = harness({
+      openRecord: () => {
+        throw new RecordError('bad');
+      },
+      runApply: async (_id: string, deps: ApplyDeps) => {
+        got = deps;
+        return markedRun();
+      },
+    });
+    await applyCommand([URL_OK, '--dry-run'], h.deps);
+    expect(h.connect).toHaveBeenCalled();
+    expect((got as unknown as ApplyDeps).record).toBeNull();
+  });
+
+  it('exits 0 on submitted and reached-review, 2 otherwise', async () => {
+    for (const [outcome, code] of [
+      ['submitted', 0],
+      ['reached-review', 0],
+      ['submit-unconfirmed', 2],
+      ['already-applied', 2],
+      ['stopped', 2],
+    ] as const) {
+      const h = harness({
+        runApply: async () => ({ ...markedRun(), outcome, stop: undefined }),
+      });
+      expect(await applyCommand([URL_OK, '--dry-run'], h.deps), outcome).toBe(
+        code,
+      );
+    }
+  });
+
+  it('prints the closing line in both modes', async () => {
+    for (const authorMode of [false, true]) {
+      const h = harness({
+        authorMode,
+        runApply: async () => ({
+          ...markedRun(),
+          outcome: 'submitted',
+          stop: undefined,
+          record: { before: null, beforeAt: null, after: 'applied' },
+        }),
+      });
+      await applyCommand([URL_OK, '--dry-run'], h.deps);
+      expect(h.lines).toContain('submitted; LinkedIn shows Applied');
+    }
+  });
+
+  it('closes with the may-have-gone-through line after a Submit click then a stop', async () => {
+    const h = harness({
+      runApply: async () => ({
+        ...markedRun(),
+        record: { before: null, beforeAt: null, after: 'submitting' },
+        timings: {
+          totalMs: 1,
+          perStepMs: [],
+          submit: { clickToSentMs: null, sentToMarkerMs: null },
+        },
+      }),
+    });
+    await applyCommand([URL_OK, '--dry-run'], h.deps);
+    const out = h.lines.join('\n');
+    expect(out).toContain('Submit may have gone through');
+    expect(out).toContain('next run settles it');
   });
 
   it('bad url exits 2', async () => {

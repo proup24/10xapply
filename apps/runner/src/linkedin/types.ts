@@ -88,5 +88,21 @@ export type StepRead =
    * A Submit button is showing. A one-page form still has its question
    * fields here, to fill before stopping; a normal review page has none.
    */
-  | { kind: 'review'; fields: ReadField[]; unknown: UnknownField[] }
+  | {
+      kind: 'review';
+      fields: ReadField[];
+      unknown: UnknownField[];
+      /** Selector for the one Submit button in the form, or null. */
+      submit: string | null;
+      /**
+       * LinkedIn's "Follow <company> to stay up to date with their page"
+       * checkbox, ticked by default when present; the runner unticks it.
+       * `box` is the one checkbox input inside the form dialog (its state
+       * is read live: the captures hold none); `press` is where a person
+       * clicks it (its `label[for]` inside the form, else the input). Null
+       * when absent; 'unclear' when one is seen but no selector picks out
+       * exactly one inside the form (the run then stops).
+       */
+      follow: { box: string; press: string } | 'unclear' | null;
+    }
   | { kind: 'none' }; // no Easy Apply dialog on the page

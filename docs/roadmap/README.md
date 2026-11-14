@@ -161,9 +161,10 @@ The author gives the runner one LinkedIn job URL. A real Chrome window on the au
 
 ### 07 Submit, and never twice
 
-- **Scope:** `apply <job-url>` without `--dry-run`. If every answer is confident, it submits. If something blocks, it asks the author in the terminal, then continues or stops. After submitting, it confirms LinkedIn shows the job as applied. A local record of applied jobs under `private/`, keyed on the LinkedIn job id, refuses a second application. LinkedIn's own "Applied" marker is checked too. The record also has a `disqualified` status (from slice 05b), and a disqualified job is never retried.
+- **Spec:** [slice 07 spec](../superpowers/specs/2026-11-14-submit-never-twice-design.md).
+- **Scope:** `apply <job-url>` without `--dry-run`. If every answer is confident, it submits. If something blocks, it asks the author in the terminal, then continues or stops. After submitting, it confirms LinkedIn shows the job as applied. A local record of applied jobs under `private/`, keyed on the LinkedIn job id, refuses a second application. LinkedIn's own "Applied" marker is checked too. The record also has a `disqualified` status (from slice 05b), and a disqualified job is never retried. On the review page the runner unticks LinkedIn's "Follow {company}" checkbox when it is there _(user)_.
 - **Locked:** auto-submit unless blocked _(user)_. The local record is written before the Submit click, as "submitting", and updated after it, so a crash mid-submit never leads to a second attempt without the author checking.
-- **Spec answers:** whether a terminal answer is saved back into the fact bank for next time (answered in slice 06: yes, as a known answer); what happens if the browser crashes mid-run; the format of the local record (it moves to Postgres in slice 14).
+- **Spec answers:** settled in the spec. The record is `applications.json` under `private/`, keyed on the job id, with statuses `submitting`, `applied`, `disqualified` and `failed`. A leftover `submitting` is settled from LinkedIn's Applied marker (`applied`), else `failed`, and the next run retries it. There is no typed confirmation; a real submit runs only in author mode. A terminal answer is saved back into the fact bank as a known answer (slice 06).
 
 ## Phase 2: Steady stream for the author
 
@@ -224,8 +225,8 @@ The author gives the runner one LinkedIn job URL. A real Chrome window on the au
 ### 14 The runner takes approved jobs
 
 - **Scope:** the local runner from Phase 1 runs as a long-lived process on the author's machine. It picks up approved jobs from Postgres one at a time, applies at a human pace with gaps between applications, respects a daily cap and quiet hours, and writes each run's status and report back to the database. The Phase 1 local record of applied jobs moves into Postgres, with a unique constraint on user and job.
-- **Locked:** one run at a time per account; daily cap; stop on the safety stops, and a stop pauses the whole runner until the author looks, not only that job _(my call)_. From this slice on, Claude may start the runner, real submits included; the guard is relaxed here.
-- **Spec answers:** how the runner authenticates to the database from the author's machine (a scoped key or the author's own session; not the service role key unless justified); the cap, gaps and hours as configuration with starting values; how a run left in "submitting" after a crash is resolved.
+- **Locked:** one run at a time per account; daily cap; stop on the safety stops, and a stop pauses the whole runner until the author looks, not only that job _(my call)_. From this slice on, Claude may start the runner, real submits included; the guard's runner rule is relaxed here, and so is the author-mode-only submit.
+- **Spec answers:** how the runner authenticates to the database from the author's machine (a scoped key or the author's own session; not the service role key unless justified); the cap, gaps and hours as configuration with starting values; (how a run left in "submitting" after a crash is resolved was settled in slice 07).
 
 ### 15 Blocking questions in the web app
 

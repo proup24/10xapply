@@ -28,11 +28,21 @@ import {
   FORM_CONTENT,
   FORM_DIALOG,
   SAVE_PROMPT_DIALOG,
+  SENT_DIALOG,
 } from '../linkedin/selectors.js';
+import { readSent } from '../linkedin/sent.js';
 import { ConfigError } from '../config.js';
 import type { Pace } from '../pace/pace.js';
 import type { TerminalIO } from '../terminal/author-mode.js';
-import { REVIEW_PROMPT, guardNext, runApply } from './run.js';
+import {
+  LEFTOVER_RECHECK_MS,
+  REVIEW_PROMPT,
+  MARKER_WAIT_MS,
+  SENT_WAIT_MS,
+  guardNext,
+  runApply,
+} from './run.js';
+import type { JobEntry, JobStatus, StatusChange } from './record.js';
 import { ReadMismatchError } from './fill.js';
 import type { ApplyDeps, ApplyPage, ApplyRun } from './types.js';
 
@@ -85,6 +95,7 @@ interface Screen {
   /** After this many reads of its HTML, the page becomes the named screen. */
   then?: { after: number; to: string };
 }
+// A screen's `on` key 'goto' moves to the named screen on the next `goto`.
 
 interface Call {
   op: string;
@@ -98,6 +109,11 @@ interface Call {
 const submitHits: string[] = [];
 /** Every acted-on selector whose element is a "Save" button, in this test. */
 const saveHits: string[] = [];
+/**
+ * Set by the latest harness: true for a `submit: true` run. Only such runs
+ * may hit Submit, at most once; every other run must never.
+ */
+let submitRun = false;
 
 const SUBMIT = /submit/i;
 function checkNotSubmit(html: string, sel: string) {
@@ -134,7 +150,26 @@ interface Harness {
   jobChecks: CheckJob[];
   /** What each round's check was given. */
   stepChecks: CheckQuestion[][];
+  /** Every record write, in order. */
+  sets: { jobId: string; change: StatusChange }[];
+  /** Every `deps.wait` argument. */
+  waits: () => number[];
+  /** Record sets (`set <status>`), pace clicks (`click <sel>`) and `goto`s. */
+  order: () => string[];
+  /** Every acted-on selector that read as Submit, in this harness. */
+  submits: () => string[];
 }
+
+/** A record entry as the store holds it. */
+const entry = (
+  status: JobStatus,
+  extra: StatusChange = { status },
+): JobEntry => ({
+  ...extra,
+  status,
+  updatedAt: '2026-11-13T10:00:00.000Z',
+  history: [],
+});
 
 interface Setup {
   screens: Record<string, Screen>;
@@ -152,12 +187,24 @@ interface Setup {
   rejectAsk?: string;
   /** Selectors typing doesn't change. */
   deaf?: string[];
+  /** Selectors a click doesn't change the checked state of. */
+  stuck?: string[];
   /** Once this selector is pressed, every checked-state read times out. */
   readsFailAfter?: string;
   /** The job-page check's claims; none by default. */
   jobClaims?: Claim[];
   /** Each round's check: its claims; none by default. */
   stepClaims?: (qs: CheckQuestion[]) => Claim[];
+  /**
+   * The record's initial entries; omitted: empty; null: `deps.record` is
+   * null.
+   */
+  record?: Record<string, JobEntry> | null;
+  /** Default false (a dry run). */
+  submit?: boolean;
+  /** A record `set` to this status throws. */
+  setFails?: JobStatus;
+  onSet?: (jobId: string, change: StatusChange) => void;
 }
 
 type Reply = AnswerValue | { blocked: true };
@@ -198,6 +245,8 @@ function result(q: FormQuestion, r: Reply): AnswerResult {
 const BANK = { answers: [] } as unknown as FactBank;
 
 function harness(s: Setup): Harness {
+  submitRun = s.submit ?? false;
+  const submits: string[] = [];
   const calls: Call[] = [];
   let current = '';
   let closed = false;
@@ -213,6 +262,8 @@ function harness(s: Setup): Harness {
   const stepChecks: CheckQuestion[][] = [];
   const replies = [...(s.author ?? [])];
   const reads: Record<string, number> = {};
+  const sets: { jobId: string; change: StatusChange }[] = [];
+  const entries: Record<string, JobEntry> = { ...(s.record ?? {}) };
 
   const screen = () => {
     const sc = s.screens[current];
@@ -226,7 +277,9 @@ function harness(s: Setup): Harness {
     opts?: { within?: Locator },
   ) => {
     const sel = selOf(l);
+    const hitsBefore = submitHits.length;
     checkNotSubmit(screen().html, sel);
+    if (submitHits.length > hitsBefore) submits.push(sel);
     calls.push({
       op,
       sel,
@@ -253,7 +306,15 @@ function harness(s: Setup): Harness {
   const page: ApplyPage = {
     locator: loc,
     value: async (sel) => values[sel] ?? '',
-    checked: async (sel) => (soft(), checked[sel] ?? false),
+    // A selector not set directly reads its one element's state by id, as
+    // a label[for] press sets it.
+    checked: async (sel) => {
+      soft();
+      if (sel in checked) return checked[sel] ?? false;
+      const els = [...docOf(screen().html).querySelectorAll(sel)];
+      const id = els.length === 1 ? els[0]?.getAttribute('id') : null;
+      return id ? (checked[byId(id)] ?? false) : false;
+    },
     // Stable reads go through the screen's own DOM to the inputs' ids.
     anyChecked: async (sel) => {
       soft();
@@ -269,8 +330,9 @@ function harness(s: Setup): Harness {
     selectedText: async () => null,
     suggestion: async () => null,
     goto: async (url) => {
+      const to = current === '' ? undefined : screen().on?.goto;
       calls.push({ op: 'goto', sel: url });
-      current = s.start ?? 'job';
+      current = to ?? s.start ?? 'job';
     },
     path: () => screen().path ?? JOB_PATH,
     html: async () => {
@@ -291,6 +353,7 @@ function harness(s: Setup): Harness {
     defaulted: [],
     click: async (t, o) => {
       act('click', t, undefined, o);
+      if (s.stuck?.includes(selOf(t))) return;
       // A label[for] press changes its input's state.
       const sel = inputOf(selOf(t));
       checked[sel] = !(checked[sel] ?? false);
@@ -361,6 +424,30 @@ function harness(s: Setup): Harness {
       return { claims: s.stepClaims?.(qs) ?? [], calls: [CALL] };
     },
     rules: { authorizedCountries: ['MA'], locatedIn: ['MA'] },
+    submit: s.submit ?? false,
+    record:
+      s.record === null
+        ? null
+        : {
+            get: (jobId) => entries[jobId] ?? null,
+            set: (jobId, change, runStartedAt) => {
+              if (s.setFails === change.status) throw new Error('disk full');
+              sets.push({ jobId, change });
+              calls.push({ op: 'set', sel: change.status });
+              s.onSet?.(jobId, change);
+              const prev = entries[jobId];
+              const e: JobEntry = {
+                ...change,
+                updatedAt: '2026-11-14T10:00:00.000Z',
+                history: [
+                  ...(prev?.history ?? []),
+                  { ...change, at: '2026-11-14T10:00:00.000Z', runStartedAt },
+                ],
+              };
+              entries[jobId] = e;
+              return e;
+            },
+          },
   };
   const PACE_OPS = new Set([
     'click',
@@ -388,6 +475,19 @@ function harness(s: Setup): Harness {
     answered,
     jobChecks,
     stepChecks,
+    sets,
+    waits: () => calls.filter((c) => c.op === 'wait').map((c) => Number(c.arg)),
+    order: () =>
+      calls.flatMap((c) =>
+        c.op === 'set'
+          ? [`set ${c.sel}`]
+          : c.op === 'click'
+            ? [`click ${c.sel}`]
+            : c.op === 'goto'
+              ? ['goto']
+              : [],
+      ),
+    submits: () => [...submits],
   };
 }
 
@@ -490,11 +590,237 @@ const D = textField('qd', 'Question D');
 
 const stopKind = (r: ApplyRun) => r.stop?.kind;
 
+describe('the record at the start', () => {
+  const checked = (step: string): Record<string, Screen> => ({
+    job: { html: JOB, on: { [EASY_APPLY]: 'step' } },
+    step: {
+      html: step,
+      on: { [nextOf(step)]: 'review', [DISMISS]: 'prompt' },
+    },
+    ...reviewScreens(),
+  });
+  it('applied in the record: refused before a window opens', async () => {
+    const h = harness({
+      screens: fullFlow(),
+      record: { '123': entry('applied') },
+    });
+    const run = await runApply('123', h.deps);
+    expect(run).toMatchObject({
+      outcome: 'already-applied',
+      via: 'record',
+      record: { before: 'applied', after: 'applied' },
+    });
+    expect(h.calls).toEqual([]);
+    expect(h.sets).toEqual([]);
+  });
+
+  it.each([false, true])(
+    'disqualified in the record: refused before a window opens (submit %s)',
+    async (submit) => {
+      const h = harness({
+        screens: fullFlow(),
+        submit,
+        record: { '123': entry('disqualified') },
+      });
+      const run = await runApply('123', h.deps);
+      expect(run).toMatchObject({
+        outcome: 'disqualified',
+        via: 'record',
+        record: { before: 'disqualified', after: 'disqualified' },
+      });
+      expect(h.calls).toEqual([]);
+    },
+  );
+
+  it.each([false, true])(
+    'a marker on a job the record does not know is recorded applied (submit %s)',
+    async (submit) => {
+      const h = harness({
+        submit,
+        screens: { job: { html: fixture('job-applied.html') } },
+      });
+      const run = await runApply('123', h.deps);
+      expect(run).toMatchObject({
+        outcome: 'already-applied',
+        via: 'linkedin',
+        record: { before: null, after: 'applied' },
+      });
+      expect(h.sets).toEqual([
+        {
+          jobId: '123',
+          change: { status: 'applied', source: 'linkedin-marker' },
+        },
+      ]);
+      expect(h.acts()).toEqual([]);
+    },
+  );
+
+  it('a job-page disqualification is recorded with its reason', async () => {
+    const h = harness({
+      screens: fullFlow(),
+      jobClaims: [claim('requires-location', ['DE'])],
+    });
+    const run = await runApply('123', h.deps);
+    expect(run).toMatchObject({
+      outcome: 'disqualified',
+      via: 'linkedin',
+      record: { before: null, after: 'disqualified' },
+    });
+    expect(h.sets).toEqual([
+      {
+        jobId: '123',
+        change: { status: 'disqualified', reason: 'requires-location:DE' },
+      },
+    ]);
+  });
+
+  it('a form-step disqualification is recorded too', async () => {
+    const h = harness({
+      screens: checked(synth({ fields: [A] })),
+      stepClaims: () => [claim('requires-location', ['DE'], 's1-q1')],
+    });
+    const run = await runApply('123', h.deps);
+    expect(run.outcome).toBe('disqualified');
+    expect(h.sets).toEqual([
+      {
+        jobId: '123',
+        change: { status: 'disqualified', reason: 'requires-location:DE' },
+      },
+    ]);
+  });
+
+  it('a record set that throws on disqualified still ends disqualified', async () => {
+    const h = harness({
+      screens: fullFlow(),
+      jobClaims: [claim('requires-location', ['DE'])],
+      record: { '123': entry('failed') },
+      setFails: 'disqualified',
+    });
+    const run = await runApply('123', h.deps);
+    expect(run.outcome).toBe('disqualified');
+    expect(run.record).toMatchObject({ before: 'failed', after: 'failed' });
+    expect(h.sets).toEqual([]);
+  });
+
+  it('failed in the record walks the form as usual', async () => {
+    const h = harness({
+      screens: fullFlow(),
+      record: { '123': entry('failed') },
+    });
+    const run = await runApply('123', h.deps);
+    expect(run.outcome).toBe('reached-review');
+    expect(run.record).toMatchObject({ before: 'failed', after: 'failed' });
+    expect(h.sets).toEqual([]);
+  });
+
+  it('a null record (dry run) reads and writes nothing', async () => {
+    const h = harness({
+      screens: { job: { html: fixture('job-applied.html') } },
+      record: null,
+    });
+    const run = await runApply('123', h.deps);
+    expect(run).toMatchObject({
+      outcome: 'already-applied',
+      via: 'linkedin',
+      record: { before: null, after: null },
+    });
+    expect(h.sets).toEqual([]);
+  });
+
+  describe('a leftover submitting', () => {
+    const left = { '123': entry('submitting') };
+
+    it('with the marker: applied from linkedin-marker, form never opened', async () => {
+      const h = harness({
+        submit: true,
+        screens: { job: { html: fixture('job-applied.html') } },
+        record: left,
+      });
+      const run = await runApply('123', h.deps);
+      expect(run).toMatchObject({
+        outcome: 'already-applied',
+        via: 'linkedin',
+        record: { before: 'submitting', after: 'applied' },
+      });
+      expect(h.sets).toEqual([
+        {
+          jobId: '123',
+          change: { status: 'applied', source: 'linkedin-marker' },
+        },
+      ]);
+      expect(h.acts()).toEqual([]);
+      expect(h.waits()).not.toContain(LEFTOVER_RECHECK_MS);
+    });
+
+    it('without the marker: one reload after LEFTOVER_RECHECK_MS, then failed submit-unconfirmed, form never opened', async () => {
+      const h = harness({
+        submit: true,
+        screens: { job: { html: JOB } },
+        record: left,
+      });
+      const run = await runApply('123', h.deps);
+      expect(run.outcome).toBe('submit-unconfirmed');
+      expect(run.record).toMatchObject({
+        before: 'submitting',
+        after: 'failed',
+      });
+      expect(h.calls.filter((c) => c.op === 'goto')).toHaveLength(2);
+      expect(h.waits()).toContain(LEFTOVER_RECHECK_MS);
+      expect(h.sets).toEqual([
+        {
+          jobId: '123',
+          change: { status: 'failed', reason: 'submit-unconfirmed' },
+        },
+      ]);
+      expect(h.acts()).not.toContain(`click ${EASY_APPLY}`);
+    });
+
+    it('the marker on the reload: applied', async () => {
+      const h = harness({
+        submit: true,
+        screens: {
+          job: { html: JOB, on: { goto: 'job2' } },
+          job2: { html: fixture('job-applied.html') },
+        },
+        record: left,
+      });
+      const run = await runApply('123', h.deps);
+      expect(run).toMatchObject({
+        outcome: 'already-applied',
+        via: 'linkedin',
+        record: { after: 'applied' },
+      });
+      expect(h.sets).toEqual([
+        {
+          jobId: '123',
+          change: { status: 'applied', source: 'linkedin-marker' },
+        },
+      ]);
+      expect(h.calls.filter((c) => c.op === 'goto')).toHaveLength(2);
+      expect(h.acts()).toEqual([]);
+    });
+
+    it('a dry run walks it and writes nothing', async () => {
+      const h = harness({ screens: fullFlow(), record: left });
+      const run = await runApply('123', h.deps);
+      expect(run.outcome).toBe('reached-review');
+      expect(run.record).toMatchObject({
+        before: 'submitting',
+        after: 'submitting',
+      });
+      expect(h.sets).toEqual([]);
+    });
+  });
+});
+
 describe('runApply', () => {
-  // The never-submit rule, checked after every test's run.
+  // The never-submit rule, checked after every test's run. A `submit: true`
+  // run asserts its own Submit clicks; even it never gets more than one.
   afterEach(() => {
     const hits = submitHits.splice(0);
-    expect(hits).toEqual([]);
+    if (submitRun) expect(hits.length).toBeLessThanOrEqual(1);
+    else expect(hits).toEqual([]);
+    submitRun = false;
     // Nor ever the save prompt's Save.
     expect(saveHits.splice(0)).toEqual([]);
   });
@@ -1888,6 +2214,650 @@ describe('runApply', () => {
         's1-q1',
         's1-q2',
       ]);
+    });
+  });
+
+  describe('submitting', () => {
+    const submitOf = (html: string) => {
+      const r = readStep(docOf(html));
+      if (r.kind !== 'review' || !r.submit) throw new Error('no submit');
+      return r.submit;
+    };
+    /** review.html's one Submit button. */
+    const SUBMIT_SEL = submitOf(REVIEW);
+    /** The job page after a submit, with LinkedIn's sent dialog up. */
+    const SENT = fixture('job-applied.html');
+    const SENT_CLOSE = readSent(docOf(SENT))?.close ?? '';
+    /** The applied job page without the sent dialog (a reload). */
+    const APPLIED = SENT.replaceAll('Your application was sent', 'Sent');
+    /** A review page with two Submit buttons: no single one. */
+    const TWO_SUBMITS = synth({
+      next: null,
+      submit: true,
+      extra: '<button id="send2" type="button">Submit application</button>',
+    });
+    /** fullFlow, with the review's Submit leading to `to`. */
+    const flow = (
+      to: string,
+      more: Record<string, Screen>,
+    ): Record<string, Screen> => {
+      const f = fullFlow();
+      f['review'] = {
+        html: REVIEW,
+        on: { [DISMISS]: 'prompt', [SUBMIT_SEL]: to },
+      };
+      return { ...f, ...more };
+    };
+    /** Submit → the sent dialog → reload → applied. */
+    const happy = () =>
+      flow('sent', {
+        sent: { html: SENT, on: { goto: 'applied' } },
+        applied: { html: APPLIED },
+      });
+    /** Submit takes no effect: the review page, Dismiss and all, stays up. */
+    const stays = (): Record<string, Screen> => ({
+      ...fullFlow(),
+      review: { html: REVIEW, on: { [DISMISS]: 'prompt', goto: 'job' } },
+    });
+
+    /** What happened from the `submitting` write on. */
+    const fromSubmitting = (h: Harness) =>
+      h.order().slice(h.order().indexOf('set submitting'));
+    const gotosAfterSubmit = (h: Harness) =>
+      fromSubmitting(h).filter((o) => o === 'goto').length;
+
+    it('the fixtures read as the tests need', () => {
+      expect(SENT_CLOSE).not.toBe('');
+      expect(readSent(docOf(APPLIED))).toBeNull();
+      expect(readStep(docOf(TWO_SUBMITS))).toMatchObject({
+        kind: 'review',
+        submit: null,
+      });
+    });
+
+    it('writes submitting, clicks Submit once, closes the sent dialog, confirms the marker, records applied', async () => {
+      const h = harness({ screens: happy(), submit: true });
+      const run = await runApply('123', h.deps);
+      expect(run.outcome).toBe('submitted');
+      expect(run.stop).toBeUndefined();
+      expect(h.sets.map((s) => s.change)).toEqual([
+        { status: 'submitting' },
+        { status: 'applied', source: 'submit' },
+      ]);
+      expect(run.record).toMatchObject({ before: null, after: 'applied' });
+      expect(fromSubmitting(h)).toEqual([
+        'set submitting',
+        `click ${SUBMIT_SEL}`,
+        `click ${SENT_CLOSE}`,
+        'goto',
+        'set applied',
+      ]);
+      expect(h.calls).toContainEqual({
+        op: 'click',
+        sel: SUBMIT_SEL,
+        within: FORM_DIALOG,
+      });
+      expect(h.calls).toContainEqual({
+        op: 'click',
+        sel: SENT_CLOSE,
+        within: SENT_DIALOG,
+      });
+      expect(h.submits()).toEqual([SUBMIT_SEL]);
+      expect(run.timings.submit).toEqual({
+        clickToSentMs: expect.any(Number),
+        sentToMarkerMs: expect.any(Number),
+      });
+      // No form close-out after a submit.
+      expect(h.acts()).not.toContain(`click ${DISMISS}`);
+      expect(h.acts()).not.toContain(`click ${DISCARD}`);
+      expect(h.closed()).toBe(true);
+    });
+
+    it('a refused Dismiss on the sent dialog still reloads for the marker', async () => {
+      const h = harness({ screens: happy(), submit: true });
+      const inner = h.deps.pace;
+      h.deps.pace = (p) => {
+        const pace = inner(p);
+        return {
+          ...pace,
+          click: async (t, o) => {
+            if ((t as unknown as { sel: string }).sel === SENT_CLOSE) {
+              throw new Error('pace: target has no box (hidden or detached)');
+            }
+            return pace.click(t, o);
+          },
+        };
+      };
+      const run = await runApply('123', h.deps);
+      expect(run.outcome).toBe('submitted');
+      expect(run.stop).toBeUndefined();
+      expect(run.record).toMatchObject({ after: 'applied' });
+      expect(h.sets.map((s) => s.change)).toEqual([
+        { status: 'submitting' },
+        { status: 'applied', source: 'submit' },
+      ]);
+      expect(h.submits()).toEqual([SUBMIT_SEL]);
+      expect(gotosAfterSubmit(h)).toBe(1);
+    });
+
+    it('a one-page form fills its fields, then submits', async () => {
+      const one = submitOf(ONE_PAGE);
+      const h = harness({
+        submit: true,
+        screens: {
+          job: { html: JOB, on: { [EASY_APPLY]: 'form' } },
+          form: { html: ONE_PAGE, on: { [one]: 'sent' } },
+          sent: { html: SENT, on: { goto: 'applied' } },
+          applied: { html: APPLIED },
+        },
+      });
+      const run = await runApply('123', h.deps);
+      expect(run.outcome).toBe('submitted');
+      expect(run.questions.length).toBeGreaterThan(2);
+      expect(h.submits()).toEqual([one]);
+      // Every fill comes before the record write, and the write before Submit.
+      const acts = h.calls.filter((c) => c.op !== 'wait');
+      const at = acts.findIndex((c) => c.op === 'set');
+      expect(acts.slice(0, at).some((c) => c.op === 'type')).toBe(true);
+      expect(acts.slice(at + 1).some((c) => c.op === 'type')).toBe(false);
+      expect(acts[at + 1]).toMatchObject({ op: 'click', sel: one });
+    });
+
+    it('a failed submitting write: no Submit click, safety-stop', async () => {
+      const h = harness({
+        screens: happy(),
+        submit: true,
+        setFails: 'submitting',
+      });
+      const run = await runApply('123', h.deps);
+      expect(run.outcome).toBe('safety-stop');
+      expect(run.stop).toMatchObject({
+        kind: 'unexpected-page',
+        detail: 'could not write the record',
+      });
+      expect(h.sets).toEqual([]);
+      expect(run.record.after).toBeNull();
+      expect(h.submits()).toEqual([]);
+      expect(run.timings.submit).toBeNull();
+      // Nothing was sent: the form is closed out as on any stop.
+      expect(h.acts().slice(-2)).toEqual([
+        `click ${DISMISS}`,
+        `click ${DISCARD}`,
+      ]);
+    });
+
+    it.each([
+      ['an entry written since', null, entry('failed')],
+      [
+        'the same status, written again',
+        entry('failed'),
+        { ...entry('failed'), updatedAt: '2026-11-14T09:00:00.000Z' },
+      ],
+    ])(
+      'a record changed since the start: no Submit click, safety-stop record-changed (%s)',
+      async (_name, first, later) => {
+        const h = harness({
+          screens: happy(),
+          submit: true,
+          record: first ? { '123': first } : {},
+        });
+        const store = h.deps.record;
+        if (!store) throw new Error('no record');
+        let gets = 0;
+        h.deps.record = {
+          get: (id) => (gets++ === 0 ? store.get(id) : later),
+          set: (id, c, at) => store.set(id, c, at),
+        };
+        const run = await runApply('123', h.deps);
+        expect(gets).toBe(2);
+        expect(run.outcome).toBe('safety-stop');
+        expect(run.stop?.kind).toBe('record-changed');
+        expect(h.sets).toEqual([]);
+        expect(h.submits()).toEqual([]);
+      },
+    );
+
+    it('a review with no single Submit button is unexpected-page, no click', async () => {
+      const h = harness({
+        submit: true,
+        screens: {
+          job: { html: JOB, on: { [EASY_APPLY]: 'review' } },
+          review: { html: TWO_SUBMITS, on: { [DISMISS]: 'gone' } },
+          gone: { html: JOB },
+        },
+      });
+      const run = await runApply('123', h.deps);
+      expect(run.outcome).toBe('safety-stop');
+      expect(run.stop).toMatchObject({
+        kind: 'unexpected-page',
+        detail: 'no single Submit button',
+      });
+      expect(h.sets).toEqual([]);
+      expect(h.submits()).toEqual([]);
+    });
+
+    it('a review that loses its single Submit by the fresh read is unexpected-page, no click', async () => {
+      const screens = happy();
+      const h = harness({
+        submit: true,
+        screens,
+        onSet: (_id, c) => {
+          const review = screens['review'];
+          if (c.status === 'submitting' && review) review.html = TWO_SUBMITS;
+        },
+      });
+      const run = await runApply('123', h.deps);
+      expect(run.outcome).toBe('safety-stop');
+      expect(run.stop).toMatchObject({
+        kind: 'unexpected-page',
+        detail: 'no single Submit button',
+      });
+      // Written, never clicked: the next run settles it from the marker.
+      expect(run.record.after).toBe('submitting');
+      expect(h.submits()).toEqual([]);
+      // Submit was never about to go out: the form is closed out as usual.
+      expect(fromSubmitting(h)).toEqual([
+        'set submitting',
+        `click ${DISMISS}`,
+        `click ${DISCARD}`,
+      ]);
+    });
+
+    it('no dialog but the marker on reload is submitted', async () => {
+      const h = harness({
+        submit: true,
+        screens: flow('quiet', {
+          // LinkedIn closed its own dialog, or showed none.
+          quiet: { html: JOB, on: { goto: 'applied' } },
+          applied: { html: APPLIED },
+        }),
+      });
+      const run = await runApply('123', h.deps);
+      expect(run.outcome).toBe('submitted');
+      expect(h.sets.map((s) => s.change)).toEqual([
+        { status: 'submitting' },
+        { status: 'applied', source: 'submit' },
+      ]);
+      expect(fromSubmitting(h)).toEqual([
+        'set submitting',
+        `click ${SUBMIT_SEL}`,
+        'goto',
+        'set applied',
+      ]);
+      expect(run.timings.submit).toEqual({
+        clickToSentMs: null,
+        sentToMarkerMs: null,
+      });
+      // It waited out the sent dialog's full wait first.
+      expect(
+        h.waits().filter((ms) => ms === 500).length,
+      ).toBeGreaterThanOrEqual(SENT_WAIT_MS / 500);
+    });
+
+    it('a marker that shows on a later poll after the first reload is submitted, with one reload', async () => {
+      const h = harness({
+        submit: true,
+        screens: flow('sent', {
+          sent: { html: SENT, on: { goto: 'slow' } },
+          // A stable, unapplied job page for 6 reads, then the marker.
+          slow: { html: JOB, then: { after: 6, to: 'applied' } },
+          applied: { html: APPLIED },
+        }),
+      });
+      const run = await runApply('123', h.deps);
+      expect(run.outcome).toBe('submitted');
+      expect(h.sets.map((s) => s.change)).toEqual([
+        { status: 'submitting' },
+        { status: 'applied', source: 'submit' },
+      ]);
+      expect(gotosAfterSubmit(h)).toBe(1);
+      expect(h.waits()).not.toContain(LEFTOVER_RECHECK_MS);
+      expect(h.submits()).toEqual([SUBMIT_SEL]);
+    });
+
+    it('no marker within MARKER_WAIT_MS: one more reload, then failed submit-unconfirmed', async () => {
+      const h = harness({
+        submit: true,
+        screens: flow('sent', {
+          sent: { html: SENT, on: { goto: 'job' } },
+        }),
+      });
+      const run = await runApply('123', h.deps);
+      expect(run.outcome).toBe('submit-unconfirmed');
+      expect(h.sets.map((s) => s.change)).toEqual([
+        { status: 'submitting' },
+        { status: 'failed', reason: 'submit-unconfirmed' },
+      ]);
+      expect(run.record.after).toBe('failed');
+      expect(gotosAfterSubmit(h)).toBe(2);
+      expect(h.waits()).toContain(LEFTOVER_RECHECK_MS);
+      // Each reload is polled for the marker for the whole MARKER_WAIT_MS.
+      const afterLeftover = h
+        .waits()
+        .slice(h.waits().indexOf(LEFTOVER_RECHECK_MS) + 1);
+      const markerPolls = Array.from(
+        { length: MARKER_WAIT_MS / 500 },
+        () => 500,
+      );
+      expect(afterLeftover).toEqual(markerPolls);
+      const beforeLeftover = h
+        .waits()
+        .slice(0, h.waits().indexOf(LEFTOVER_RECHECK_MS));
+      expect(beforeLeftover.slice(-MARKER_WAIT_MS / 500)).toEqual(markerPolls);
+      expect(h.submits()).toEqual([SUBMIT_SEL]);
+      expect(run.timings.submit).toEqual({
+        clickToSentMs: expect.any(Number),
+        sentToMarkerMs: null,
+      });
+      expect(h.acts()).not.toContain(`click ${DISMISS}`);
+    });
+
+    it('a review page that stays after Submit is never clicked twice', async () => {
+      const h = harness({
+        submit: true,
+        // A reload after it shows the unapplied job page.
+        screens: stays(),
+      });
+      const run = await runApply('123', h.deps);
+      expect(run.outcome).toBe('submit-unconfirmed');
+      expect(h.submits()).toEqual([SUBMIT_SEL]);
+      expect(h.acts().filter((a) => a === `click ${SUBMIT_SEL}`)).toHaveLength(
+        1,
+      );
+      expect(h.sets.map((s) => s.change)).toEqual([
+        { status: 'submitting' },
+        { status: 'failed', reason: 'submit-unconfirmed' },
+      ]);
+      expect(run.record.after).toBe('failed');
+      expect(h.acts()).not.toContain(`click ${DISMISS}`);
+      expect(h.acts().filter((a) => a === `click ${EASY_APPLY}`)).toHaveLength(
+        1,
+      );
+    });
+
+    it.each([
+      ['interrupted', 'the sent dialog', happy],
+      ['the bridge went away', 'the sent dialog', happy],
+      ['interrupted', 'the form still up', stays],
+      ['the bridge went away', 'the form still up', stays],
+    ])(
+      'a stop after the Submit click leaves submitting and presses nothing more (%s, %s)',
+      async (reason, _page, screens) => {
+        const h = harness({
+          submit: true,
+          author: [],
+          screens: screens(),
+          stopWhen: (calls) =>
+            calls.some((c) => c.op === 'click' && c.sel === SUBMIT_SEL)
+              ? reason
+              : null,
+        });
+        const run = await runApply('123', h.deps);
+        expect(run.outcome).toBe('stopped');
+        expect(run.stop).toMatchObject({ kind: 'bridge', detail: reason });
+        expect(run.record.after).toBe('submitting');
+        expect(h.sets.map((s) => s.change)).toEqual([{ status: 'submitting' }]);
+        expect(h.acts().at(-1)).toBe(`click ${SUBMIT_SEL}`);
+        expect(fromSubmitting(h)).toEqual([
+          'set submitting',
+          `click ${SUBMIT_SEL}`,
+        ]);
+        expect(h.asked).toEqual([]);
+        expect(h.closed()).toBe(true);
+      },
+    );
+
+    it('a security check after the Submit click asks nothing and presses nothing more', async () => {
+      const h = harness({
+        submit: true,
+        author: [],
+        screens: flow('check', {
+          check: { html: REVIEW, path: '/checkpoint/challenge/' },
+        }),
+      });
+      const run = await runApply('123', h.deps);
+      expect(run.outcome).toBe('safety-stop');
+      expect(run.stop?.kind).toBe('security-check');
+      expect(run.record.after).toBe('submitting');
+      expect(fromSubmitting(h)).toEqual([
+        'set submitting',
+        `click ${SUBMIT_SEL}`,
+      ]);
+      expect(h.asked).toEqual([]);
+      expect(h.closed()).toBe(true);
+    });
+
+    it('a stop between the record write and the click leaves submitting, no click', async () => {
+      const h = harness({
+        submit: true,
+        author: [],
+        screens: happy(),
+        stopWhen: (calls) =>
+          calls.some((c) => c.op === 'set' && c.sel === 'submitting')
+            ? 'interrupted'
+            : null,
+      });
+      const run = await runApply('123', h.deps);
+      expect(run.outcome).toBe('stopped');
+      expect(run.record.after).toBe('submitting');
+      expect(h.submits()).toEqual([]);
+      // Nothing pressed after the write: no Submit, no Dismiss, no Discard.
+      expect(fromSubmitting(h)).toEqual(['set submitting']);
+      expect(h.asked).toEqual([]);
+      expect(h.closed()).toBe(true);
+    });
+
+    it('an applied write that fails still reports submitted', async () => {
+      const h = harness({
+        screens: happy(),
+        submit: true,
+        setFails: 'applied',
+      });
+      const run = await runApply('123', h.deps);
+      expect(run.outcome).toBe('submitted');
+      expect(run.stop).toBeUndefined();
+      expect(run.record).toMatchObject({ before: null, after: 'submitting' });
+      expect(h.sets.map((s) => s.change)).toEqual([{ status: 'submitting' }]);
+      expect(h.submits()).toEqual([SUBMIT_SEL]);
+    });
+
+    it.each([
+      ['review.html', REVIEW],
+      ['review-one-page.html', ONE_PAGE],
+      ['review-save-prompt.html', SAVE_PROMPT],
+      ['a synthetic review', synth({ next: null, submit: true })],
+    ])(
+      'a dry run on review never writes submitting and never clicks Submit (%s)',
+      async (_name, html) => {
+        const h = harness({
+          screens: {
+            job: { html: JOB, on: { [EASY_APPLY]: 'review' } },
+            review: { html, on: { [DISMISS]: 'prompt' } },
+            prompt: { html: SAVE_PROMPT, on: { [DISCARD]: 'gone' } },
+            gone: { html: JOB },
+          },
+        });
+        const run = await runApply('123', h.deps);
+        expect(['reached-review', 'safety-stop']).toContain(run.outcome);
+        expect(h.sets).toEqual([]);
+        expect(h.submits()).toEqual([]);
+        expect(run.timings.submit).toBeNull();
+      },
+    );
+
+    describe('the Follow <company> box', () => {
+      const follow = readStep(docOf(REVIEW));
+      if (
+        follow.kind !== 'review' ||
+        !follow.follow ||
+        follow.follow === 'unclear'
+      ) {
+        throw new Error('review.html has no follow box');
+      }
+      const { press: FOLLOW_PRESS } = follow.follow;
+      /** review.html's Follow input, by the id its label names. */
+      const FOLLOW_INPUT = inputOf(FOLLOW_PRESS);
+      const TICKED = { [FOLLOW_INPUT]: true };
+      const presses = (h: Harness) =>
+        h.acts().filter((a) => a === `click ${FOLLOW_PRESS}`);
+
+      it('the fixture reads as the tests need', () => {
+        expect(FOLLOW_PRESS).toMatch(/^label\[for=/);
+        expect(FOLLOW_INPUT).not.toBe(FOLLOW_PRESS);
+      });
+
+      it('ticked: one press on its label, inside the form, before submitting', async () => {
+        const h = harness({ screens: happy(), submit: true, checked: TICKED });
+        const run = await runApply('123', h.deps);
+        expect(run.outcome).toBe('submitted');
+        expect(presses(h)).toHaveLength(1);
+        expect(h.calls).toContainEqual({
+          op: 'click',
+          sel: FOLLOW_PRESS,
+          within: FORM_DIALOG,
+        });
+        const order = h.order();
+        expect(order.indexOf(`click ${FOLLOW_PRESS}`)).toBeLessThan(
+          order.indexOf('set submitting'),
+        );
+        expect(fromSubmitting(h)).toEqual([
+          'set submitting',
+          `click ${SUBMIT_SEL}`,
+          `click ${SENT_CLOSE}`,
+          'goto',
+          'set applied',
+        ]);
+        expect(h.submits()).toEqual([SUBMIT_SEL]);
+        // The company is page text: never in the run.
+        expect(JSON.stringify(run)).not.toMatch(/stay up to date/);
+      });
+
+      it('unticked: nothing pressed, the submit goes ahead', async () => {
+        const h = harness({ screens: happy(), submit: true });
+        const run = await runApply('123', h.deps);
+        expect(run.outcome).toBe('submitted');
+        expect(presses(h)).toEqual([]);
+        expect(h.submits()).toEqual([SUBMIT_SEL]);
+      });
+
+      it('still ticked after the press: a safety stop, no submitting, no Submit', async () => {
+        const h = harness({
+          screens: happy(),
+          submit: true,
+          checked: TICKED,
+          stuck: [FOLLOW_PRESS],
+        });
+        const run = await runApply('123', h.deps);
+        expect(run.outcome).toBe('safety-stop');
+        expect(run.stop).toMatchObject({
+          kind: 'unexpected-page',
+          detail: 'the follow box stayed ticked',
+        });
+        expect(presses(h)).toHaveLength(1);
+        expect(h.sets).toEqual([]);
+        expect(h.submits()).toEqual([]);
+        expect(run.timings.submit).toBeNull();
+      });
+
+      it('a read that fails: a safety stop before anything is pressed', async () => {
+        const h = harness({
+          screens: {
+            ...happy(),
+            job: { html: JOB, on: { [EASY_APPLY]: 'review' } },
+          },
+          submit: true,
+          checked: TICKED,
+          // Every checked read times out once the form opened.
+          readsFailAfter: EASY_APPLY,
+        });
+        const run = await runApply('123', h.deps);
+        expect(run.outcome).toBe('safety-stop');
+        expect(run.stop).toMatchObject({
+          kind: 'unexpected-page',
+          detail: 'could not read the follow box',
+        });
+        expect(presses(h)).toEqual([]);
+        expect(h.sets).toEqual([]);
+        expect(h.submits()).toEqual([]);
+      });
+
+      it('a dry run unticks it too and stops at review, no Submit', async () => {
+        const h = harness({ screens: fullFlow(), checked: TICKED });
+        const run = await runApply('123', h.deps);
+        expect(run.outcome).toBe('reached-review');
+        expect(presses(h)).toHaveLength(1);
+        expect(h.sets).toEqual([]);
+        expect(h.submits()).toEqual([]);
+      });
+
+      /** A review with two Follow boxes: seen, but not one to press. */
+      const TWO_BOXES = synth({
+        next: null,
+        submit: true,
+        extra:
+          '<input id="f1" type="checkbox" aria-label="Follow Acme to stay up to date with their page"><label for="f1"></label>' +
+          '<input id="f2" type="checkbox" aria-label="Follow Beta to stay up to date with their page"><label for="f2"></label>',
+      });
+      const twoBoxes = (): Record<string, Screen> => ({
+        job: { html: JOB, on: { [EASY_APPLY]: 'review' } },
+        review: { html: TWO_BOXES, on: { '#send': 'sent' } },
+        sent: { html: SENT, on: { goto: 'applied' } },
+        applied: { html: APPLIED },
+      });
+
+      it.each([
+        ['a real run', true],
+        ['a dry run', false],
+      ])(
+        'unclear (%s): a safety stop, nothing pressed, no submitting, no Submit',
+        async (_name, submit) => {
+          expect(readStep(docOf(TWO_BOXES))).toMatchObject({
+            follow: 'unclear',
+          });
+          const h = harness({ screens: twoBoxes(), submit });
+          const run = await runApply('123', h.deps);
+          expect(run.outcome).toBe('safety-stop');
+          expect(run.stop).toMatchObject({
+            kind: 'unexpected-page',
+            detail: 'the follow box could not be singled out',
+          });
+          expect(h.acts().filter((a) => a.includes('label[for='))).toEqual([]);
+          expect(h.sets).toEqual([]);
+          expect(h.submits()).toEqual([]);
+        },
+      );
+
+      it('absent: nothing pressed, the submit goes ahead as before', async () => {
+        const review = synth({ next: null, submit: true });
+        expect(readStep(docOf(review))).toMatchObject({ follow: null });
+        const h = harness({
+          submit: true,
+          screens: {
+            job: { html: JOB, on: { [EASY_APPLY]: 'review' } },
+            review: { html: review, on: { '#send': 'sent' } },
+            sent: { html: SENT, on: { goto: 'applied' } },
+            applied: { html: APPLIED },
+          },
+        });
+        const run = await runApply('123', h.deps);
+        expect(run.outcome).toBe('submitted');
+        expect(fromSubmitting(h)).toEqual([
+          'set submitting',
+          'click #send',
+          `click ${SENT_CLOSE}`,
+          'goto',
+          'set applied',
+        ]);
+        expect(h.acts().filter((a) => a.includes('label[for='))).toEqual([]);
+      });
+    });
+
+    it('in author mode a submitted run asks no Enter before closing', async () => {
+      const h = harness({ screens: happy(), submit: true, author: [] });
+      const run = await runApply('123', h.deps);
+      expect(run.outcome).toBe('submitted');
+      expect(h.asked).toEqual([]);
+      expect(h.closed()).toBe(true);
     });
   });
 });

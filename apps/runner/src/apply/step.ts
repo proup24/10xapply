@@ -1,6 +1,7 @@
 import type { AnswerValue, FormQuestion, Job } from '@xapply/answerer';
 import type { Claim } from '@xapply/disqualify';
 import type { FactBank } from '@xapply/fact-bank';
+import { recordDisqualified } from './record-run.js';
 import { all } from '../linkedin/el.js';
 import { readDiscard } from '../linkedin/close.js';
 import { FORM_CONTENT } from '../linkedin/selectors.js';
@@ -48,6 +49,11 @@ export interface Walk {
   step: number | null;
   /** The job page's sponsorship and relocation offer claims; they exempt form questions. */
   offers: Claim[];
+  /**
+   * Set just before the Submit click is sent, and never cleared: from then
+   * on nothing else is pressed in the run, on any path.
+   */
+  submitClicked?: boolean;
 }
 
 type FormRead = Exclude<StepRead, { kind: 'none' }>;
@@ -167,7 +173,7 @@ export async function walkStep(w: Walk, first: FormRead): Promise<FormRead> {
         step,
         w.deps.checkQuestions(qs, job),
       );
-      judge(w, claims, w.offers);
+      judge(w, claims, w.offers, (reasons) => recordDisqualified(w, reasons));
     }
     if (read.unknown.length > 0) {
       w.run.unknownFields.push(...read.unknown);

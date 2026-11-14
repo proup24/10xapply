@@ -4,7 +4,13 @@ import { fileURLToPath } from 'node:url';
 import { FIELD_TYPES } from '@xapply/answerer';
 import { parsePage, type Document } from './dom.js';
 import { readStep, stableGroupFor, stepKey } from './form-step.js';
-import { attr } from './selectors.js';
+import {
+  ALERT_SWITCH,
+  FOLLOW_BUTTON,
+  FOLLOW_CHECKBOX,
+  FORM_DIALOG,
+  attr,
+} from './selectors.js';
 import type { ReadField, StepRead } from './types.js';
 
 const dir = join(dirname(fileURLToPath(import.meta.url)), '../apply/fixtures');
@@ -29,6 +35,9 @@ function selectorsOf(r: StepRead): string[] {
     );
   }
   if (r.kind === 'step' && r.next) out.push(r.next.selector);
+  if (r.kind === 'review' && r.follow && r.follow !== 'unclear') {
+    out.push(r.follow.box, r.follow.press);
+  }
   return out;
 }
 const textOf = (doc: Document, sel: string): string => {
@@ -280,13 +289,15 @@ describe('readStep on the fixtures', () => {
     );
   });
 
-  it.each(['review.html', 'review-save-prompt.html'])(
+  it.each(['review.html', 'review-save-prompt.html', 'review-follow.html'])(
     '%s has no fields (the Follow checkbox is not a question)',
     (file) => {
       expect(readStep(load(file))).toEqual({
         kind: 'review',
         fields: [],
         unknown: [],
+        submit: expect.any(String),
+        follow: expect.any(Object),
       });
     },
   );
@@ -671,6 +682,31 @@ describe('readStep buttons and states', () => {
     expect(r.kind).toBe('review');
   });
 
+  it.each([
+    'review.html',
+    'review-one-page.html',
+    'review-save-prompt.html',
+    'review-follow.html',
+  ])('%s: submit is one button reading submit', (f) => {
+    const doc = load(f);
+    const r = readStep(doc);
+    if (r.kind !== 'review') throw new Error('not review');
+    expect(r.submit).not.toBeNull();
+    expect(doc.querySelectorAll(r.submit!)).toHaveLength(1);
+    expect(textOf(doc, r.submit!)).toMatch(/submit/i);
+  });
+
+  it('two submit buttons give submit null', () => {
+    const r = readStep(
+      form(
+        '<input id="a" aria-label="A">',
+        '<button aria-label="Submit application"></button><button aria-label="Submit application"></button>',
+      ),
+    );
+    if (r.kind !== 'review') throw new Error('not review');
+    expect(r.submit).toBeNull();
+  });
+
   it('reads Review as next with label review', () => {
     const r = step(
       readStep(
@@ -744,5 +780,126 @@ describe('attr', () => {
     const g = stableGroupFor(doc, inputs);
     expect(g?.count).toBe(2);
     expect(doc.querySelectorAll(g?.selector ?? 'x')).toHaveLength(2);
+  });
+});
+
+describe("readStep: the review page's Follow checkbox", () => {
+  const review = (inner: string, outside = '') =>
+    parsePage(
+      `<body>${outside}<dialog data-testid="dialog" aria-labelledby="dialog-header" open>` +
+        '<header id="dialog-header"><h2>Apply to Acme</h2></header>' +
+        `<div data-testid="dialog-content">${inner}` +
+        '<footer><button id="send">Submit application</button></footer></div></dialog></body>',
+    );
+  const followOf = (doc: Document) => {
+    const r = readStep(doc);
+    if (r.kind !== 'review') throw new Error('not review');
+    return r.follow;
+  };
+  const BOX =
+    '<input id="f1" type="checkbox" aria-label="Follow Acme to stay up to date with their page"><label for="f1"></label>';
+
+  it('review-follow.html: the box inside the form, pressed on its label', () => {
+    const doc = load('review-follow.html');
+    expect(followOf(doc)).toEqual({
+      box: FOLLOW_CHECKBOX,
+      press: 'label[for="_r_41_"]',
+    });
+    const boxes = [...doc.querySelectorAll(FOLLOW_CHECKBOX)];
+    expect(boxes).toHaveLength(1);
+    const [box] = boxes;
+    expect(box?.getAttribute('type')).toBe('checkbox');
+    expect(box?.getAttribute('aria-label')).toMatch(
+      /^Follow .+ to stay up to date/,
+    );
+    expect(box?.closest(FORM_DIALOG)).not.toBeNull();
+    const labels = [...doc.querySelectorAll('label[for="_r_41_"]')];
+    expect(labels).toHaveLength(1);
+    expect(labels[0]?.closest(FORM_DIALOG)).not.toBeNull();
+  });
+
+  it("review-follow.html: the job page's Follow button and the alert switch are outside it", () => {
+    const doc = load('review-follow.html');
+    expect(doc.querySelectorAll(FOLLOW_BUTTON).length).toBeGreaterThan(0);
+    expect(doc.querySelectorAll(ALERT_SWITCH)).toHaveLength(1);
+    for (const sel of [FOLLOW_BUTTON, ALERT_SWITCH]) {
+      for (const el of doc.querySelectorAll(sel)) {
+        expect(el.matches(FOLLOW_CHECKBOX)).toBe(false);
+      }
+    }
+  });
+
+  // The earlier review captures carry the same checkbox.
+  it.each(['review.html', 'review-one-page.html', 'review-save-prompt.html'])(
+    '%s: the Follow box is found too',
+    (file) => {
+      const doc = load(file);
+      const f = followOf(doc);
+      if (f === null || f === 'unclear') throw new Error('no follow box');
+      expect(f.box).toBe(FOLLOW_CHECKBOX);
+      expect(f.press).toMatch(/^label\[for="_r_\w+_"\]$/);
+      expect(doc.querySelectorAll(f.press)).toHaveLength(1);
+    },
+  );
+
+  it('null when the form has none', () => {
+    expect(followOf(review('<p>Review your application</p>'))).toBeNull();
+  });
+
+  it('the Follow button and alert switch outside the form never count', () => {
+    const outside =
+      '<button aria-label="Follow Acme">Follow</button>' +
+      '<input type="checkbox" aria-label="Set alert for similar jobs as Dev">' +
+      '<input type="checkbox" id="x" aria-label="Follow Acme to stay up to date with their page">';
+    expect(followOf(review('', outside))).toBeNull();
+  });
+
+  it('unclear (not null) when two Follow boxes are in the form', () => {
+    const two =
+      BOX +
+      '<input id="f2" type="checkbox" aria-label="Follow Other to stay up to date with their page"><label for="f2"></label>';
+    expect(followOf(review(two))).toBe('unclear');
+  });
+
+  it('a Follow button inside the form is not the box', () => {
+    expect(
+      followOf(review('<button aria-label="Follow Acme">Follow</button>')),
+    ).toBeNull();
+  });
+
+  it('unclear when the one Follow box is in a second form dialog', () => {
+    // Two dialogs labelled by the form header: the box is in the other one.
+    const doc = parsePage(
+      '<body><dialog aria-labelledby="dialog-header" open><header id="dialog-header"><h2>Apply to Acme</h2></header>' +
+        '<footer><button id="send">Submit application</button></footer></dialog>' +
+        `<dialog aria-labelledby="dialog-header" open>${BOX}</dialog></body>`,
+    );
+    expect(followOf(doc)).toBe('unclear');
+  });
+
+  it('a label for the box outside the form is never the press', () => {
+    const doc = review(
+      '<input id="f1" type="checkbox" aria-label="Follow Acme to stay up to date with their page">',
+      '<label for="f1"></label>',
+    );
+    expect(followOf(doc)).toEqual({
+      box: FOLLOW_CHECKBOX,
+      press: FOLLOW_CHECKBOX,
+    });
+  });
+
+  it('pressed on the input itself when it has no label', () => {
+    const doc = review(
+      '<input id="f1" type="checkbox" aria-label="Follow Acme to stay up to date with their page">',
+    );
+    expect(followOf(doc)).toEqual({
+      box: FOLLOW_CHECKBOX,
+      press: FOLLOW_CHECKBOX,
+    });
+  });
+
+  it('a step page carries no follow', () => {
+    const r = readStep(load('step-contact.html'));
+    expect('follow' in r).toBe(false);
   });
 });
