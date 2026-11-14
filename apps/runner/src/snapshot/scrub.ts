@@ -431,19 +431,63 @@ function countPhones(text: string, forms: Set<string>): number {
   return count;
 }
 
+const NAMED_ENTITIES: Record<string, string> = {
+  nbsp: ' ',
+  amp: '&',
+  quot: '"',
+  lt: '<',
+  gt: '>',
+  apos: "'",
+};
+
+function decodeEntity(entity: string): string | undefined {
+  const lower = entity.toLowerCase();
+  if (!lower.startsWith('#')) return NAMED_ENTITIES[lower];
+  const code = lower.startsWith('#x')
+    ? parseInt(lower.slice(2), 16)
+    : parseInt(lower.slice(1), 10);
+  if (!Number.isFinite(code) || code < 0 || code > 0x10ffff) return undefined;
+  return String.fromCodePoint(code);
+}
+
+function decodePercentRun(run: string): string {
+  try {
+    return decodeURIComponent(run);
+  } catch {
+    // Not valid UTF-8: decode the ASCII bytes alone, keep the rest as is.
+    return run.replace(/%([0-7][0-9a-f])/gi, (_, hex: string) =>
+      String.fromCharCode(parseInt(hex, 16)),
+    );
+  }
+}
+
+/**
+ * The text a page shows, as far as a leak goes: HTML entities (numeric, and
+ * nbsp, amp, quot, lt, gt, apos) and percent escapes decoded, and every
+ * non-breaking space made a plain one. A malformed sequence is left as is.
+ */
+export function leakText(html: string): string {
+  return html
+    .replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (whole, e: string) => {
+      return decodeEntity(e) ?? whole;
+    })
+    .replace(/(?:%[0-9a-f]{2})+/gi, decodePercentRun)
+    .replace(/\u00a0/g, ' ');
+}
+
 /**
  * Looks for the bank's personal data in a scrubbed snapshot: the email, the
  * phone number (digits only, with or without its country code and a leading
  * 0, made of whole digit groups so a long id holding the same digits doesn't
  * count), names, facts, answers and stories (12 characters and two words at
- * least), and personal links (without scheme, www or trailing slash). Case is
- * ignored. Returns kinds and counts only, never the text found; empty means
+ * least), and personal links (without scheme, www or trailing slash), after
+ * decoding entities and percent escapes (see leakText). Case is ignored. Returns kinds and counts only, never the text found; empty means
  * clean.
  */
 export function leakCheck(scrubbed: string, bank: FactBank): Leak[] {
   const f = bank.fields;
   const counts = new Map<LeakKind, number>();
-  let text = scrubbed;
+  let text = leakText(scrubbed);
   const byLength = (values: string[]) =>
     [...values].sort((a, b) => b.length - a.length);
   const run = (kind: LeakKind, patterns: string[]) => {

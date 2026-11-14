@@ -538,6 +538,58 @@ describe('leakCheck', () => {
     expect(out).not.toMatch(/sam|7700|example/i);
   });
 
+  it('decodes entities and nbsp before looking for a phone', () => {
+    for (const form of [
+      '07700&#160;900123',
+      '07700&nbsp;900123',
+      '+44&nbsp;7700&nbsp;900123',
+      '07700&#xA0;900123',
+      '07700\u00a0900123',
+    ]) {
+      expect(leakCheck(`<p>Call ${form} now</p>`, bank), form).toEqual([
+        { kind: 'phone', count: 1 },
+      ]);
+    }
+  });
+
+  it('decodes entities and percent escapes before looking for an email', () => {
+    const other = {
+      ...bank,
+      fields: { ...bank.fields, email: 'jdoe1985@gmail.com' },
+    };
+    for (const form of [
+      'jdoe1985&#64;gmail.com',
+      'jdoe1985&#x40;gmail.com',
+      'jdoe1985%40gmail.com',
+      'mailto:jdoe1985%40gmail.com',
+    ]) {
+      expect(leakCheck(`<p>${form}</p>`, other), form).toEqual([
+        { kind: 'email', count: 1 },
+      ]);
+    }
+  });
+
+  it('finds a fact holding &amp; or nbsp', () => {
+    const fact = bank.facts[0];
+    if (!fact) throw new Error('example bank has no facts');
+    const other = {
+      ...bank,
+      facts: [{ ...fact, text: 'I worked at Smith & Jones for years.' }],
+    };
+    expect(
+      leakCheck('<p>I worked at Smith &amp; Jones&nbsp;for years.</p>', other),
+    ).toEqual([{ kind: 'fact', count: 1 }]);
+  });
+
+  it('survives a malformed percent sequence', () => {
+    expect(() =>
+      leakCheck('<p>100% %E0%A4%A sure %ZZ</p>', bank),
+    ).not.toThrow();
+    expect(leakCheck('<p>100% %E0%A4%A sure 07700%20900123</p>', bank)).toEqual(
+      [{ kind: 'phone', count: 1 }],
+    );
+  });
+
   it('returns [] on every committed fixture', () => {
     const dir = join(import.meta.dirname, '..', 'apply', 'fixtures');
     const files = readdirSync(dir).filter((f) => f.endsWith('.html'));
