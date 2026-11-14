@@ -57,7 +57,7 @@ Build in small slices, one per session: brainstorm, then spec (`docs/superpowers
 - `pnpm nx run runner:pace-practice` has the runner fill the local practice page five times, recorded for the comparison.
 - `pnpm nx run runner:pace-compare` compares the runner's recordings with the author's and writes a report.
 - `pnpm nx run runner:facts-check [-- <path>]` checks the fact bank file and the disqualify rules file (`disqualify.yaml` in the private folder) and prints counts and problems, never a value or a country code. The optional path is the bank's, resolved from the repo root. In a non-TTY shell add `--outputStyle=stream` to see its output.
-- `pnpm nx run runner:answers-eval [-- --set example|private --answer-model m --verify-model m --judge-model m --repeat n --case id]` runs the answerer's golden eval. It uses the subscription, never in CI. The default set is `example`. The private set prints and reports only ids and counts, and writes the full results under `private/answers-eval/`. The author runs the private set; see Guardrails.
+- `pnpm nx run runner:answers-eval [-- --set example|private --answer-model m --verify-model m --judge-model m --repeat n --case id]` runs the answerer's golden eval. It uses the subscription, never in CI. The default set is `example`. The private set prints and reports only ids and counts, and writes the full results under `private/answers-eval/`.
 - `pnpm nx run runner:disqualify-eval [-- --model m --repeat n --case id]` runs the disqualification extractor's golden eval on the committed example set. It uses the subscription, never in CI, and never touches LinkedIn. In a non-TTY shell add `--outputStyle=stream` before the `--` (after it, the runner rejects the flag).
 - `pnpm nx run runner:apply -- <job-url> [--dry-run]` walks an Easy Apply form, answers and fills it. Without `--dry-run` it also submits (author mode only, else exit 2); with `--dry-run` it stops on the review page. It needs the disqualify rules file and can end `disqualified` (on the job page or a form step, for a work authorization or a location requirement) before filling anything. Both modes consult the applied-jobs record (refusing an `applied` or `disqualified` job before a window opens) and record LinkedIn's Applied marker and disqualifications; only a real run writes `submitting` or `failed`. It prints a closing line.
 - Quote a long LinkedIn job URL given to `runner:apply`, or replace it with `https://www.linkedin.com/jobs/view/<id>/`: an unquoted `&` backgrounds the command.
@@ -74,27 +74,27 @@ See [docs/roadmap/README.md](docs/roadmap/README.md): phases, slice order and th
 
 ## Guardrails
 
-- `.env*` files (except `.env.example`) and the repo-root `private/` folder are off-limits. `.claude/hooks/guard.mjs` enforces this for file tools and Bash.
+- `.env*` files (except `.env.example`) are off-limits. Claude may read and write the repo-root `private/` folder, except `applications.json` (see below), and never commits anything from it. `.claude/hooks/guard.mjs` enforces this for file tools and Bash.
 - Claude may push a feature branch only as `git push -u origin <branch>` and may open its PR to `main` with `gh pr create`. Claude never pushes `main`, force-pushes or deletes remote branches; `guard.mjs` blocks every other push form, and the human merges. `guard.mjs` also blocks `gh pr merge`, approving or retargeting PRs, PRs to anything but `main`, and `gh api` write calls.
 - Credentials go only in untracked `.env*` files; personal data (resumes, facts) only in the untracked `private/` folder. Never commit either.
 - Never commit or log LinkedIn session cookies or proxy credentials.
 - `run-reports/` holds redacted run reports (no personal facts, no cookies). It is git-ignored and Claude may read it.
-- `snapshots/` holds scrubbed page snapshots only. It is git-ignored and Claude may read it. Raw snapshots go to the private folder's `snapshots/`, and full run reports to its `runs/`; Claude never reads either.
+- `snapshots/` holds scrubbed page snapshots only. It is git-ignored and Claude may read it. Raw snapshots go to the private folder's `snapshots/`, and full run reports to its `runs/`; Claude may read both.
 - `pace-recordings/` holds timing-only recordings and the pace profile. It is git-ignored, Claude may read it, and it is never committed.
-- Known guard false positive: any Bash command whose text names the `pace-recordings/runner/` folder is blocked as a runner launch. Use a glob.
-- The author's fact bank is `fact-bank.yaml` in the private folder (`private/`). Claude may run the check but never reads the file.
-- The author's disqualification rules are `disqualify.yaml` in the private folder (`authorizedCountries` and `locatedIn`). Claude may check it through `facts-check` but never reads it.
-- The applied-jobs record is `applications.json` in the private folder. The runner writes it; Claude never reads it. Clear an entry by editing it by hand (the web app later).
+- The author's fact bank is `fact-bank.yaml` in the private folder (`private/`). Claude may read and edit the file, and runs `facts-check` after an edit.
+- The author's disqualification rules are `disqualify.yaml` in the private folder (`authorizedCountries` and `locatedIn`). Claude may read and edit it, and runs `facts-check` after an edit.
+- The applied-jobs record is `applications.json` in the private folder. The runner writes it. Claude may read it, never write it; the guard blocks writes. Clear an entry by editing it by hand (the web app later).
+- The misses record is `answer-misses.yaml` in the private folder. The runner writes it after each apply run, listing the questions it could not answer. Claude may read and edit it.
 - Personal overrides go in `.claude/settings.local.json`.
 - Prettier runs automatically on files Claude edits or writes.
 
 ## Running against LinkedIn
 
 - The author runs every real submit and takes over when a form goes wrong.
-- Claude debugs from `run-reports/` and from scrubbed page snapshots committed as fixtures.
+- Claude debugs from `run-reports/`, the full reports under the private folder's `runs/`, and scrubbed page snapshots committed as fixtures.
 - Claude may start a `--dry-run` against a real job only when the author asks in that session, and only a few a day.
 - `guard.mjs` blocks runner launches without `--dry-run` (after the target or file, not in front of it). In `guard.mjs`, `RUNNER_NAME = 'runner'` and `RUNNER_SAFE_SUBCOMMANDS = ['bridge', 'bridge-install', 'bridge-check', 'bridge-check-crash', 'pace', 'pace-record', 'pace-record-typing', 'pace-summary', 'pace-build', 'pace-practice', 'pace-compare', 'bot-check', 'bot-check-repeat', 'session', 'facts', 'facts-check', 'answers', 'answers-eval', 'disqualify', 'disqualify-eval', 'snapshot', 'snapshot-scrub']`.
-- Claude may run the answers eval on the example set freely. The private set sends the real bank to the model, so the author runs it themselves, for example by typing `! pnpm nx run runner:answers-eval -- --set private`. `guard.mjs` blocks the `private` token in Claude's commands.
+- Claude may run the answers eval on the example set and on the private set.
 - Claude may run `runner:session` or `runner:snapshot` only when the author asks in that session. Every other safe subcommand (the bridge, `pace`, bot-check, `facts`, `answers` and `disqualify` ones) never touches LinkedIn and needs no ask.
 - Author mode (stdin and stdout are TTYs and `CLAUDECODE` is unset) is the only mode that prints labels, answers or bank text, or reads the keyboard; any other run prints redacted output.
 - No scripts run in LinkedIn's page; the runner reads through locators only. An ESLint rule in `apps/runner` bans `evaluate`, `evaluateHandle`, `$eval`, `$$eval`, `evaluateAll`, `exposeFunction`, `exposeBinding` and `addInitScript`. The relay and extension also refuse cookie and storage reads, `Browser.close`, `Runtime.addBinding`, and `Page.addScriptToEvaluateOnNewDocument` (except Patchright's own empty-source utility-world script). On a run tab's sessions they pass only three `Target.*` methods: `setAutoAttach`, `detachFromTarget` and `getTargetInfo`.

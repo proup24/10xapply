@@ -36,7 +36,8 @@ Decision marks: _(user)_ means the user decided it; _(my call)_ means Claude pro
 - **Redis waits until Phase 3** _(my call)_. In Phase 2 a single local runner reads approved jobs from Postgres. Redis queues arrive with hosted workers, when several accounts run on our servers.
 - **Mirror 10xjobs wherever it already decided** _(user, from the original brief)_. That covers the Claude harness, CI, the Prisma contract as the only schema source (RLS included), the Supabase CLI locally and Supabase Cloud hosted, Next.js on Vercel, NestJS on a Hetzner server with Docker Compose and Caddy, deploys on merge, and LLM calls through `claude -p` on the author's subscription _(user)_, with the model per role set in configuration. Paths to copy from are named in each slice.
 - **Who may run things against the real LinkedIn account, widening over time** _(user wants Claude to run everything eventually; the stages are my call)_. The risk to the account comes from how often and how fast the account is used. Who starts a run matters less. So Claude's access widens as the runner's own limits are built:
-  - **Phases 0–1:** Claude may run `--dry-run` only, against at most a small number of jobs a day, and only when the author asked for it in that session. Real submits are run by the author. Run reports go under `private/` but also have a redacted copy (no personal facts, no cookies) in a git-ignored, Claude-readable folder so Claude can debug from them. Saved page snapshots are committed as test fixtures only after being scrubbed of personal data.
+  - **Phases 0–1:** Claude may run `--dry-run` only, against at most a small number of jobs a day, and only when the author asked for it in that session. Real submits are run by the author. Run reports go under `private/` but also have a redacted copy (no personal facts, no cookies) in a git-ignored folder, the copy meant for anything shared. From slice 07b Claude may also read the full reports under `private/runs/` to debug. Saved page snapshots are committed as test fixtures only after being scrubbed of personal data.
+  - **From slice 07b:** Claude may read everything under `private/` and edit the fact bank and the other files there, but not `applications.json`, which it may only read. The limits on runs stay as they are until slice 14.
   - **From slice 14:** once the runner itself enforces pacing, the daily cap and the safety stops, Claude may start the runner, real submits included, because every run goes through those limits whoever started it.
   - Slice 01's guard enforces the first stage. Slice 14 relaxes it.
 - **Author's everyday Chrome first, a dedicated profile before servers** _(user)_. Through Phases 1 and 2 the runner uses the author's normal Windows Chrome and the LinkedIn sign-in it already has. The switch to a dedicated profile comes with the move to servers in Phase 3. Slice 03 settled two things (see [its spec](../superpowers/specs/2026-11-11-local-browser-and-session-design.md)):
@@ -87,8 +88,9 @@ The author gives the runner one LinkedIn job URL. A real Chrome window on the au
 | 06  | Walk the form without submitting              | 03, 03b, 05 |
 | 07  | Submit, and never twice                       | 06, 05b     |
 | 07b | Fill more of the form                         | 07          |
+| 07c | Better answers from the bank                  | 07b         |
 
-03→03b and 04→05 are independent; 05b follows 06, and 05c follows 05b.
+03→03b and 04→05 are independent; 05b follows 06, 05c follows 05b, and 07c follows 07b.
 
 ### 03 Local browser and the LinkedIn session
 
@@ -170,12 +172,18 @@ The author gives the runner one LinkedIn job URL. A real Chrome window on the au
 ### 07b Fill more of the form
 
 - **Scope:** fewer runs that stop or ask at the terminal, before Phase 2 makes every stop a stalled job. It gathers the follow-ups that slices 06 and 07 left out:
-  - Questions the bank should already answer but that still went to the terminal in slice 07's real submit _(user)_.
   - Date fields and multi-select fields _(user)_.
   - The three hard-question jobs the author saved for this slice (4488500594, 4490505838, 4490356080) _(user)_.
-  - The other slice 06 gaps: the email dropdown, the step-1 text box the runner can't read, and Yes/No questions the bank says nothing about.
+  - The other slice 06 gaps: the email dropdown and the step-1 text box the runner can't read.
 - **Locked:** the slice 05 and 06 rules still hold. An answer the bank can't back is asked or stops the run, never guessed.
-- **Spec answers:** why the bank misses happen (the answerer, the bank's wording, or how questions are read) and how they are fixed; which field types are added and how each is read and filled; whether this is one slice or splits into 07b and 07c.
+- **Spec:** [slice 07b spec](../superpowers/specs/2026-11-14-fill-more-of-the-form-design.md).
+- **Spec answers:** settled in the spec.
+
+### 07c Better answers from the bank
+
+- **Scope:** fewer questions that go to the terminal because the bank or the answerer falls short _(user)_: experience questions, salary and Yes/No questions the bank says nothing about. It starts from `answers-eval --set misses`, the misses that slice 07b records.
+- **Locked:** the slice 05 rules still hold. An answer the bank can't back is asked or stops the run, never guessed.
+- **Spec answers:** why each miss happens (the answerer, the bank's wording, or how questions are read) and how it is fixed.
 
 ## Phase 2: Steady stream for the author
 
@@ -183,18 +191,18 @@ The author gives the runner one LinkedIn job URL. A real Chrome window on the au
 
 **Exit criteria:** a job 10xjobs matches for the author shows up in the web app; approving it leads to a submitted Easy Apply application by the runner without any terminal command; a blocking question can be answered in the web app and the run then goes ahead; the same job sent twice by webhook, or approved twice, is applied to at most once; matches for an email with no account are held and show up when that person signs up; one user can never read another user's data, and tests prove it.
 
-| #   | Slice                             | Depends on |
-| --- | --------------------------------- | ---------- |
-| 08  | Supabase and the database         | 02         |
-| 09  | Web app and invite-only sign-in   | 08         |
-| 10  | Facts in the database             | 09, 04     |
-| 11  | Hosted API                        | 08         |
-| 12  | Webhook intake                    | 11         |
-| 13  | Approve or skip matches           | 09, 12     |
-| 14  | The runner takes approved jobs    | 07, 10, 13 |
-| 15  | Blocking questions in the web app | 14         |
-| 16  | Launch check                      | 08–15      |
-| 17  | Tailored resumes                  | 16         |
+| #   | Slice                             | Depends on  |
+| --- | --------------------------------- | ----------- |
+| 08  | Supabase and the database         | 02          |
+| 09  | Web app and invite-only sign-in   | 08          |
+| 10  | Facts in the database             | 09, 04      |
+| 11  | Hosted API                        | 08          |
+| 12  | Webhook intake                    | 11          |
+| 13  | Approve or skip matches           | 09, 12      |
+| 14  | The runner takes approved jobs    | 07c, 10, 13 |
+| 15  | Blocking questions in the web app | 14          |
+| 16  | Launch check                      | 08–15       |
+| 17  | Tailored resumes                  | 16          |
 
 10 and 11–12 are independent and can be built in either order.
 
