@@ -548,9 +548,15 @@ const EVAL_FLAGS = ['-e', '--eval', '-p', '--print'];
 // folder, the first non-flag argument. An argument expanded at run time
 // (`$F`) counts when the command names the runner anywhere.
 function fileLaunch(args, ctx, here) {
-  const e = args.findIndex(
-    (a, k) => k > 0 && (EVAL_FLAGS.includes(a) || /^--(eval|print)=/.test(a)),
-  );
+  // Node stops reading its own options at the script: an eval flag counts
+  // only before the first non-flag argument.
+  let e = -1;
+  for (let k = 1; k < args.length && args[k].startsWith('-'); k++) {
+    if (EVAL_FLAGS.includes(args[k]) || /^--(eval|print)=/.test(args[k])) {
+      e = k;
+      break;
+    }
+  }
   if (e > 0) {
     const joined = args[e].includes('=');
     const script = joined

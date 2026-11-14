@@ -570,6 +570,12 @@ test('bash: runner false positives', () => {
     'node -e "require(\'./apps/runner/dist/main.js\')" apply x',
     'node --eval "require(\'./apps/runner/dist/main.js\')" apply x',
     'node -p "require(\'./apps/runner/dist/main.js\')"',
+    'node --print="require(\'./apps/runner/dist/main.js\')" apply x',
+    // after the script, eval flags are the script's own arguments
+    'node apps/runner/dist/main.js apply https://x -p',
+    'node apps/runner/dist/main.js apply https://x -e',
+    'node apps/runner/dist/main.js apply https://x --eval=1',
+    'node apps/runner/dist/main.js apply https://x --print 1',
   ]) {
     const r = bash(command);
     assert.equal(r.block, true, command);
