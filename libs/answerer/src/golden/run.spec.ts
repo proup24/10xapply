@@ -141,6 +141,25 @@ function costing(
 }
 
 describe('runGolden', () => {
+  it("a case's runDate overrides the file's", async () => {
+    const caller = fakeCaller([() => silent, () => silent]);
+    await runGolden({
+      file: file([
+        { ...terraformCase, runDate: '2026-12-01' },
+        { ...terraformCase, id: 'terraform-2' },
+      ]),
+      bank,
+      caller,
+      models,
+      repeat: 1,
+    });
+    expect(caller.requests).toHaveLength(2);
+    const seen = caller.requests.map((r) => r.system + r.prompt);
+    expect(seen[0]).toContain('2026-12-01');
+    expect(seen[1]).not.toContain('2026-12-01');
+    expect(seen[1]).toContain('2026-11-12');
+  });
+
   it('fails a case when one of its runs fails, and does the barsHeld math', async () => {
     const caller = fakeCaller([
       () => kubeMath, // run 1: generator

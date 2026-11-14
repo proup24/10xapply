@@ -117,7 +117,7 @@ export async function runGolden(opts: RunGoldenOptions): Promise<EvalReport> {
     const ctx: AnswerContext = {
       bank,
       job,
-      runDate: file.runDate,
+      runDate: c.runDate ?? file.runDate,
       models: {
         answerModel: models.answerModel,
         verifyModel: models.verifyModel,
