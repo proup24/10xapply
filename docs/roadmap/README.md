@@ -86,6 +86,7 @@ The author gives the runner one LinkedIn job URL. A real Chrome window on the au
 | 05c | Disqualification by location                  | 05b         |
 | 06  | Walk the form without submitting              | 03, 03b, 05 |
 | 07  | Submit, and never twice                       | 06, 05b     |
+| 07b | Fill more of the form                         | 07          |
 
 03→03b and 04→05 are independent; 05b follows 06, and 05c follows 05b.
 
@@ -165,6 +166,16 @@ The author gives the runner one LinkedIn job URL. A real Chrome window on the au
 - **Scope:** `apply <job-url>` without `--dry-run`. If every answer is confident, it submits. If something blocks, it asks the author in the terminal, then continues or stops. After submitting, it confirms LinkedIn shows the job as applied. A local record of applied jobs under `private/`, keyed on the LinkedIn job id, refuses a second application. LinkedIn's own "Applied" marker is checked too. The record also has a `disqualified` status (from slice 05b), and a disqualified job is never retried. On the review page the runner unticks LinkedIn's "Follow {company}" checkbox when it is there _(user)_.
 - **Locked:** auto-submit unless blocked _(user)_. The local record is written before the Submit click, as "submitting", and updated after it, so a crash mid-submit never leads to a second attempt without the author checking.
 - **Spec answers:** settled in the spec. The record is `applications.json` under `private/`, keyed on the job id, with statuses `submitting`, `applied`, `disqualified` and `failed`. A leftover `submitting` is settled from LinkedIn's Applied marker (`applied`), else `failed`, and the next run retries it. There is no typed confirmation; a real submit runs only in author mode. A terminal answer is saved back into the fact bank as a known answer (slice 06).
+
+### 07b Fill more of the form
+
+- **Scope:** fewer runs that stop or ask at the terminal, before Phase 2 makes every stop a stalled job. It gathers the follow-ups that slices 06 and 07 left out:
+  - Questions the bank should already answer but that still went to the terminal in slice 07's real submit _(user)_.
+  - Date fields and multi-select fields _(user)_.
+  - The three hard-question jobs the author saved for this slice (4488500594, 4490505838, 4490356080) _(user)_.
+  - The other slice 06 gaps: the email dropdown, the step-1 text box the runner can't read, and Yes/No questions the bank says nothing about.
+- **Locked:** the slice 05 and 06 rules still hold. An answer the bank can't back is asked or stops the run, never guessed.
+- **Spec answers:** why the bank misses happen (the answerer, the bank's wording, or how questions are read) and how they are fixed; which field types are added and how each is read and filled; whether this is one slice or splits into 07b and 07c.
 
 ## Phase 2: Steady stream for the author
 
