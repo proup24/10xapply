@@ -12,7 +12,12 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { ModelUnavailableError, type ModelCaller } from '@xapply/answerer';
-import { saveMisses, type Miss, type MissesFile } from '../apply/misses.js';
+import {
+  missId,
+  saveMisses,
+  type Miss,
+  type MissesFile,
+} from '../apply/misses.js';
 import { answersEvalCommand } from './answers.js';
 
 const REPO = join(import.meta.dirname, '..', '..', '..', '..');
@@ -341,47 +346,81 @@ describe('answersEvalCommand', () => {
     }
 
     it('misses set loads the misses file and the private bank, and prints ids and counts only', async () => {
+      const label = `Years of ${SECRET} Gopherwork?`;
+      const q = (l: string, type: string, extra = {}) => ({
+        label: l,
+        type,
+        required: true,
+        ...extra,
+      });
+      const first = q('First name', 'text');
+      const years = q(label, 'select', { options: ['1', '2', TYPED_SECRET] });
+      const unread = q('', 'text');
       const paths = missesLayout([
-        miss({ id: '4242-first-name-text' }),
-        miss({
-          id: '4242-years-of-go-select',
-          question: {
-            label: `Years of ${SECRET} Go?`,
-            type: 'select',
-            required: true,
-            options: ['1', '2', TYPED_SECRET],
-          },
-        }),
+        miss({ id: missId('4242', first), question: first }),
+        miss({ id: missId('4242', years), question: years }),
         // An unread label and job: must not crash the eval.
+        miss({ id: missId('5151', unread), jobId: '5151', question: unread }),
         miss({
-          id: '5151--text',
-          jobId: '5151',
-          question: { label: '', type: 'text', required: false },
+          id: missId('4242', q('Left blank', 'text')),
+          question: q('Left blank', 'text'),
+          answer: { kind: 'blank' },
         }),
-        miss({ id: '4242-left-blank-text', answer: { kind: 'blank' } }),
       ]);
       const { out } = await run(paths, { set: 'misses' });
-      // The private bank backs First name from its own field.
-      expect(out).toContain('PASS 4242-first-name-text');
-      expect(out).toContain('4242-years-of-go-select');
-      expect(out).toContain('5151--text');
-      expect(out).not.toContain('4242-left-blank-text');
+      const display = /^(PASS|FAIL) (\d+-[0-9a-f]{8}-\w+)/gm;
+      const ids = [...out.matchAll(display)].map((m) => `${m[1]} ${m[2]}`);
+      expect(ids).toHaveLength(3);
+      expect(ids.filter((i) => i.startsWith('PASS 4242-'))).toHaveLength(1);
+      expect(ids.some((i) => i.includes(' 5151-'))).toBe(true);
       expect(out).toContain('cases 1/3 passed');
-      for (const secret of [SECRET, TYPED_SECRET, 'Years of']) {
-        expect(out).not.toContain(secret);
-      }
+      // Not `first`: the field source `field:firstName` is a bank key, not label text.
+      const words = ['years', 'gopherwork', 'first-name', 'left-blank', 'blank'];
+      const banned = [SECRET, TYPED_SECRET, label, missId('4242', years)];
+      const clean = (text: string) => {
+        for (const b of banned) expect(text).not.toContain(b);
+        for (const w of words) expect(text.toLowerCase()).not.toContain(w);
+      };
+      clean(out.replace(/report: .*|full results: .*/g, ''));
       const dir = join(paths.root, 'run-reports/answers-eval');
       const [name] = files(dir);
       expect(name).toBe('2026-11-12T10-20-30.000Z-misses.json');
-      const text = readFileSync(join(dir, name), 'utf8');
-      for (const secret of [SECRET, TYPED_SECRET, 'Years of']) {
-        expect(text).not.toContain(secret);
-      }
+      clean(readFileSync(join(dir, name), 'utf8'));
       const full = join(paths.root, 'private/answers-eval');
       expect(files(full)).toHaveLength(1);
-      expect(readFileSync(join(full, files(full)[0]), 'utf8')).toContain(
-        SECRET,
+      const fullData = JSON.parse(
+        readFileSync(join(full, files(full)[0]), 'utf8'),
+      ) as { realIds: Record<string, string> };
+      expect(Object.values(fullData.realIds).sort()).toEqual(
+        [
+          missId('4242', first),
+          missId('4242', years),
+          missId('5151', unread),
+        ].sort(),
       );
+      expect(JSON.stringify(fullData)).toContain(SECRET);
+    });
+
+    it('misses set: --case takes a display id or a real id, the same across runs', async () => {
+      const first = { label: 'First name', type: 'text', required: true };
+      const real = missId('4242', first);
+      const misses = [
+        miss({ id: real, question: first }),
+        miss({
+          id: missId('4242', { label: 'Other', type: 'text' }),
+          question: { label: 'Other', type: 'text', required: true },
+        }),
+      ];
+      const a = await run(missesLayout(misses), { set: 'misses', caseId: real });
+      const shown = /^PASS (\S+)/m.exec(a.out)?.[1];
+      expect(shown).toMatch(/^4242-[0-9a-f]{8}-text$/);
+      expect(a.out).toContain('cases 1/1 passed');
+      const b = await run(missesLayout(misses), {
+        set: 'misses',
+        caseId: shown,
+      });
+      expect(b.out).toContain(`PASS ${shown}`);
+      expect(b.out).toContain('cases 1/1 passed');
     });
 
     it('misses set with no answered misses prints "no answered misses" and exits 0', async () => {

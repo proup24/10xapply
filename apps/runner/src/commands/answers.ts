@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import {
@@ -10,6 +11,7 @@ import {
   type CaseReport,
   type EvalReport,
   type GoldenCase,
+  type GoldenFile,
   type JudgeRun,
   type ModelCaller,
 } from '@xapply/answerer';
@@ -152,6 +154,25 @@ function redactedReport(report: EvalReport, bank: FactBank) {
   };
 }
 
+/**
+ * A miss's id holds its question's label, so the misses set runs under
+ * display ids: `${jobId}-${hash8}-${type}`, hash8 the first 8 hex chars of
+ * the real id's sha256. Stable across runs, so `--case` keeps working.
+ */
+function displayMisses(file: GoldenFile): {
+  file: GoldenFile;
+  realIds: Record<string, string>;
+} {
+  const realIds: Record<string, string> = {};
+  const cases = file.cases.map((c) => {
+    const hash = createHash('sha256').update(c.id).digest('hex').slice(0, 8);
+    const id = `${c.job}-${hash}-${c.question.type}`;
+    realIds[id] = c.id;
+    return { ...c, id, question: { ...c.question, id } };
+  });
+  return { file: { ...file, cases }, realIds };
+}
+
 function writeJson(path: string, data: unknown): void {
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, `${JSON.stringify(data, null, 2)}\n`);
@@ -185,19 +206,30 @@ export async function answersEvalCommand(
     const bankPath = isPrivate
       ? join(root, 'private', 'fact-bank.yaml')
       : join(root, 'libs', 'fact-bank', 'fact-bank.example.yaml');
-    // Not through loadGolden: a text miss expects only `backed`, which its
-    // "unpinned" check refuses by design.
-    const file =
-      set === 'misses'
-        ? missesToGolden(loadMisses(join(root, 'private', 'answer-misses.yaml')))
-        : loadGolden(
-            set === 'private'
-              ? join(root, 'private', 'answer-golden.yaml')
-              : join(root, 'libs', 'answerer', 'golden', 'example.yaml'),
-          );
-    if (set === 'misses' && file.cases.length === 0) {
-      log('no answered misses');
-      return 0;
+    let file: GoldenFile;
+    let realIds: Record<string, string> | null = null;
+    let caseId = opts.caseId;
+    if (set === 'misses') {
+      // Not through loadGolden: a text miss expects only `backed`, which its
+      // "unpinned" check refuses by design.
+      const shown = displayMisses(
+        missesToGolden(loadMisses(join(root, 'private', 'answer-misses.yaml'))),
+      );
+      file = shown.file;
+      realIds = shown.realIds;
+      if (file.cases.length === 0) {
+        log('no answered misses');
+        return 0;
+      }
+      // --case takes a display id or a real one.
+      const byReal = Object.entries(realIds).find(([, r]) => r === caseId);
+      if (byReal) caseId = byReal[0];
+    } else {
+      file = loadGolden(
+        set === 'private'
+          ? join(root, 'private', 'answer-golden.yaml')
+          : join(root, 'libs', 'answerer', 'golden', 'example.yaml'),
+      );
     }
     const bank = loadFactBank(bankPath);
     const repeat = opts.repeat ?? 1;
@@ -209,7 +241,7 @@ export async function answersEvalCommand(
       caller: opts.caller ?? createClaudeCliCaller(),
       models,
       repeat,
-      caseId: opts.caseId,
+      caseId,
     });
 
     for (const r of report.cases) {
@@ -245,7 +277,11 @@ export async function answersEvalCommand(
         'answers-eval',
         `${stamp(startedAt)}.json`,
       );
-      writeJson(fullPath, { ...meta, ...report });
+      writeJson(fullPath, {
+        ...meta,
+        ...(realIds === null ? {} : { realIds }),
+        ...report,
+      });
       log(`full results: ${fullPath}`);
     }
     return report.barsHeld ? 0 : 1;
