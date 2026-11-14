@@ -321,10 +321,10 @@ async function submitForm(w: Walk, review: Review): Promise<void> {
   };
   run.timings.submit = timing;
   w.submitClicked = true;
+  const clickedAt = deps.now();
   await pace.click(page.locator(fresh.submit), {
     within: page.locator(FORM_DIALOG),
   });
-  const clickedAt = deps.now();
   const sentAt = await closeSent(w);
   if (sentAt !== null) timing.clickToSentMs = sentAt - clickedAt;
   let applied = await reloadForMarker(w);
@@ -366,12 +366,22 @@ async function closeSent(w: Walk): Promise<number | null> {
   }
 }
 
-/** Loads the job page and settles it; true when it shows as applied. */
+/**
+ * Loads the job page and reads it every `POLL_MS` until it shows as
+ * applied, for up to `MARKER_WAIT_MS`. A page that is stable but not yet
+ * applied is read again: after a submit the marker can be slow. True once
+ * the marker shows. Every read goes through `look`.
+ */
 async function reloadForMarker(w: Walk): Promise<boolean> {
-  checkStop(w.deps);
+  const { deps } = w;
+  checkStop(deps);
   await w.page.goto(jobViewUrl(w.run.jobId));
-  const { jr } = await settleJobPage(w, MARKER_WAIT_MS);
-  return jr.applied;
+  for (let i = 0; ; i++) {
+    if (readJobPage(await look(w)).applied) return true;
+    if (i >= MARKER_WAIT_MS / POLL_MS) return false;
+    checkStop(deps);
+    await deps.wait(POLL_MS);
+  }
 }
 
 const SUBMIT = /submit/i;

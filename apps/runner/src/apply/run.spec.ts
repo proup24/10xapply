@@ -37,6 +37,7 @@ import type { TerminalIO } from '../terminal/author-mode.js';
 import {
   LEFTOVER_RECHECK_MS,
   REVIEW_PROMPT,
+  MARKER_WAIT_MS,
   SENT_WAIT_MS,
   guardNext,
   runApply,
@@ -2455,6 +2456,27 @@ describe('runApply', () => {
       ).toBeGreaterThanOrEqual(SENT_WAIT_MS / 500);
     });
 
+    it('a marker that shows on a later poll after the first reload is submitted, with one reload', async () => {
+      const h = harness({
+        submit: true,
+        screens: flow('sent', {
+          sent: { html: SENT, on: { goto: 'slow' } },
+          // A stable, unapplied job page for 6 reads, then the marker.
+          slow: { html: JOB, then: { after: 6, to: 'applied' } },
+          applied: { html: APPLIED },
+        }),
+      });
+      const run = await runApply('123', h.deps);
+      expect(run.outcome).toBe('submitted');
+      expect(h.sets.map((s) => s.change)).toEqual([
+        { status: 'submitting' },
+        { status: 'applied', source: 'submit' },
+      ]);
+      expect(gotosAfterSubmit(h)).toBe(1);
+      expect(h.waits()).not.toContain(LEFTOVER_RECHECK_MS);
+      expect(h.submits()).toEqual([SUBMIT_SEL]);
+    });
+
     it('no marker within MARKER_WAIT_MS: one more reload, then failed submit-unconfirmed', async () => {
       const h = harness({
         submit: true,
@@ -2471,6 +2493,19 @@ describe('runApply', () => {
       expect(run.record.after).toBe('failed');
       expect(gotosAfterSubmit(h)).toBe(2);
       expect(h.waits()).toContain(LEFTOVER_RECHECK_MS);
+      // Each reload is polled for the marker for the whole MARKER_WAIT_MS.
+      const afterLeftover = h
+        .waits()
+        .slice(h.waits().indexOf(LEFTOVER_RECHECK_MS) + 1);
+      const markerPolls = Array.from(
+        { length: MARKER_WAIT_MS / 500 },
+        () => 500,
+      );
+      expect(afterLeftover).toEqual(markerPolls);
+      const beforeLeftover = h
+        .waits()
+        .slice(0, h.waits().indexOf(LEFTOVER_RECHECK_MS));
+      expect(beforeLeftover.slice(-MARKER_WAIT_MS / 500)).toEqual(markerPolls);
       expect(h.submits()).toEqual([SUBMIT_SEL]);
       expect(run.timings.submit).toEqual({
         clickToSentMs: expect.any(Number),
