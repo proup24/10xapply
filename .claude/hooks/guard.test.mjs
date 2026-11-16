@@ -1810,7 +1810,6 @@ test('final review M1: the supabase folder named to a command that never runs it
     'ls -la supabase',
     'mkdir -p supabase',
     'rm -rf supabase/.temp supabase',
-    'cp -r supabase /tmp/x',
     'echo supabase link',
     'echo "do not run supabase link"',
     'if true; then git add supabase; fi',
@@ -1886,4 +1885,49 @@ test('final review M2: a case arm pattern is not a command word', () => {
     'case "$x" in a) echo a;; *) supabase db push;; esac',
   ])
     assert.equal(blocked('Bash', { command: c }), true, c);
+});
+
+test('parse: # after a quote in the same word is not a comment', () => {
+  for (const c of [
+    'echo ""#; git push --force origin main',
+    "echo ''#; git push --force origin main",
+    'echo x""#; supabase link',
+    "echo $''#; supabase link",
+    'echo ""#; cat .env',
+    'echo ""#; pnpm nx run runner:apply -- https://www.linkedin.com/jobs/view/1/',
+  ])
+    assert.equal(blocked('Bash', { command: c }), true, c);
+  for (const c of [
+    'echo ok # a real comment; supabase link',
+    'echo "a" # comment',
+    'git log --oneline -3 # recent',
+  ])
+    assert.equal(blocked('Bash', { command: c }), false, c);
+});
+
+test('supabase sql: functions that run SQL given as text are refused', () => {
+  for (const q of [
+    "select query_to_xml('select set' || 'val(''auth.x_seq'', 1)', false, false, '')",
+    "select query_to_xmlschema('select 1', false, false, '')",
+    "select query_to_xml_and_xmlschema('select 1', false, false, '')",
+    "select cursor_to_xml('c', 1, false, false, '')",
+    "select * from ts_stat('select 1')",
+    "select ts_rewrite('a'::tsquery, 'select 1')",
+    "select \"query_to_xml\"('select 1', false, false, '')",
+  ])
+    assert.notEqual(sqlProblem(q), null, q);
+});
+
+test('cp and mv never count as folder words', () => {
+  for (const c of [
+    'cp supabase /tmp/x',
+    'cp -L supabase /tmp/x',
+    'mv supabase /tmp/x',
+    'cp -r supabase /tmp/x',
+  ])
+    assert.equal(blocked('Bash', { command: c }), true, c);
+  assert.equal(
+    blocked('Bash', { command: 'cp supabase/config.toml /tmp/x' }),
+    false,
+  );
 });

@@ -84,9 +84,13 @@ function parse(command) {
   let depth = 0;
   // True when a `$'…'` span never closes.
   let open = false;
+  // True once a quote has opened in the current word: `""#` is the word `#`
+  // to bash, not the start of a comment.
+  let quoted = false;
   const endToken = () => {
     if (token) segments.at(-1).push(token.replace(/^\.\//, ''));
     token = '';
+    quoted = false;
   };
   for (let i = 0; i < command.length; i++) {
     const ch = command[i];
@@ -108,6 +112,7 @@ function parse(command) {
       // does. Inside `$'…'` a backslash escapes the next character, so `\'`
       // does not end it. A span with a backslash escape (`\x73`) keeps its
       // `$`, so it reads as an expansion and fails closed.
+      quoted = true;
       if (command[i + 1] === "'") {
         let j = i + 2;
         while (j < command.length && command[j] !== "'") {
@@ -120,7 +125,8 @@ function parse(command) {
       }
     } else if (ch === '"' || ch === "'") {
       quote = ch;
-    } else if (ch === '#' && !token) {
+      quoted = true;
+    } else if (ch === '#' && !token && !quoted) {
       while (i + 1 < command.length && command[i + 1] !== '\n') i++;
     } else if (ch === '<' && /^<<(?!<)/.test(command.slice(i))) {
       const m = /^<<(-?)\s*(['"]?)([\w.-]+)\2/.exec(command.slice(i));
@@ -1241,11 +1247,12 @@ const FOLDER_WORDS = {
     );
   },
 };
-// cp and mv could copy the CLI binary under another name from a folder that
-// holds it, and echo's output could be piped or written to a script: these
-// three count only at the top level (not inside `bash -c`), with no cd in
-// the command, and echo with no pipe, redirect or expansion anywhere.
-const FOLDER_WORDS_TOP = ['cp', 'mv', 'echo'];
+// echo's output could be piped or written to a script: it counts only at the
+// top level (not inside `bash -c`), with no cd in the command, and with no
+// pipe, redirect or expansion anywhere. cp and mv never count: the shell's
+// directory carries over between calls, so `cp supabase /tmp/x` could copy
+// the CLI binary under another name even with no cd in the command.
+const FOLDER_WORDS_TOP = ['echo'];
 
 // True when the segment's command word only names the `supabase` folder (or
 // prints the word): the bare token is then not a launch. Only shell keywords
@@ -1628,8 +1635,10 @@ const isReadOnlyCall = (parts) =>
 const W = '[A-Za-z0-9_$]*';
 // setval and nextval move a sequence, which is a write the table check
 // cannot hold to public (`setval('auth.refresh_tokens_id_seq', 1)`).
+// query_to_xml*, cursor_to_xml*, ts_stat and ts_rewrite run SQL given as
+// text, which a check on the query's own text cannot see into.
 const SQL_SIDE_EFFECT_CALL = new RegExp(
-  `(?<![A-Za-z0-9_$])"?(?:set_config|setval|nextval|dblink${W}|lo_${W}|pg_read${W}|pg_ls${W}|pg_stat_file|pg_terminate${W}|pg_cancel${W}|pg_sleep${W}|pg_reload_conf|pg_rotate_logfile|pg_advisory${W}|pg_notify)"?\\s*\\(`,
+  `(?<![A-Za-z0-9_$])"?(?:query_to_xml${W}|cursor_to_xml${W}|ts_stat|ts_rewrite|set_config|setval|nextval|dblink${W}|lo_${W}|pg_read${W}|pg_ls${W}|pg_stat_file|pg_terminate${W}|pg_cancel${W}|pg_sleep${W}|pg_reload_conf|pg_rotate_logfile|pg_advisory${W}|pg_notify)"?\\s*\\(`,
   'i',
 );
 // Every unqualified pg_*() call is refused but these, which only read:
