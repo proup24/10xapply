@@ -100,6 +100,7 @@ export function loadSeedEnvironment(start?: string): SeedEnvironmentVariables {
     {
       DATABASE_URL: env.DATABASE_URL,
       DIRECT_DATABASE_URL: env.DIRECT_DATABASE_URL,
+      SUPABASE_URL: env.SUPABASE_URL,
     },
     optIn,
   );

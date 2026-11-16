@@ -57,10 +57,14 @@ export function loadEnvironmentFiles(start = process.cwd()): void {
   if (process.env.XAPPLY_SKIP_ENV_FILES === '1') return;
   if (loaded) return;
   loaded = true;
+  // The remote opt-in may only come from the real environment, never a file.
+  const optIn = process.env.XAPPLY_ALLOW_REMOTE_DB;
   const keys = new Set<string>();
   for (const path of findEnvFiles(start)) {
     const { parsed } = config({ path, quiet: true });
     Object.keys(parsed ?? {}).forEach((key) => keys.add(key));
   }
   expandReferences(process.env, [...keys]);
+  if (optIn === undefined) delete process.env.XAPPLY_ALLOW_REMOTE_DB;
+  else process.env.XAPPLY_ALLOW_REMOTE_DB = optIn;
 }

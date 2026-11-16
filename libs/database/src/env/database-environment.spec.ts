@@ -97,4 +97,23 @@ describe('database environment', () => {
     loadEnvironmentFiles(dir);
     expect(process.env.DATABASE_URL).toBeUndefined();
   });
+
+  it('does not let a .env opt-in leak across calls or into process.env', () => {
+    writeEnv(
+      'DATABASE_URL=postgresql://u:p@db.example.com:5432/postgres\nXAPPLY_ALLOW_REMOTE_DB=1\n',
+    );
+    expect(() => loadDatabaseEnvironment(dir)).toThrow(/non-local host/);
+    expect(process.env.XAPPLY_ALLOW_REMOTE_DB).toBeUndefined();
+    expect(() => loadDatabaseEnvironment(dir)).toThrow(/non-local host/);
+    expect(() => loadSeedEnvironment(dir)).toThrow(/non-local host/);
+    resetEnvironmentLoaderForTests();
+    expect(() => loadSeedEnvironment(dir)).toThrow(/non-local host/);
+  });
+
+  it('refuses a remote SUPABASE_URL beside a local DATABASE_URL', () => {
+    writeEnv(`DATABASE_URL=${LOCAL}\nSUPABASE_URL=https://abc.supabase.co\n`);
+    expect(() => loadSeedEnvironment(dir)).toThrow(
+      /SUPABASE_URL at non-local host abc\.supabase\.co/,
+    );
+  });
 });
