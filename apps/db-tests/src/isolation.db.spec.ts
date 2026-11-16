@@ -155,7 +155,9 @@ describe.each(ownedTables)('isolation: $table', (t) => {
 
   it('shows nothing to anon', async () => {
     await t.seed(a.id);
-    const { data } = await anon().from(t.table).select('*');
-    expect(data ?? []).toEqual([]);
+    const { data, error } = await anon().from(t.table).select('*');
+    // anon has no grant on the table (42501, as on users), or a grant and no
+    // policy (an empty list). Any other error is a broken stack, not a pass.
+    expect([[], '42501']).toContainEqual(error ? error.code : data);
   });
 });

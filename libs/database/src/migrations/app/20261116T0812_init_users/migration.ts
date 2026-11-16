@@ -92,6 +92,9 @@ export default class M extends Migration<never, End> {
       }),
       // Every new auth user (signed up, created or invited) gets its users row
       // in the same transaction; EXECUTE is revoked so it only runs as the trigger.
+      // The grants are explicit because Supabase projects no longer grant on new
+      // public tables by default: authenticated reads and updates (RLS narrows
+      // it to the own row), service_role gets everything, anon gets nothing.
       rawSql({
         id: 'trigger.on_auth_user_created',
         label: 'Create a users row for every new auth user',
@@ -104,7 +107,7 @@ export default class M extends Migration<never, End> {
         execute: [
           {
             description:
-              'create handle_new_auth_user() and the on_auth_user_created trigger',
+              'create handle_new_auth_user() and the on_auth_user_created trigger, and grant users to authenticated and service_role',
             sql: `CREATE FUNCTION public.handle_new_auth_user() RETURNS trigger
   LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
 BEGIN
@@ -113,7 +116,9 @@ BEGIN
 END $$;
 REVOKE EXECUTE ON FUNCTION public.handle_new_auth_user() FROM PUBLIC, anon, authenticated;
 CREATE TRIGGER on_auth_user_created AFTER INSERT ON auth.users
-  FOR EACH ROW EXECUTE FUNCTION public.handle_new_auth_user();`,
+  FOR EACH ROW EXECUTE FUNCTION public.handle_new_auth_user();
+GRANT SELECT, UPDATE ON public.users TO authenticated;
+GRANT ALL ON public.users TO service_role;`,
           },
         ],
         postcheck: [],
