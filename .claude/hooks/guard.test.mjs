@@ -7,6 +7,8 @@ import { pathToFileURL } from 'node:url';
 import {
   evaluate,
   readSupabaseProjectRef,
+  remoteOptInProblem,
+  supabaseCliProblem,
   sqlProblem,
   supabaseToolProblem,
   SUPABASE_NO_PROJECT_TOOLS,
@@ -1010,4 +1012,167 @@ test('supabase sql: upserts pass, a DO statement does not', () => {
     "insert into public.users (id) values ('x') on conflict (id) do update set role = 'x'",
   ])
     assert.notEqual(sqlProblem(q), null, q);
+});
+
+test('supabase cli: local commands pass', () => {
+  for (const c of [
+    'supabase start',
+    'pnpm exec supabase status -o env',
+    'supabase stop --no-backup',
+    'pnpm exec supabase gen types typescript --local --schema public',
+    'supabase gen signing-key --algorithm ES256 --append',
+    'supabase db reset',
+    'supabase migration list --local',
+    'supabase --help',
+    'pnpm db:start',
+    'pnpm db:types',
+  ])
+    assert.equal(blocked('Bash', { command: c }), false, c);
+});
+test('supabase cli: remote and account commands are refused', () => {
+  for (const c of [
+    'supabase link --project-ref abc',
+    'supabase db push',
+    'pnpm exec supabase db push',
+    'npx supabase link',
+    'supabase --workdir x link',
+    'supabase projects list',
+    'supabase projects delete abc',
+    'supabase login',
+    'supabase secrets set A=b',
+    'supabase functions deploy x',
+    'supabase db pull',
+    'supabase db dump',
+    'supabase migration repair 1 --status applied',
+    'supabase branches list',
+    'supabase gen types typescript --project-id abc',
+    'supabase gen types typescript --linked',
+    'supabase db reset --linked',
+    'supabase db reset --db-url postgresql://u:p@h/db',
+    'bash -c "supabase db push"',
+    'ls && supabase link',
+  ])
+    assert.equal(blocked('Bash', { command: c }), true, c);
+});
+test('remote db opt-in is refused', () => {
+  for (const c of [
+    'XAPPLY_ALLOW_REMOTE_DB=1 pnpm db:migrate',
+    'env XAPPLY_ALLOW_REMOTE_DB=1 pnpm db:seed',
+    'export XAPPLY_ALLOW_REMOTE_DB=1; pnpm db:migrate',
+  ])
+    assert.equal(blocked('Bash', { command: c }), true, c);
+  assert.equal(blocked('Bash', { command: 'pnpm db:migrate' }), false);
+});
+
+test('supabase cli: other launch forms and the repo scripts', () => {
+  for (const c of [
+    'pnpm exec supabase start -x studio,realtime,edge-runtime,imgproxy,logflare,vector',
+    '/home/linuxbrew/.linuxbrew/bin/supabase start',
+    'node_modules/.bin/supabase status -o env',
+    './node_modules/.bin/supabase stop --no-backup',
+    'supabase gen types typescript --local --schema public',
+    'supabase -o env status',
+    'supabase --version',
+    'supabase',
+    'supabase link --help',
+    'supabase db push -h',
+    'supabase db reset --local',
+    'npx supabase start',
+    'yarn supabase status',
+    'npm exec supabase -- status',
+    'pnpm dlx supabase@2.40.7 start',
+    'eval "$(scripts/supabase-env.sh)"',
+    'scripts/supabase-env.sh',
+    'ls supabase',
+    'cat supabase/config.toml',
+    'git add supabase/config.toml',
+    'pnpm add -D supabase',
+    ...['stop', 'status', 'reset', 'migrate', 'seed', 'test'].map(
+      (s) => `pnpm db:${s}`,
+    ),
+  ])
+    assert.equal(blocked('Bash', { command: c }), false, c);
+  for (const c of [
+    '/home/linuxbrew/.linuxbrew/bin/supabase link --project-ref abc',
+    'node_modules/.bin/supabase db push',
+    './node_modules/.bin/supabase login',
+    'pnpm dlx supabase db push',
+    'npm exec supabase -- db push',
+    'yarn supabase link',
+    'npx supabase@latest projects list',
+    'pnpm exec supabase db reset --linked',
+    'supabase migration list',
+    'supabase migration list --linked',
+    'supabase migration list --local --db-url postgresql://h/db',
+    'supabase status --project-ref abc',
+    'supabase start --db-url=postgresql://h/db',
+    'supabase db reset --password x',
+    'supabase db reset -p x',
+    'supabase db reset --linked=true',
+    'supabase gen bearer-jwt',
+    'supabase gen',
+    'supabase inspect db locks',
+    'supabase db diff',
+    'supabase migration up',
+    'supabase seed buckets',
+    'supabase test db',
+    'supabase --profile x link',
+    'sudo supabase link',
+    'timeout 5 supabase db push',
+    'sh -c "pnpm exec supabase db push"',
+    'eval "supabase link"',
+    'echo hi; supabase db push',
+    'find . -exec supabase link \;',
+    "supabase db push 'unclosed",
+    "echo 'x && supabase start",
+  ])
+    assert.equal(blocked('Bash', { command: c }), true, c);
+});
+
+test('remote db opt-in: hidden forms are refused', () => {
+  for (const c of [
+    'bash -c "XAPPLY_ALLOW_REMOTE_DB=1 pnpm db:migrate"',
+    "bash -c 'export XAPPLY_ALLOW_REMOTE_DB=1; pnpm db:migrate'",
+    'export XAPPLY_ALLOW_REMOTE_DB=1',
+    'export "XAPPLY_ALLOW_REMOTE_DB=1"',
+    'XAPPLY_ALLOW_REMOTE_DB= pnpm db:migrate',
+    'export XAPPLY_ALLOW_REMOTE_DB+=1',
+    "echo 'x; XAPPLY_ALLOW_REMOTE_DB=1 pnpm db:migrate",
+  ])
+    assert.equal(blocked('Bash', { command: c }), true, c);
+  for (const c of [
+    'XAPPLY_SKIP_ENV_FILES=1 pnpm db:migrate',
+    'MY_XAPPLY_ALLOW_REMOTE_DB_NOTE=1 true',
+    'grep -r XAPPLY_ALLOW_REMOTE_DB libs',
+  ])
+    assert.equal(blocked('Bash', { command: c }), false, c);
+  const { reason } = evaluate({
+    tool_name: 'Bash',
+    tool_input: { command: 'export XAPPLY_ALLOW_REMOTE_DB=1' },
+  });
+  assert.equal(
+    reason,
+    'Remote database blocked: only CI sets XAPPLY_ALLOW_REMOTE_DB.',
+  );
+});
+
+test('supabase cli: the reason names the problem', () => {
+  const { reason } = evaluate({
+    tool_name: 'Bash',
+    tool_input: { command: 'supabase db push' },
+  });
+  assert.match(
+    reason,
+    /^Supabase CLI blocked: .+\. Claude may run the local stack only \(see CLAUDE\.md\)\.$/,
+  );
+});
+
+test('supabase cli: the exported checks', () => {
+  assert.equal(supabaseCliProblem('supabase start'), null);
+  assert.notEqual(supabaseCliProblem('supabase link'), null);
+  assert.equal(remoteOptInProblem('pnpm db:migrate'), null);
+  assert.notEqual(
+    remoteOptInProblem('XAPPLY_ALLOW_REMOTE_DB=1 pnpm db:migrate'),
+    null,
+  );
 });

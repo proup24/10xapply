@@ -785,6 +785,141 @@ function findBlockedToken(command) {
   }
 }
 
+// --- Supabase CLI (spec section 6) -----------------------------------------
+// The CLI on this machine is signed in to an account that also holds other
+// projects, so Claude may run the local stack only. An allowlist: anything not
+// named here is refused.
+// `supabase`, a path ending in it, or a package spec `supabase@2.x`.
+const isSupabaseCli = (t) => /^supabase(@[^/]*)?$/.test(basename(t ?? ''));
+// Global flags that take a value, so the value is not the subcommand.
+const SUPABASE_VALUE_FLAGS = ['--workdir', '--profile', '--output', '-o'];
+// Flags that point any command at a remote database or project.
+const SUPABASE_REMOTE_FLAGS = [
+  '--project-ref',
+  '--project-id',
+  '--linked',
+  '--db-url',
+  '--password',
+];
+const SUPABASE_ANY_ARGS = ['start', 'stop', 'status'];
+const SUPABASE_GEN = ['types', 'signing-key'];
+// Backstop for the CLI word in an argument position (`find -exec supabase
+// link`): subcommands that only ever reach the account or a remote project.
+const SUPABASE_REMOTE_WORDS = [
+  'link',
+  'unlink',
+  'login',
+  'logout',
+  'projects',
+  'orgs',
+  'secrets',
+  'branches',
+  'functions',
+  'domains',
+  'sso',
+  'backups',
+  'storage',
+];
+
+const remoteFlag = (a) =>
+  SUPABASE_REMOTE_FLAGS.some((f) => a === f || a.startsWith(`${f}=`)) ||
+  /^-p/.test(a);
+
+// The non-flag words after the CLI word, skipping the values of value flags.
+function supabaseWords(args) {
+  const words = [];
+  for (let j = 0; j < args.length; j++) {
+    if (SUPABASE_VALUE_FLAGS.includes(args[j])) j++;
+    else if (args[j] !== '--' && !args[j].startsWith('-')) words.push(args[j]);
+  }
+  return words;
+}
+
+// Why one CLI call (`args` follow the CLI word) is refused, or null.
+function supabaseArgsProblem(args) {
+  if (args.some((a) => a === '--help' || a === '-h')) return null;
+  const words = supabaseWords(args);
+  const flag = args.find(remoteFlag);
+  if (flag) return `the ${flag.split('=')[0]} flag reaches a remote project`;
+  const [sub, second] = words;
+  if (sub === undefined) return null; // `supabase`, `supabase --version`
+  if (SUPABASE_ANY_ARGS.includes(sub)) return null;
+  if (sub === 'gen' && SUPABASE_GEN.includes(second)) return null;
+  if (sub === 'db' && second === 'reset') return null;
+  if (sub === 'migration' && second === 'list') {
+    return args.includes('--local') ? null : 'migration list needs --local';
+  }
+  return `\`supabase ${[sub, second].filter(Boolean).join(' ')}\` is not a local command`;
+}
+
+// Index of the CLI word in a command (`args` start at the command word), or
+// -1. A package manager runs it through exec/dlx/npx/yarn or as a bin; its
+// built-in commands (`pnpm add supabase`) name the package, not the CLI.
+function supabaseCliIndex(args) {
+  if (isSupabaseCli(args[0])) return 0;
+  if (!PACKAGE_MANAGERS.includes(basename(args[0] ?? ''))) return -1;
+  let first;
+  for (let j = 1; j < args.length; j++) {
+    if (PM_DIR_FLAGS.includes(args[j])) j++;
+    else if (!args[j].startsWith('-')) {
+      first = args[j];
+      break;
+    }
+  }
+  if (PM_BUILTINS.includes(first)) return -1;
+  return args.findIndex((a, j) => j > 0 && isSupabaseCli(a));
+}
+
+// Returns why a Supabase CLI call in the command is refused, or null.
+export function supabaseCliProblem(command) {
+  const { segments: parts, unclosed } = parse(command);
+  if (unclosed && rawTokens(command).some(isSupabaseCli)) {
+    return 'a supabase call inside an unterminated quote cannot be checked';
+  }
+  for (const tokens of parts) {
+    const i = commandIndex(tokens);
+    const nested = nestedCommand(tokens, i);
+    const nestedProblem = nested && supabaseCliProblem(nested);
+    if (nestedProblem) return nestedProblem;
+    const args = withoutRedirects(tokens.slice(i));
+    const at = supabaseCliIndex(args);
+    if (at >= 0) {
+      const problem = supabaseArgsProblem(args.slice(at + 1));
+      if (problem) return problem;
+      continue;
+    }
+    // The CLI word as an argument: refuse the account and remote commands.
+    for (let k = 1; k < args.length; k++) {
+      if (!isSupabaseCli(args[k])) continue;
+      const [sub, second] = supabaseWords(args.slice(k + 1));
+      if (
+        SUPABASE_REMOTE_WORDS.includes(sub) ||
+        (sub === 'db' && ['push', 'pull', 'dump'].includes(second))
+      ) {
+        return `\`supabase ${sub}\` is not a local command`;
+      }
+    }
+  }
+  return null;
+}
+
+// CI alone opts the database scripts in to a remote database. Any assignment
+// of the variable is refused, wherever it appears: `VAR=1 cmd`, `env VAR=1`,
+// `export VAR=1`, quoted or nested.
+const REMOTE_OPT_IN = /(?<![A-Za-z0-9_])XAPPLY_ALLOW_REMOTE_DB\+?=/;
+export function remoteOptInProblem(command) {
+  const { segments: parts, unclosed } = parse(command);
+  if (unclosed && REMOTE_OPT_IN.test(command)) {
+    return 'the remote database opt-in';
+  }
+  for (const tokens of parts) {
+    if (tokens.some((t) => REMOTE_OPT_IN.test(t))) {
+      return 'the remote database opt-in';
+    }
+  }
+  return null;
+}
+
 // --- Supabase MCP tools (spec section 6) -----------------------------------
 // An allowlist: a Supabase tool not named here is refused. The key is the
 // tool's suffix after the last `__`; the value is the argument that holds
@@ -1123,6 +1258,19 @@ export function evaluate(
       return {
         block: true,
         reason: `Runner blocked: ${runnerIssue}. Claude may only start --dry-run runs, and only when the author asks (see CLAUDE.md).`,
+      };
+    }
+    const cliIssue = supabaseCliProblem(command);
+    if (cliIssue) {
+      return {
+        block: true,
+        reason: `Supabase CLI blocked: ${cliIssue}. Claude may run the local stack only (see CLAUDE.md).`,
+      };
+    }
+    if (remoteOptInProblem(command)) {
+      return {
+        block: true,
+        reason: 'Remote database blocked: only CI sets XAPPLY_ALLOW_REMOTE_DB.',
       };
     }
     if (recordWriteProblem(command)) return blockRecord();
