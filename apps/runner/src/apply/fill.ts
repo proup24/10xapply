@@ -11,10 +11,14 @@ export interface FillPage {
   checked(selector: string): Promise<boolean>;
   selectedText(selector: string): Promise<string | null>; // <select>'s chosen option text
   /**
-   * Waits for the typeahead list to show an option matching `text`, or null
-   * after 5 s. The string is that option's selector, for `pace.click`.
+   * Waits for the typeahead list to show an option `suggestionMatches`
+   * accepts for `pick` (the first, in list order), or null after 5 s. The
+   * string is that option's selector, for `pace.click`.
    */
-  suggestion(listSelector: string, text: string): Promise<string | null>;
+  suggestion(
+    listSelector: string,
+    pick: SuggestionPick,
+  ): Promise<string | null>;
   /** True when any input `selector` matches is checked; throws when none matches. */
   anyChecked(selector: string): Promise<boolean>;
   /**
@@ -27,6 +31,34 @@ export interface FillPage {
    * still matches exactly `count`.
    */
   idAt(selector: string, index: number, count: number): Promise<string | null>;
+}
+
+/**
+ * Which typeahead suggestion to click: the one reading `text`, or, with a
+ * `country` (the bank's city typed), the first that starts with the city
+ * and holds the country as one of its comma-separated parts.
+ */
+export interface SuggestionPick {
+  text: string;
+  country?: string;
+}
+
+const squash = (s: string) => s.replace(/\s+/g, ' ').trim().toLowerCase();
+
+/** True when the option's text fits the pick. Spaces and case are ignored. */
+export function suggestionMatches(
+  option: string,
+  pick: SuggestionPick,
+): boolean {
+  const text = squash(option);
+  const want = squash(pick.text);
+  if (pick.country === undefined) return text === want;
+  const country = squash(pick.country);
+  if (want === '' || country === '' || !text.startsWith(want)) return false;
+  // The city is a whole word ("Tangier", not "Tangiers"), and the country
+  // one whole comma-separated part ("Morocco", not "Morocco Street").
+  if (/[\p{L}\p{N}]/u.test(text.charAt(want.length))) return false;
+  return text.split(',').some((part) => part.trim() === country);
 }
 
 /**
@@ -70,7 +102,7 @@ function guardReads(page: FillPage): FillPage {
     value: guard((sel) => page.value(sel)),
     checked: guard((sel) => page.checked(sel)),
     selectedText: guard((sel) => page.selectedText(sel)),
-    suggestion: guard((list, text) => page.suggestion(list, text)),
+    suggestion: guard((list, pick) => page.suggestion(list, pick)),
     anyChecked: guard((sel) => page.anyChecked(sel)),
     checkedAt: guard((sel, i, n) => page.checkedAt(sel, i, n)),
     idAt: guard((sel, i, n) => page.idAt(sel, i, n)),
@@ -127,6 +159,11 @@ interface Ctx {
    * `<dialog>`), passed to every pace call as `within`.
    */
   within?: string;
+  /**
+   * The bank's city and country. A typeahead answered with the city picks
+   * a suggestion that starts with it and holds the country.
+   */
+  place?: { city: string; country: string };
 }
 
 /** The pace options for a call: `within` as a locator, when the ctx has one. */
@@ -314,7 +351,15 @@ async function fillTypeahead(
   if (current !== '' && !(await clearAndCheck(ctx, f.selector)))
     return fail('not-taken');
   if (!(await typeAndCheck(ctx, f.selector, text))) return fail('not-taken');
-  const option = await page.suggestion(f.suggestions, text);
+  const place = ctx.place;
+  const isCity =
+    place !== undefined &&
+    squash(place.city) !== '' &&
+    squash(text) === squash(place.city);
+  const option = await page.suggestion(
+    f.suggestions,
+    isCity ? { text, country: place.country } : { text },
+  );
   if (option === null) {
     await pace.clear(field, opts(ctx));
     return fail('no-suggestion');
@@ -331,6 +376,9 @@ async function fillSelect(
   const { pace, page } = ctx;
   const options = f.question.options ?? [];
   const answer = asOne(value);
+  // Two options read the same: the text can't say which one is meant.
+  const repeated = new Set((f.repeatedOptions ?? []).map(squash));
+  if (answer !== null && repeated.has(squash(answer))) return fail('no-option');
   const index = answer === null ? -1 : options.indexOf(answer);
   if (index < 0) return fail('no-option');
   const field = page.locator(f.selector);
@@ -406,7 +454,9 @@ async function fillGroup(
 ): Promise<FillResult> {
   const { pace, page } = ctx;
   const options = f.question.options ?? [];
-  const wanted = asMany(value);
+  // An empty answer ticks nothing, which only an optional group allows.
+  const wanted = asMany(value).filter((w) => w.trim() !== '');
+  if (wanted.length === 0 && f.question.required) return fail('no-option');
   if (wanted.some((w) => !options.includes(w))) return fail('no-option');
   const states = await optionStates(f, page);
   if (states === null) return fail('no-option');
@@ -424,6 +474,11 @@ async function fillGroup(
     if (!(await positionHolds(f, page, i))) return fail('no-option');
     await pace.click(page.locator(press), opts(ctx));
     if ((await stateOf(f, page, i)) !== want[i]) return fail('no-option');
+  }
+  // Read every box back: exactly the answer's options are ticked.
+  const after = await optionStates(f, page);
+  if (after === null || after.some((t, i) => t !== want[i])) {
+    return fail('no-option');
   }
   return done(states.some(Boolean));
 }

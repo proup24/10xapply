@@ -67,6 +67,19 @@ cases:
       sources: [{ field: email }]
       derivation: field
 
+  # Field: email, from a select of addresses whose label is not English.
+  - id: field-email-select-de
+    question:
+      label: E-Mail-Adresse
+      type: select
+      options: [sam@example.com]
+      required: true
+    expect:
+      status: backed
+      valueFrom: { field: email }
+      sources: [{ field: email }]
+      derivation: field
+
   # Field: phone, the full number with its country code.
   - id: field-phone
     question: { label: Mobile phone number, type: text, required: true }
@@ -111,9 +124,18 @@ cases:
       sources: [{ field: city }]
       derivation: field
 
+  # Field: city, where the label names a city ("Location (city)").
+  - id: field-location-city
+    question: { label: Location (city), type: typeahead, required: true }
+    expect:
+      status: backed
+      valueFrom: { field: city }
+      sources: [{ field: city }]
+      derivation: field
+
   # Field: location, derived from city and country.
   - id: field-location
-    question: { label: Location (city), type: typeahead, required: true }
+    question: { label: Current location, type: typeahead, required: true }
     expect:
       status: backed
       valueFrom: { field: location }

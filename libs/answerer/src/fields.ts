@@ -41,8 +41,9 @@ export const FIELD_PATTERNS: Record<FieldKey, string[]> = {
   ],
   phoneCountryCode: ['country code', 'phone country code'],
   phoneCountry: ['phone country'],
-  city: ['city'],
-  location: ['location', 'location city', 'current location'],
+  // The author's forms get the city alone where the label names a city.
+  city: ['city', 'location city'],
+  location: ['location', 'current location'],
   country: ['country', 'country of residence'],
   linkedin: [
     'linkedin',
@@ -87,6 +88,20 @@ function besideCountryCode(q: FormQuestion): boolean {
 }
 
 /**
+ * The bank value a field fills for this question: the national number for a
+ * phone beside a country-code field, else the field's own value.
+ */
+export function fieldValueFor(
+  key: FieldKey,
+  q: FormQuestion,
+  bank: FactBank,
+): string | undefined {
+  return key === 'phone' && besideCountryCode(q)
+    ? bank.fields.phone.number
+    : fieldValue(key, bank);
+}
+
+/**
  * An option such as "United Kingdom (+44)": the code as a whole token (not
  * followed by a digit) and, once the code and its brackets and punctuation are
  * removed, exactly the country name. Null when none or more than one matches.
@@ -113,12 +128,48 @@ export function countryAndCodeOption(
   return matches.length === 1 ? (matches[0] as string) : null;
 }
 
+/** An email address; a masked one (`s***@example.com`) still counts. */
+const EMAIL_LIKE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+/**
+ * A select whose options are all email addresses is the email field, in
+ * whatever language its label is. The bank's address is picked, ignoring
+ * case; a masked option is never picked, so with none left it blocks.
+ * Null when the question is not such a select.
+ */
+function emailSelect(q: FormQuestion, bank: FactBank): FieldMapping | null {
+  const options = q.options ?? [];
+  if (q.type !== 'select' || options.length === 0) return null;
+  if (!options.every((o) => EMAIL_LIKE.test(o.trim()))) return null;
+  const value = fieldValue('email', bank);
+  if (value === undefined || value.trim() === '') {
+    return {
+      kind: 'blocked',
+      reason: 'bank-silent',
+      detail: 'bank has no value for field email',
+    };
+  }
+  const matched = matchOption(
+    value,
+    options.filter((o) => !o.includes('*')),
+  );
+  return matched === null
+    ? {
+        kind: 'blocked',
+        reason: 'bank-silent',
+        detail: 'no option matches field email',
+      }
+    : { kind: 'filled', key: 'email', value: matched };
+}
+
 /**
  * Fills a simple field straight from the bank, without a model. Returns
  * `none` when the label is not a whole known field label. `detail` strings
  * name the field key only, never a value.
  */
 export function mapField(q: FormQuestion, bank: FactBank): FieldMapping {
+  const email = emailSelect(q, bank);
+  if (email !== null) return email;
   const key = keyForLabel(q.label);
   if (key === null) return { kind: 'none' };
 
@@ -128,10 +179,7 @@ export function mapField(q: FormQuestion, bank: FactBank): FieldMapping {
     return { kind: 'none' };
   }
 
-  const value =
-    key === 'phone' && besideCountryCode(q)
-      ? bank.fields.phone.number
-      : fieldValue(key, bank);
+  const value = fieldValueFor(key, q, bank);
   if (value === undefined || value.trim() === '') {
     return {
       kind: 'blocked',

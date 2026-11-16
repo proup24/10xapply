@@ -221,6 +221,36 @@ export function stableGroupFor(
 }
 
 /**
+ * The inputs by their question's field wrapper, for a group with no shared
+ * aria-label (LinkedIn's checkbox questions and its Disability radios):
+ * `<wrapper by componentkey> input[type=…]`. The wrapper's componentkey
+ * carries the question's id, the same key a read uses as the field's key,
+ * and LinkedIn keeps it when it re-renders. Only when every input has an
+ * id, the wrapper's selector matches one element, and the group selector
+ * matches exactly these inputs, in this order. As with the aria-label
+ * route, fill checks before each press that nth(i) still carries ids[i].
+ */
+export function wrapperGroupFor(
+  doc: Document,
+  inputs: El[],
+): { selector: string; count: number; ids: string[] } | undefined {
+  const [first] = inputs;
+  const type = first?.getAttribute('type') ?? '';
+  const wrapper = first?.closest(FIELD_WRAPPER);
+  const key = wrapper?.getAttribute('componentkey') ?? '';
+  if (!first || !wrapper || type === '' || key === '') return undefined;
+  const box = byComponentKey(wrapper.tagName.toLowerCase(), key);
+  if (all(doc, box).length !== 1) return undefined;
+  const ids = inputs.map((i) => i.getAttribute('id') ?? '');
+  if (ids.includes('')) return undefined;
+  const selector = `${box} input${attr('type', type)}`;
+  const found = all(doc, selector);
+  const same =
+    found.length === inputs.length && found.every((f, i) => f === inputs[i]);
+  return same ? { selector, count: inputs.length, ids } : undefined;
+}
+
+/**
  * A selector that matches `el` and nothing else on the page: its id, else
  * its componentkey (kept for the life of the page), else a data-testid,
  * name, aria-label or aria-describedby. Null when none is unique, so the
@@ -433,16 +463,19 @@ function readFields(
     extra: Omit<Partial<ReadField>, 'optionSelectors'> & {
       anchor?: El;
       options?: El[];
+      /** The group has no other identity: unknown without a stable one. */
+      needsStable?: boolean;
     } = {},
   ) => {
-    const { anchor, options, ...rest } = extra;
+    const { anchor, options, needsStable, ...rest } = extra;
     const selector = target ? selectorFor(doc, target) : null;
     const optionSelectors = options?.map((o) => selectorFor(doc, o));
     if (
       q.label === '' ||
       selector === null ||
       (q.options?.includes('') ?? false) ||
-      repeats(q.options ?? []) ||
+      // A select's repeats are read but never picked (repeatedOptions).
+      (q.type !== 'select' && repeatedOf(q.options ?? []).length > 0) ||
       (optionSelectors?.includes(null) ?? false)
     ) {
       unknown.push(unknownOf(doc, el));
@@ -469,8 +502,18 @@ function readFields(
       if (stable) field.stableGroup = stable;
     }
     if ((q.type === 'radio' || q.type === 'checkbox-group') && options) {
-      const stable = stableGroupFor(doc, options);
+      const stable =
+        stableGroupFor(doc, options) ?? wrapperGroupFor(doc, options);
       if (stable) field.stableGroup = stable;
+      else if (needsStable) {
+        // No identity a re-render keeps: never risk a press on a wrong box.
+        unknown.push(unknownOf(doc, el));
+        return;
+      }
+    }
+    if (q.type === 'select') {
+      const repeated = repeatedOf(q.options ?? []);
+      if (repeated.length > 0) field.repeatedOptions = repeated;
     }
     fields.push(field);
   };
@@ -539,12 +582,14 @@ function readFields(
         .join(' ')
         .split(/\s+/)
         .find((i) => i !== '' && i !== 'null');
-      push(
-        el,
-        el,
-        simple(el, 'typeahead'),
-        list ? { suggestions: byId(list) } : {},
-      );
+      const q = simple(el, 'typeahead');
+      if (q.label === '') {
+        // LinkedIn's "Location (city)" box: its question is a `<p>`.
+        const text = wrapperQuestion([el]);
+        q.label = text.replace(STAR, '');
+        q.required = q.required || STAR.test(text);
+      }
+      push(el, el, q, list ? { suggestions: byId(list) } : {});
       return;
     }
     const mode = el.getAttribute('inputmode');
@@ -633,6 +678,11 @@ function readFields(
     }
     if (text === '') text = sharedLabel(radios);
     if (text === '' && container) text = groupLabel(container);
+    // LinkedIn's Disability question: its `<p>` above the group, else the
+    // heading every option is labelled by (each its own, reading the same).
+    const plain = text !== '';
+    if (text === '') text = wrapperQuestion(radios);
+    if (text === '') text = sharedLabelledBy(doc, radios);
     push(
       el,
       groupBox(radios, container, 'radio'),
@@ -642,7 +692,7 @@ function readFields(
         required: true,
         options: radios.map((r) => optionText(doc, r, container)),
       },
-      { anchor: container ?? el, options: radios },
+      { anchor: container ?? el, options: radios, needsStable: !plain },
     );
   }
 
@@ -695,7 +745,12 @@ function readFields(
     const boxes = group
       ? all(group, 'input[type="checkbox"]').filter((b) => !ignored(b))
       : [el];
-    if (boxes.length < 2) {
+    // LinkedIn's checkbox question: a `<p>` in the field wrapper above a
+    // fieldset with no legend. One box under it is still a question with
+    // one option ("I consent").
+    const own = group ? groupLabel(group) : '';
+    const above = group && own === '' ? wrapperQuestion(boxes) : '';
+    if (boxes.length < 2 && above === '') {
       push(el, el, simple(el, 'checkbox'));
       return;
     }
@@ -707,7 +762,7 @@ function readFields(
       unknown.push(unknownOf(doc, el));
       return;
     }
-    const text = group ? groupLabel(group) : '';
+    const text = own || above;
     push(
       el,
       groupBox(boxes, group, 'checkbox'),
@@ -721,7 +776,7 @@ function readFields(
         // Never the aria-label: an empty option text sends it to unknown.
         options: boxes.map((b) => optionText(doc, b, group)),
       },
-      { anchor: group ?? el, options: boxes },
+      { anchor: group ?? el, options: boxes, needsStable: own === '' },
     );
   }
 
@@ -731,15 +786,84 @@ function readFields(
   }
 }
 
-/** True when two options read the same, trimmed and in any case. */
-function repeats(options: string[]): boolean {
-  const seen = new Set(options.map((o) => o.trim().toLowerCase()));
-  return seen.size !== options.length;
+/**
+ * The text of the `<p>` right inside the field wrapper of `members` (one
+ * control, or a group's inputs), when the wrapper holds no other control
+ * (so the `<p>` can only be this field's question). '' when there is none.
+ */
+function wrapperQuestion(members: El[]): string {
+  const [first] = members;
+  const wrapper = first?.closest(FIELD_WRAPPER);
+  if (!first || !wrapper) return '';
+  const controls = all(
+    wrapper,
+    'input, select, textarea, [contenteditable], [role]',
+  ).filter((c) => {
+    if (ignored(c)) return false;
+    const tag = c.tagName.toLowerCase();
+    if (tag === 'input') {
+      const type = (c.getAttribute('type') ?? 'text').toLowerCase();
+      return !NOT_ANSWERS.has(type);
+    }
+    if (tag === 'select' || tag === 'textarea') return true;
+    const role = c.getAttribute('role');
+    return role !== null && INPUT_ROLES.has(role);
+  });
+  const same =
+    controls.length === members.length &&
+    members.every((m) => controls.includes(m));
+  if (!same) return '';
+  const p = Array.from(wrapper.childNodes).find(
+    (n) => n.nodeType === 1 && n.tagName.toLowerCase() === 'p',
+  );
+  return p ? textOf(p) : '';
+}
+
+/**
+ * The options that read the same as another, trimmed and in any case: each
+ * once, in its first spelling, in page order. Empty when none repeat.
+ */
+function repeatedOf(options: string[]): string[] {
+  const count = new Map<string, number>();
+  for (const o of options) {
+    const k = o.trim().toLowerCase();
+    count.set(k, (count.get(k) ?? 0) + 1);
+  }
+  const out: string[] = [];
+  const done = new Set<string>();
+  for (const o of options) {
+    const k = o.trim().toLowerCase();
+    if ((count.get(k) ?? 0) > 1 && !done.has(k)) {
+      done.add(k);
+      out.push(o);
+    }
+  }
+  return out;
 }
 
 /** The fieldset or radiogroup around a radio. */
 function radioContainer(el: El): El | null {
   return el.closest('fieldset') ?? el.closest('[role="radiogroup"]');
+}
+
+/**
+ * The one text all of `els` are labelled by through aria-labelledby (each
+ * may point at its own element), else ''.
+ */
+function sharedLabelledBy(doc: Document, els: El[]): string {
+  const texts = new Set(
+    els.map((el) => {
+      return clean(
+        (el.getAttribute('aria-labelledby') ?? '')
+          .split(/\s+/)
+          .map((i) => (i ? byIdIn(doc, i) : null))
+          .map((e) => (e ? textOf(e) : ''))
+          .join(' '),
+      );
+    }),
+  );
+  const [only] = [...texts];
+  return texts.size === 1 ? (only ?? '') : '';
 }
 
 /** The one aria-label all of `els` share, else ''. */

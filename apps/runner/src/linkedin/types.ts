@@ -34,8 +34,9 @@ export interface ReadField {
   pressSelector?: string;
   /**
    * radio, checkbox-group, checkbox: the inputs by an identity LinkedIn
-   * keeps when it re-renders (the shared `aria-label`, not the per-load
-   * React ids). `selector` matched exactly `count` inputs at read time, in
+   * keeps when it re-renders (the shared `aria-label`, else for a radio or
+   * checkbox-group the componentkey of the question's field wrapper; not
+   * the per-load React ids). `selector` matched exactly `count` inputs at read time, in
    * option order, so option i is its nth(i). State is read through this
    * when present, before and after a press. `ids` are the inputs' ids at
    * read time: before a press, nth(i) must still carry ids[i].
@@ -46,6 +47,12 @@ export interface ReadField {
    * so a placeholder left out of `options` doesn't shift picks.
    */
   pageIndexes?: number[];
+  /**
+   * select: the option texts that appear more than once (trimmed, any
+   * case), each once, as the page first spells it. Fill never picks one:
+   * two options read the same, so the text can't say which is meant.
+   */
+  repeatedOptions?: string[];
   /**
    * file: resumes LinkedIn already lists. `selector` is the radio input by
    * its per-load id; `pressSelector` is where to press it (its

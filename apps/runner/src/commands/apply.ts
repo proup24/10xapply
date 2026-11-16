@@ -28,7 +28,12 @@ import {
   RecordError,
   type RecordStore,
 } from '../apply/record.js';
-import { ReadMismatchError, type Resume } from '../apply/fill.js';
+import {
+  ReadMismatchError,
+  suggestionMatches,
+  type Resume,
+  type SuggestionPick,
+} from '../apply/fill.js';
 import {
   DEFAULT_MISSES_PATH,
   loadMisses,
@@ -195,19 +200,23 @@ export function adaptApplyPage(
    */
   const matchingOption = async (
     list: string,
-    want: string,
+    pick: SuggestionPick,
   ): Promise<string | null> => {
     const options = optionsOf(list);
     const n = await options.count();
     for (let k = 0; k < n; k++) {
       const text = await textAt(options.nth(k));
-      if (text.toLowerCase() !== want) continue;
+      if (!suggestionMatches(text, pick)) continue;
       const id = await options
         .nth(k)
         .getAttribute('id', { timeout: READ_TIMEOUT_MS });
       if (id) {
         const byId = `${list} [id=${quoted(id)}]`;
-        if ((await textAt(page.locator(byId))).toLowerCase() === want) {
+        // The element the id names must still read the same option.
+        if (
+          (await textAt(page.locator(byId))).toLowerCase() ===
+          text.toLowerCase()
+        ) {
           return byId;
         }
       }
@@ -263,11 +272,10 @@ export function adaptApplyPage(
         .textContent({ timeout: FILL_READ_TIMEOUT_MS });
       return text === null ? null : clean(text);
     },
-    suggestion: async (list, text) => {
-      const want = clean(text).toLowerCase();
+    suggestion: async (list, pick) => {
       const tries = Math.ceil(SUGGESTION_WAIT_MS / SUGGESTION_POLL_MS);
       for (let i = 0; i <= tries; i++) {
-        const found = await matchingOption(list, want);
+        const found = await matchingOption(list, pick);
         if (found !== null) return found;
         if (i < tries) await wait(SUGGESTION_POLL_MS);
       }

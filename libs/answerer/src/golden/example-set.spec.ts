@@ -182,8 +182,8 @@ describe('golden/example.yaml', () => {
       expect(score.problems, c.id).toEqual([]);
       scored.push(c.id);
     }
-    // 14 filled fields, the empty website, the email over maxLength, the
+    // 16 filled fields, the empty website, the email over maxLength, the
     // cover letter and the unsupported field type.
-    expect(scored).toHaveLength(18);
+    expect(scored).toHaveLength(20);
   });
 });

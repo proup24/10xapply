@@ -43,6 +43,159 @@ describe('scrubSnapshot', () => {
       expect(html).toContain(t);
   });
 
+  it('keeps a question <p> right inside a form field wrapper, and no other <p>', () => {
+    const { html } = scrubSnapshot(
+      '<div componentkey="easyApplyFieldFocus_ea.q::1::UNKNOWN::value.validation">' +
+        '<p>Location (city)*</p><div><p>Typed note</p><input></div></div>' +
+        '<div componentkey="other"><p>Other text</p></div><p>Loose words</p>',
+      ['Leeds'],
+      [],
+    );
+    expect(html).toContain('<p>Location (city)*</p>');
+    expect(html).not.toContain('Typed note');
+    expect(html).not.toContain('Other text');
+    expect(html).not.toContain('Loose words');
+  });
+
+  it('still replaces a secret in a kept question <p>', () => {
+    const { html } = scrubSnapshot(
+      '<div componentkey="easyApplyFieldFocus_x"><p>Do you live in Leeds?</p></div>',
+      ['Leeds'],
+      [],
+    );
+    expect(html).toContain('<p>Do you live in [secret]?</p>');
+  });
+
+  describe('public option lists', () => {
+    // A list every applicant sees: a [secret] in it shows the bank's pick by
+    // its position, so bank values are left whole there.
+    it('leaves a select with the bank value among other options intact', () => {
+      const { html } = scrubSnapshot(
+        '<label for="c">Phone country code</label><select id="c">' +
+          '<option value="LY">Libya (+218)</option>' +
+          '<option value="MA">Morocco (+212)</option>' +
+          '<option value="MC">Monaco (+377)</option></select>',
+        ['Morocco', '+212'],
+        [],
+      );
+      expect(html).toContain('>Morocco (+212)</option>');
+      expect(html).not.toContain('[secret]');
+      // value= attributes are blanked as before.
+      expect(html).toContain('value="xx"');
+    });
+
+    it('still scrubs a one-option select (the author’s own email list)', () => {
+      const { html } = scrubSnapshot(
+        '<select id="e"><option>sam-mail-handle</option></select>',
+        ['sam-mail-handle'],
+        [],
+      );
+      expect(html).not.toContain('sam-mail-handle');
+      expect(html).toContain('[secret]');
+    });
+
+    it('a placeholder is not an option: one real option is still scrubbed', () => {
+      const { html } = scrubSnapshot(
+        '<select id="e"><option value="" disabled hidden></option>' +
+          '<option value="sam-mail-handle">sam-mail-handle</option></select>',
+        ['sam-mail-handle'],
+        [],
+      );
+      expect(html).not.toContain('sam-mail-handle');
+    });
+
+    it('still replaces any email address inside a multi-option select', () => {
+      const { html } = scrubSnapshot(
+        '<select><option>a@x.io</option><option>b@x.io</option></select>',
+        [],
+        [],
+      );
+      expect(html).not.toContain('@x.io');
+    });
+
+    it('leaves a radio or checkbox group option equal to a bank answer intact', () => {
+      const { html } = scrubSnapshot(
+        '<fieldset><legend>Background</legend>' +
+          '<div><div><input id="a" type="checkbox"><label for="a"></label></div><p>East Asian</p></div>' +
+          '<div><div><input id="b" type="checkbox"><label for="b"></label></div><p>North African</p></div></fieldset>' +
+          '<fieldset role="radiogroup"><input id="y" type="radio" name="g"><label for="y">North African</label>' +
+          '<input id="n" type="radio" name="g"><label for="n">No</label></fieldset>',
+        ['North African'],
+        [],
+      );
+      expect(html).toContain('<p>North African</p>');
+      expect(html).toContain('<label for="y">North African</label>');
+      expect(html).not.toContain('[secret]');
+    });
+
+    it("still scrubs the author's own list: radios each labelled by its own name (resumes)", () => {
+      const { html } = scrubSnapshot(
+        '<fieldset role="radiogroup">' +
+          '<div><div><input id="r1" type="radio" name="g" aria-label="SamExampleCV.pdf"><label for="r1"></label></div><div><p>SamExampleCV.pdf</p></div></div>' +
+          '<div><div><input id="r2" type="radio" name="g" aria-label="other.docx"><label for="r2"></label></div><div><p>other.docx</p></div></div></fieldset>',
+        ['SamExample'],
+        ['SamExample'],
+      );
+      expect(html).not.toContain('SamExample');
+    });
+
+    it('still scrubs a bank value in free text, a question or a lone box', () => {
+      const { html } = scrubSnapshot(
+        '<div componentkey="easyApplyFieldFocus_q"><p>Do you live in Leeds?</p>' +
+          '<fieldset><div><input id="c" type="checkbox"><label for="c"></label><p>Leeds</p></div></fieldset></div>' +
+          '<h3>Leeds</h3><span>Leeds</span>',
+        ['Leeds'],
+        [],
+      );
+      expect(html).not.toContain('Leeds');
+      expect(html.match(/\[secret\]/g)).toHaveLength(3);
+    });
+  });
+
+  describe('review-page Edit buttons', () => {
+    // LinkedIn's review page: a section header is an <h4> or a <p> beside
+    // its Edit button; a profile entry's button is named after the entry.
+    const REVIEW =
+      '<div><div><h4>Contact info</h4><button aria-label="Edit Contact info"><span>Edit</span></button></div></div>' +
+      '<div><div><p>Education</p><button aria-label="Edit Education"><span>Edit</span></button></div>' +
+      '<div><div><div><p>School</p><p>Uni of Somewhere</p></div></div>' +
+      '<button aria-label="Edit Uni of Somewhere, Some Town"><span></span></button></div></div>' +
+      '<div><button aria-label="Edit, Work Experience"></button></div>';
+
+    it('keeps a section name taken from a heading or the <p> beside the button', () => {
+      const { html } = scrubSnapshot(REVIEW, [], []);
+      expect(html).toContain('aria-label="Edit Contact info"');
+      expect(html).toContain('aria-label="Edit Education"');
+      expect(html).toContain('aria-label="Edit, Work Experience"');
+    });
+
+    it('blanks the entry part of any other Edit label, whatever the bank holds', () => {
+      const { html, counts } = scrubSnapshot(REVIEW, [], []);
+      expect(html).not.toContain('Somewhere');
+      expect(html).not.toContain('Some Town');
+      expect(html).toContain('aria-label="Edit xxx xx xxxxxxxxxx xxxx xxxx"');
+      expect(counts.blankedTexts).toBeGreaterThan(0);
+    });
+
+    it('a heading elsewhere on the page also names a section', () => {
+      const { html } = scrubSnapshot(
+        '<h3>Resume</h3><div><div></div><button aria-label="Edit Resume"></button></div>',
+        [],
+        [],
+      );
+      expect(html).toContain('aria-label="Edit Resume"');
+    });
+
+    it('a <div> beside the button is an entry, not a section header', () => {
+      const { html } = scrubSnapshot(
+        '<div><div>Acme Ltd</div><button aria-label="Edit Acme Ltd"></button></div>',
+        [],
+        [],
+      );
+      expect(html).toContain('aria-label="Edit xxxx xxx"');
+    });
+  });
+
   it('keeps help text named by aria-describedby', () => {
     const { html } = scrubSnapshot(
       '<input aria-describedby="h1 h2"><div id="h1">Use digits only</div>' +
@@ -462,6 +615,45 @@ describe('leakCheck', () => {
   const bank = loadFactBank(EXAMPLE);
   const kinds = (html: string) =>
     Object.fromEntries(leakCheck(html, bank).map((l) => [l.kind, l.count]));
+
+  describe('public option lists', () => {
+    const SALARY =
+      '<label for="s">Expected salary</label><select id="s">' +
+      '<option value="">Select an option</option>' +
+      '<option value="xx">3000 USD per month</option>' +
+      '<option value="xx">5000 USD per month</option></select>';
+
+    it("a bank answer that is a whole option of a public list doesn't count", () => {
+      expect(kinds(SALARY)).toEqual({});
+      expect(
+        kinds(
+          '<fieldset><legend>Salary</legend>' +
+            '<div><div><input id="a" type="radio" name="g"><label for="a"></label></div><p>5000 USD per month</p></div>' +
+            '<div><div><input id="b" type="radio" name="g"><label for="b"></label></div><p>Other</p></div></fieldset>',
+        ),
+      ).toEqual({});
+    });
+
+    it('the same text in free text, or a one-option select, still counts', () => {
+      expect(kinds(`${SALARY}<p>I want 5000 USD per month</p>`)).toEqual({
+        answer: 1,
+      });
+      expect(
+        kinds('<select><option>5000 USD per month</option></select>'),
+      ).toEqual({ answer: 1 });
+    });
+
+    it("a name counts even inside a list: the resume radios carry the author's name", () => {
+      expect(
+        kinds(
+          '<fieldset role="radiogroup">' +
+            '<div><div><input id="r1" type="radio" name="g" aria-label="x.pdf"><label for="r1"></label></div><div><p>SamExampleCV.pdf</p></div></div>' +
+            '<div><div><input id="r2" type="radio" name="g" aria-label="y.pdf"><label for="r2"></label></div><div><p>other.pdf</p></div></div></fieldset>' +
+            '<select><option>Sam Example</option><option>Someone Else</option></select>',
+        ),
+      ).toEqual({ name: 2 });
+    });
+  });
 
   it("finds the example bank's phone in +447700900123, 07700 900123, (0)7700-900-123", () => {
     for (const form of [

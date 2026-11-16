@@ -698,10 +698,9 @@ describe('adaptApplyPage suggestion', () => {
         list.reverse();
       }
     });
-    const sel = await adaptApplyPage(page, bridge, noWait).suggestion(
-      LIST,
-      'london',
-    );
+    const sel = await adaptApplyPage(page, bridge, noWait).suggestion(LIST, {
+      text: 'london',
+    });
     expect(sel).toBe(`${LIST} [role="option"]:text-is("London")`);
     expect(sel).not.toContain('nth');
   });
@@ -718,10 +717,9 @@ describe('adaptApplyPage suggestion', () => {
         list.reverse(); // nth(1) is now Paris, o1
       }
     });
-    const sel = await adaptApplyPage(page, bridge, noWait).suggestion(
-      LIST,
-      'London',
-    );
+    const sel = await adaptApplyPage(page, bridge, noWait).suggestion(LIST, {
+      text: 'London',
+    });
     // The id read after the reorder is o1 (Paris): rejected for the text.
     expect(sel).toBe(`${LIST} [role="option"]:text-is("London")`);
   });
@@ -731,10 +729,9 @@ describe('adaptApplyPage suggestion', () => {
       { id: 'o1', text: 'Paris' },
       { id: 'o"2', text: 'London' },
     ]);
-    const sel = await adaptApplyPage(page, bridge, noWait).suggestion(
-      LIST,
-      'london',
-    );
+    const sel = await adaptApplyPage(page, bridge, noWait).suggestion(LIST, {
+      text: 'london',
+    });
     expect(sel).toBe(`${LIST} [id="o\\"2"]`);
   });
 
@@ -743,17 +740,29 @@ describe('adaptApplyPage suggestion', () => {
     const { page } = fakePage([{ id: null, text: 'Paris' }]);
     const sel = await adaptApplyPage(page, bridge, async () => {
       waits++;
-    }).suggestion(LIST, 'London');
+    }).suggestion(LIST, { text: 'London' });
     expect(sel).toBeNull();
     expect(waits).toBe(20);
   });
 
+  it('with a country, takes the first option that starts with the city and holds the country', async () => {
+    const { page } = fakePage([
+      { id: 'o1', text: 'Tangier, Morocco Street, Lagos' },
+      { id: 'o2', text: 'Tangier, Tanger-Tetouan-Al Hoceima, Morocco' },
+      { id: 'o3', text: 'Tangier, Morocco' },
+    ]);
+    const sel = await adaptApplyPage(page, bridge, noWait).suggestion(LIST, {
+      text: 'tangier',
+      country: 'morocco',
+    });
+    expect(sel).toBe(`${LIST} [id="o2"]`);
+  });
+
   it('escapes quotes and backslashes in the anchored text', async () => {
     const { page } = fakePage([{ id: null, text: 'A "B" \\ C' }]);
-    const sel = await adaptApplyPage(page, bridge, noWait).suggestion(
-      LIST,
-      'a "b" \\ c',
-    );
+    const sel = await adaptApplyPage(page, bridge, noWait).suggestion(LIST, {
+      text: 'a "b" \\ c',
+    });
     expect(sel).toBe(`${LIST} [role="option"]:text-is("A \\"B\\" \\\\ C")`);
   });
 });

@@ -149,10 +149,7 @@ const slug = (label: string): string =>
   normalizeLabel(label).replaceAll(' ', '-');
 
 /** A miss's id: the same question in a later run gets the same one. */
-export const missId = (
-  jobId: string,
-  q: { label: string; type: string },
-) =>
+export const missId = (jobId: string, q: { label: string; type: string }) =>
   `${jobId}-${slug(q.label)}-${q.type}`;
 
 function answerOf(r: QuestionRecord): MissAnswer {

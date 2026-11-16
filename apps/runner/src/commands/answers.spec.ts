@@ -337,7 +337,12 @@ describe('answersEvalCommand', () => {
             source: 'linkedin',
           },
           // A job whose title and company were never read.
-          '5151': { title: '', company: '', description: '', source: 'linkedin' },
+          '5151': {
+            title: '',
+            company: '',
+            description: '',
+            source: 'linkedin',
+          },
         },
         misses,
       };
@@ -375,7 +380,13 @@ describe('answersEvalCommand', () => {
       expect(ids.some((i) => i.includes(' 5151-'))).toBe(true);
       expect(out).toContain('cases 1/3 passed');
       // Not `first`: the field source `field:firstName` is a bank key, not label text.
-      const words = ['years', 'gopherwork', 'first-name', 'left-blank', 'blank'];
+      const words = [
+        'years',
+        'gopherwork',
+        'first-name',
+        'left-blank',
+        'blank',
+      ];
       const banned = [SECRET, TYPED_SECRET, label, missId('4242', years)];
       const clean = (text: string) => {
         for (const b of banned) expect(text).not.toContain(b);
@@ -411,7 +422,10 @@ describe('answersEvalCommand', () => {
           question: { label: 'Other', type: 'text', required: true },
         }),
       ];
-      const a = await run(missesLayout(misses), { set: 'misses', caseId: real });
+      const a = await run(missesLayout(misses), {
+        set: 'misses',
+        caseId: real,
+      });
       const shown = /^PASS (\S+)/m.exec(a.out)?.[1];
       expect(shown).toMatch(/^4242-[0-9a-f]{8}-text$/);
       expect(a.out).toContain('cases 1/1 passed');

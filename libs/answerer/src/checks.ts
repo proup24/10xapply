@@ -11,6 +11,7 @@ import {
   statesOffset,
   yearsSince,
 } from './math.js';
+import { fieldValueFor } from './fields.js';
 import { matchOption, sourceText } from './sources.js';
 import {
   CHOICE_TYPES,
@@ -178,10 +179,29 @@ function checkDateOffset(
   return { ok: true, value };
 }
 
+/**
+ * The bank value when the candidate's only source is one bank field, else
+ * null. An as-written answer from that field is the field's value exactly,
+ * whatever language the label is in.
+ */
+function onlyFieldText(
+  q: FormQuestion,
+  c: AnswerCandidate,
+  ctx: AnswerContext,
+): string | null {
+  const [only] = c.sources;
+  if (c.sources.length !== 1 || only?.kind !== 'field') return null;
+  // The same value the code mapping fills (the national number beside a
+  // country-code field).
+  const text = fieldValueFor(only.key, q, ctx.bank);
+  return text === undefined || text.trim() === '' ? null : text.trim();
+}
+
 function checkChoice(
   q: FormQuestion,
   c: AnswerCandidate,
   answerTexts: string[],
+  fieldText: string | null,
   math: () => CheckResult | { result: number },
 ): CheckResult {
   const computed = c.math ? math() : null;
@@ -210,7 +230,11 @@ function checkChoice(
   const option = matchOption(value, options);
   if (option === null) return fail('option not offered');
   // The value may not contradict the cited answer.
-  if (c.derivation === 'as-written') {
+  if (c.derivation === 'as-written' && fieldText !== null) {
+    if (matchOption(fieldText, options) !== option) {
+      return fail('not as written');
+    }
+  } else if (c.derivation === 'as-written') {
     if (answerTexts.length !== 1) return fail('not as written');
     if (matchOption(answerTexts[0], options) !== option) {
       return fail('not as written');
@@ -298,7 +322,8 @@ export function checkCandidate(
     c.sources.flatMap((s, i) => (isAuthorSource(s) ? numbersIn(texts[i]) : [])),
   );
   const math = () => checkMath(c, authorTexts, authorNumbers, ctx.runDate);
-  if (isChoice) return checkChoice(q, c, answerTexts, math);
+  const fieldText = onlyFieldText(q, c, ctx);
+  if (isChoice) return checkChoice(q, c, answerTexts, fieldText, math);
 
   // Text and number values.
   const raw = c.value as string;
@@ -315,7 +340,9 @@ export function checkCandidate(
     return checkDateOffset(c, authorTexts, ctx.runDate, value);
   }
 
-  if (c.derivation === 'as-written') {
+  if (c.derivation === 'as-written' && fieldText !== null) {
+    if (value !== fieldText) return fail('not as written');
+  } else if (c.derivation === 'as-written') {
     const answers = c.sources.filter((s: Source) => s.kind === 'answer');
     if (answers.length !== 1) return fail('not as written');
     const expected = sourceText(answers[0], ctx);

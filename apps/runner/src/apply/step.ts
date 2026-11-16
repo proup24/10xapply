@@ -330,6 +330,7 @@ const ctx = (w: Walk) => ({
   page: w.page,
   resume: w.deps.resume,
   within: FORM_CONTENT,
+  place: { city: w.bank.fields.city, country: w.bank.fields.country },
 });
 
 function jobOf(w: Walk): Job {
