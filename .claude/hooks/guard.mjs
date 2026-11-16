@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 
 const segments = (p) => p.split('/');
@@ -784,10 +785,220 @@ function findBlockedToken(command) {
   }
 }
 
+// --- Supabase MCP tools (spec section 6) -----------------------------------
+// An allowlist: a Supabase tool not named here is refused. The key is the
+// tool's suffix after the last `__`; the value is the argument that holds
+// the project ref.
+export const SUPABASE_REF_TOOLS = {
+  list_tables: 'project_id',
+  list_extensions: 'project_id',
+  list_migrations: 'project_id',
+  get_advisors: 'project_id',
+  get_project_url: 'project_id',
+  get_publishable_keys: 'project_id',
+  generate_typescript_types: 'project_id',
+  query_logs: 'project_id',
+  execute_sql: 'project_id',
+  get_project: 'id',
+};
+
+export const SUPABASE_NO_PROJECT_TOOLS = [
+  'list_projects',
+  'list_organizations',
+  'get_organization',
+  'search_docs',
+];
+
+const SUPABASE_TOOL = /^mcp__.*supabase/i;
+const SUPABASE_PROJECT_FILE = new URL(
+  '../supabase-project.json',
+  import.meta.url,
+);
+
+// The committed ref, or null when the file is missing, unreadable or holds
+// anything but a non-empty string.
+export function readSupabaseProjectRef(fileUrl = SUPABASE_PROJECT_FILE) {
+  try {
+    const ref = JSON.parse(readFileSync(fileUrl, 'utf8'))?.projectRef;
+    return typeof ref === 'string' && ref.length > 0 ? ref : null;
+  } catch {
+    return null;
+  }
+}
+
+// Comments are replaced by a space, as Postgres treats them. Block comments
+// nest, as in Postgres, and a line comment ends at \n or \r. Strings and
+// quoted identifiers are kept (keywords inside them still count) so that a
+// `--` inside a string is not taken for a comment. Returns null when a block
+// comment is never closed.
+function stripSqlComments(sql) {
+  let out = '';
+  let i = 0;
+  while (i < sql.length) {
+    const c = sql[i];
+    const two = sql.slice(i, i + 2);
+    if (two === '--') {
+      while (i < sql.length && sql[i] !== '\n' && sql[i] !== '\r') i++;
+      out += ' ';
+    } else if (two === '/*') {
+      let depth = 0;
+      while (i < sql.length) {
+        const pair = sql.slice(i, i + 2);
+        if (pair === '/*') {
+          depth++;
+          i += 2;
+        } else if (pair === '*/') {
+          depth--;
+          i += 2;
+          if (depth === 0) break;
+        } else i++;
+      }
+      if (depth !== 0) return null;
+      out += ' ';
+    } else if (c === "'" || c === '"') {
+      const escapes =
+        c === "'" &&
+        /[eE]/.test(sql[i - 1] ?? '') &&
+        !/[A-Za-z0-9_$]/.test(sql[i - 2] ?? '');
+      let j = i + 1;
+      while (j < sql.length) {
+        if (escapes && sql[j] === '\\') j += 2;
+        else if (sql[j] === c && sql[j + 1] === c) j += 2;
+        else if (sql[j] === c) break;
+        else j++;
+      }
+      out += sql.slice(i, j + 1);
+      i = j + 1;
+    } else {
+      out += c;
+      i++;
+    }
+  }
+  return out;
+}
+
+const word = (w) =>
+  new RegExp(
+    `(?<![A-Za-z0-9_$])${w.split(' ').join('\\s+')}(?![A-Za-z0-9_$])`,
+    'i',
+  );
+const SQL_FIRST_WORDS = ['select', 'with', 'insert', 'update', 'delete'];
+const SQL_KEYWORDS = [
+  'create',
+  'alter',
+  'drop',
+  'truncate',
+  'grant',
+  'revoke',
+  'comment',
+  'security',
+  'do',
+  'copy',
+  'call',
+  'set role',
+  'reset role',
+  'set session',
+].map((w) => [w, word(w)]);
+const SQL_WRITE = word('(?:insert|update|delete|merge)');
+const SQL_SYSTEM_SCHEMA = word(
+  '(?:auth|storage|supabase_migrations|extensions|information_schema|prisma_contract|pg_[A-Za-z0-9_$]*)',
+);
+// U&"..." spells an identifier with escapes, so it could name a system
+// schema without its letters.
+const SQL_UNICODE_IDENT = /u&"/i;
+const SQL_INTO = word('into');
+const SQL_INSERT_INTO = new RegExp(
+  `(?<![A-Za-z0-9_$])(?:insert|merge)\\s+into(?![A-Za-z0-9_$])`,
+  'gi',
+);
+const SQL_DOLLAR_QUOTE = /\$[^$\s]*\$/;
+const REWORD =
+  'reword the query (the check is plain text and counts strings and comments too)';
+
+// A coarse text check on execute_sql, fail-closed. Rules 2, 4, 5 and 6 run
+// on the raw text and the comment-stripped text both, so a comment the
+// stripper misreads can never hide anything.
+export function sqlProblem(query) {
+  if (typeof query !== 'string') return 'execute_sql needs a query string';
+  const stripped = stripSqlComments(query);
+  if (stripped === null) return 'an unclosed /* comment';
+  const texts = [query, stripped];
+
+  const semicolons = query.split(';').length - 1;
+  if (semicolons > 1 || (semicolons === 1 && !stripped.trim().endsWith(';'))) {
+    return `more than one statement (only one trailing ; is allowed); ${REWORD}`;
+  }
+
+  const first = /^[A-Za-z_]+(?![A-Za-z0-9_$])/.exec(stripped.trim())?.[0];
+  if (!first || !SQL_FIRST_WORDS.includes(first.toLowerCase())) {
+    return `the query must start with ${SQL_FIRST_WORDS.join(', ')}`;
+  }
+
+  for (const [w, re] of SQL_KEYWORDS) {
+    if (texts.some((t) => re.test(t))) return `the word "${w}"; ${REWORD}`;
+  }
+
+  if (texts.some((t) => SQL_WRITE.test(t))) {
+    if (
+      texts.some((t) => SQL_SYSTEM_SCHEMA.test(t) || SQL_UNICODE_IDENT.test(t))
+    ) {
+      return `a write naming a system schema (writes reach public tables only); ${REWORD}`;
+    }
+  }
+
+  // SELECT ... INTO creates a table, a schema change.
+  if (texts.some((t) => SQL_INTO.test(t.replace(SQL_INSERT_INTO, ' ')))) {
+    return `INTO outside INSERT INTO (SELECT INTO creates a table); ${REWORD}`;
+  }
+
+  if (SQL_DOLLAR_QUOTE.test(query)) return `dollar quoting; ${REWORD}`;
+  return null;
+}
+
+export function supabaseToolProblem(toolName, input, projectRef) {
+  if (typeof toolName !== 'string' || !SUPABASE_TOOL.test(toolName))
+    return null;
+  const suffix = toolName.slice(toolName.lastIndexOf('__') + 2);
+  if (SUPABASE_NO_PROJECT_TOOLS.includes(suffix)) return null;
+  if (!Object.hasOwn(SUPABASE_REF_TOOLS, suffix)) {
+    return `the tool ${suffix} is not on the allowlist`;
+  }
+  if (typeof projectRef !== 'string' || projectRef.length === 0) {
+    return 'no project ref is committed in .claude/supabase-project.json';
+  }
+  const args = input && typeof input === 'object' ? input : {};
+  const arg = SUPABASE_REF_TOOLS[suffix];
+  if (args[arg] !== projectRef) {
+    return `${arg} is not 10xapply's project`;
+  }
+  if (suffix === 'execute_sql') return sqlProblem(args.query);
+  return null;
+}
+
 export function evaluate(
   { tool_name, tool_input = {} },
-  { runnerName = RUNNER_NAME, safeSubcommands = RUNNER_SAFE_SUBCOMMANDS } = {},
+  {
+    runnerName = RUNNER_NAME,
+    safeSubcommands = RUNNER_SAFE_SUBCOMMANDS,
+    supabaseProjectRef,
+  } = {},
 ) {
+  if (typeof tool_name === 'string' && tool_name.startsWith('mcp__')) {
+    if (SUPABASE_TOOL.test(tool_name)) {
+      const ref =
+        supabaseProjectRef === undefined
+          ? readSupabaseProjectRef()
+          : supabaseProjectRef;
+      const problem = supabaseToolProblem(tool_name, tool_input, ref);
+      if (problem) {
+        return {
+          block: true,
+          reason: `Supabase blocked: ${problem}. Claude may read and write rows in 10xapply's project only; the schema changes only through CI (see CLAUDE.md).`,
+        };
+      }
+    }
+  }
+
   if (tool_name === 'Bash') {
     const command = tool_input.command ?? '';
     const pushProblem = gitPushProblem(command);

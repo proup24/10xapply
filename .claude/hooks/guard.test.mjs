@@ -1,6 +1,17 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { evaluate } from './guard.mjs';
+import { mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
+import {
+  evaluate,
+  readSupabaseProjectRef,
+  sqlProblem,
+  supabaseToolProblem,
+  SUPABASE_NO_PROJECT_TOOLS,
+  SUPABASE_REF_TOOLS,
+} from './guard.mjs';
 
 const blocked = (tool_name, tool_input) =>
   evaluate({ tool_name, tool_input }).block;
@@ -584,6 +595,310 @@ test('bash: runner false positives', () => {
   assert.equal(
     bash('node -e "require(\'./apps/runner/dist/main.js\')" x apply --dry-run')
       .block,
+    false,
+  );
+});
+
+const REF = 'abcdefghijklmnopqrst';
+const mcp = (suffix, input, ref = REF) =>
+  evaluate(
+    {
+      tool_name: `mcp__plugin_supabase_supabase__${suffix}`,
+      tool_input: input,
+    },
+    { supabaseProjectRef: ref },
+  ).block;
+
+test('supabase: allowed tools on the committed project', () => {
+  assert.equal(mcp('list_tables', { project_id: REF }), false);
+  assert.equal(mcp('get_project', { id: REF }), false);
+  assert.equal(
+    mcp('execute_sql', {
+      project_id: REF,
+      query: 'select * from public.users',
+    }),
+    false,
+  );
+  assert.equal(mcp('list_projects', {}), false);
+  assert.equal(mcp('search_docs', { graphql_query: '{x}' }), false);
+});
+test('supabase: other projects and no ref are refused', () => {
+  assert.equal(
+    mcp('list_tables', { project_id: 'zzzzzzzzzzzzzzzzzzzz' }),
+    true,
+  );
+  assert.equal(mcp('get_project', { id: 'zzzzzzzzzzzzzzzzzzzz' }), true);
+  assert.equal(mcp('list_tables', {}), true);
+  assert.equal(mcp('list_tables', { project_id: REF }, null), true);
+});
+test('supabase: tools off the allowlist are refused', () => {
+  for (const t of [
+    'apply_migration',
+    'create_project',
+    'pause_project',
+    'restore_project',
+    'create_branch',
+    'delete_branch',
+    'merge_branch',
+    'rebase_branch',
+    'reset_branch',
+    'deploy_edge_function',
+    'create_edge_function_secret',
+    'create_notebook',
+    'run_notebook',
+    'submit_feedback',
+    'delete_feedback',
+    'some_future_tool',
+    'constructor',
+    'toString',
+    'hasOwnProperty',
+    '__proto__',
+  ])
+    assert.equal(mcp(t, { project_id: REF }), true, t);
+});
+test('supabase: prototype names are not allowlisted', () => {
+  for (const t of ['constructor', 'toString', 'hasOwnProperty']) {
+    const input = { [String(Object.prototype[t])]: REF, project_id: REF };
+    assert.equal(mcp(t, input), true, t);
+  }
+});
+test('supabase: any server name with supabase is checked', () => {
+  assert.equal(
+    evaluate(
+      {
+        tool_name: 'mcp__claude_ai_Supabase__apply_migration',
+        tool_input: { project_id: REF },
+      },
+      { supabaseProjectRef: REF },
+    ).block,
+    true,
+  );
+});
+test('supabase sql: reads and public writes pass', () => {
+  for (const q of [
+    'select 1',
+    '  SELECT id FROM public.users;',
+    '-- look\nselect 1',
+    'update public.users set "updatedAt" = now() where id = \'00000000-0000-0000-0000-000000000000\'',
+    'with x as (select 1) select * from x',
+    'select * from auth.users',
+    'select * from supabase_migrations.schema_migrations',
+  ])
+    assert.equal(sqlProblem(q), null, q);
+});
+test('supabase sql: schema changes, many statements and system writes are refused', () => {
+  for (const q of [
+    'create table public.x (id int)',
+    'ALTER TABLE public.users DISABLE ROW LEVEL SECURITY',
+    'drop table public.users',
+    'truncate public.users',
+    'grant all on public.users to anon',
+    'select 1; drop table public.users',
+    'select 1 -- x\n; select 2',
+    'do $$ begin end $$',
+    "insert into auth.users (id) values ('x')",
+    'delete from storage.objects',
+    'update supabase_migrations.schema_migrations set version = 1',
+    'with d as (delete from auth.users returning id) select * from d',
+    'copy public.users to stdout',
+    'set role postgres',
+  ])
+    assert.notEqual(sqlProblem(q), null, q);
+});
+
+// Review-focus spellings and fail-closed edges beyond the brief.
+test('supabase sql: trailing semicolon and comment spellings', () => {
+  assert.equal(sqlProblem('select 1;'), null);
+  assert.equal(sqlProblem('/* c */ select 1'), null);
+  assert.equal(sqlProblem('select 1; '), null);
+  assert.equal(sqlProblem('select 1;\n\t '), null);
+  assert.equal(sqlProblem('select 1; -- done'), null);
+  assert.equal(sqlProblem("select 'a--b' from public.users"), null);
+  assert.notEqual(sqlProblem('select 1;;'), null);
+  assert.notEqual(sqlProblem('select 1 ; ;'), null);
+  assert.notEqual(sqlProblem(';select 1'), null);
+});
+test('supabase sql: first word', () => {
+  for (const q of [
+    '',
+    '   ',
+    '-- only a comment',
+    'vacuum',
+    'explain analyze delete from public.users',
+    'merge into public.users using x on true when matched then delete',
+    'lock table public.users',
+    'notify x',
+    'prepare p as select 1',
+    'begin',
+    '(select 1)',
+    'selectx 1',
+    'refresh materialized view public.v',
+    'reset all',
+  ])
+    assert.notEqual(sqlProblem(q), null, JSON.stringify(q));
+});
+test('supabase sql: keywords as whole words, in strings and comments too', () => {
+  for (const q of [
+    "select * from public.x where y = 'drop'",
+    '-- create\nselect 1',
+    'select 1 /* revoke */',
+    "select set_config('a', 'b', false) from x comment",
+    'with x as (select 1) select * from x security',
+    'select 1 from x do',
+    'select call from x',
+    'select 1 from x where reset   role',
+    'select 1 from x where SET\nSESSION',
+    'select 1 from x where set/**/role',
+  ])
+    assert.notEqual(sqlProblem(q), null, q);
+  for (const q of [
+    'select created_at, dropped, "doSomething" from public.users',
+    "select id from public.users where kind = 'creator'",
+    'select settings from public.users',
+  ])
+    assert.equal(sqlProblem(q), null, q);
+});
+test('supabase sql: system schema writes, ledger included', () => {
+  for (const q of [
+    "insert into prisma_contract._prisma_migrations (id) values ('x')",
+    'update extensions.x set a = 1',
+    'delete from pg_catalog.pg_class',
+    'update information_schema.x set a = 1',
+    'update "auth"."users" set email = \'x\'',
+    "update AUTH.users set email = 'x'",
+    "update auth . users set email = 'x'",
+    'insert into public.x select * from pg_authid',
+    'update U&"\\0061uth".users set email = \'x\'',
+    "with d as (update auth.users set email = 'x' returning id) select 1",
+  ])
+    assert.notEqual(sqlProblem(q), null, q);
+  assert.equal(
+    sqlProblem('select * from prisma_contract._prisma_migrations'),
+    null,
+  );
+  assert.equal(sqlProblem('select * from pg_catalog.pg_class'), null);
+});
+test('supabase sql: dollar quoting is refused', () => {
+  for (const q of [
+    'select $$x$$',
+    'select $tag$x$tag$',
+    'select $_a1$x$_a1$',
+    '-- $$\nselect 1',
+  ])
+    assert.notEqual(sqlProblem(q), null, q);
+});
+test('supabase sql: comments cannot hide code', () => {
+  for (const q of [
+    // Postgres nests block comments; the scanner must too.
+    '/* /* */ select 1 */ vacuum',
+    '/* unterminated select 1',
+    // A line comment ends at \r as well as \n.
+    '-- x\rvacuum\nselect 1',
+    // An E-string escape must not turn code into a "comment".
+    "select E'\\' -- ' into public.y from public.x",
+    "select E'\\' -- '; vacuum",
+  ])
+    assert.notEqual(sqlProblem(q), null, JSON.stringify(q));
+});
+test('supabase sql: select into creates a table and is refused', () => {
+  assert.notEqual(sqlProblem('select * into public.y from public.x'), null);
+  assert.notEqual(sqlProblem('select * into auth.y from auth.users'), null);
+  assert.equal(sqlProblem("insert into public.users (id) values ('x')"), null);
+  assert.equal(
+    sqlProblem("INSERT\n  INTO public.users (id) values ('x')"),
+    null,
+  );
+});
+test('supabase: execute_sql text is checked through evaluate', () => {
+  assert.equal(
+    mcp('execute_sql', { project_id: REF, query: 'drop table public.users' }),
+    true,
+  );
+  assert.equal(mcp('execute_sql', { project_id: REF }), true);
+  assert.equal(mcp('execute_sql', { project_id: REF, query: 7 }), true);
+  const r = evaluate(
+    {
+      tool_name: 'mcp__plugin_supabase_supabase__execute_sql',
+      tool_input: { project_id: REF, query: 'drop table x' },
+    },
+    { supabaseProjectRef: REF },
+  );
+  assert.match(
+    r.reason,
+    /^Supabase blocked: .+\. Claude may read and write rows in 10xapply's project only; the schema changes only through CI \(see CLAUDE\.md\)\.$/,
+  );
+});
+test('supabase: every ref tool needs its own argument to equal the ref', () => {
+  for (const [suffix, arg] of Object.entries(SUPABASE_REF_TOOLS)) {
+    const input = { [arg]: REF };
+    if (suffix === 'execute_sql') input.query = 'select 1';
+    assert.equal(mcp(suffix, input), false, suffix);
+    assert.equal(mcp(suffix, { ...input, [arg]: REF.toUpperCase() }), true);
+    assert.equal(mcp(suffix, { ...input, [arg]: undefined }), true, suffix);
+    assert.equal(mcp(suffix, input, null), true, suffix);
+    assert.equal(mcp(suffix, input, ''), true, suffix);
+  }
+  assert.equal(mcp('get_project', { project_id: REF }), true);
+  for (const suffix of SUPABASE_NO_PROJECT_TOOLS)
+    assert.equal(mcp(suffix, {}, null), false, suffix);
+});
+test('supabase: odd inputs and names fail closed', () => {
+  assert.equal(
+    evaluate(
+      { tool_name: 'mcp__plugin_supabase_supabase__list_tables' },
+      { supabaseProjectRef: REF },
+    ).block,
+    true,
+  );
+  assert.notEqual(supabaseToolProblem('mcp__supabase', {}, REF), null);
+  assert.equal(supabaseToolProblem('mcp__context7__query-docs', {}, REF), null);
+  assert.equal(supabaseToolProblem('Bash', {}, REF), null);
+  assert.equal(
+    evaluate(
+      { tool_name: 'mcp__context7__query-docs', tool_input: { query: 'x' } },
+      { supabaseProjectRef: REF },
+    ).block,
+    false,
+  );
+  assert.equal(
+    evaluate(
+      {
+        tool_name: 'mcp__SUPABASE__list_tables',
+        tool_input: { project_id: 'zzzzzzzzzzzzzzzzzzzz' },
+      },
+      { supabaseProjectRef: REF },
+    ).block,
+    true,
+  );
+});
+test('supabase: the ref file', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'guard-ref-'));
+  const url = (name) => pathToFileURL(join(dir, name));
+  writeFileSync(join(dir, 'ok.json'), JSON.stringify({ projectRef: REF }));
+  writeFileSync(join(dir, 'null.json'), '{ "projectRef": null }');
+  writeFileSync(join(dir, 'bad.json'), '{ not json');
+  writeFileSync(join(dir, 'num.json'), '{ "projectRef": 7 }');
+  writeFileSync(join(dir, 'arr.json'), '[1]');
+  assert.equal(readSupabaseProjectRef(url('ok.json')), REF);
+  assert.equal(readSupabaseProjectRef(url('null.json')), null);
+  assert.equal(readSupabaseProjectRef(url('bad.json')), null);
+  assert.equal(readSupabaseProjectRef(url('num.json')), null);
+  assert.equal(readSupabaseProjectRef(url('arr.json')), null);
+  assert.equal(readSupabaseProjectRef(url('missing.json')), null);
+  // Not passed: the committed file next to the hooks, which holds null.
+  assert.equal(readSupabaseProjectRef(), null);
+  assert.equal(
+    evaluate({
+      tool_name: 'mcp__plugin_supabase_supabase__list_tables',
+      tool_input: { project_id: REF },
+    }).block,
+    true,
+  );
+  assert.equal(
+    evaluate({
+      tool_name: 'mcp__plugin_supabase_supabase__list_projects',
+      tool_input: {},
+    }).block,
     false,
   );
 });
