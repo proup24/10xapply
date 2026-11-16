@@ -6,3 +6,9 @@ allowBuilds:
   '@swc/core': false
   nx: false
   esbuild: false
+  workerd: false
+permissions:
+  '@prisma/orm-postgres':
+    skills: false
+  prisma:
+    skills: false
