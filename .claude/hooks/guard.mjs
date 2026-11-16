@@ -912,11 +912,104 @@ const SQL_INSERT_INTO = new RegExp(
   'gi',
 );
 const SQL_DOLLAR_QUOTE = /\$[^$\s]*\$/;
+
+// An identifier: plain, "quoted" or U&"escaped"; and a dotted chain of them.
+const SQL_IDENT = `(?:[uU]&"(?:[^"]|"")*"|"(?:[^"]|"")*"|[A-Za-z_\\u0080-\\uffff][A-Za-z0-9_$\\u0080-\\uffff]*)`;
+const SQL_CHAIN = `${SQL_IDENT}(?:\\s*\\.\\s*${SQL_IDENT})*`;
+const chainParts = (chain) =>
+  [...chain.matchAll(new RegExp(SQL_IDENT, 'g'))].map((m) => m[0]);
+const isPublic = (part) =>
+  part === '"public"' || part.toLowerCase() === 'public';
+
+// Upsert clauses are the only place `do` may appear mid-statement.
+const SQL_UPSERT_DO =
+  /(?<![A-Za-z0-9_$])do\s+(?:nothing|update\s+set)(?![A-Za-z0-9_$])/gi;
+
+const SQL_WRITE_WORD =
+  /(?<![A-Za-z0-9_$])(insert|update|delete|merge)(?![A-Za-z0-9_$])/gi;
+const SQL_WRITE_HEAD = {
+  insert: /^insert\s+into\s+/i,
+  update: /^update\s+(?:only\s+)?/i,
+  delete: /^delete\s+from\s+(?:only\s+)?/i,
+  merge: /^merge\s+into\s+/i,
+};
+const SQL_TARGET = new RegExp(`^${SQL_CHAIN}`);
+
+// Every insert, update, delete or merge must write an unqualified table or
+// public.<table>. `do update set` (an upsert) and `for [no key] update` (a
+// row lock) are not write heads. A write word the check cannot read as one
+// of these is refused. Returns the problem, or the target spans (so the
+// function check can skip `insert into public.users (`).
+function writeTargets(text) {
+  const spans = [];
+  for (const m of text.matchAll(SQL_WRITE_WORD)) {
+    const kw = m[1].toLowerCase();
+    const before = text.slice(0, m.index);
+    const rest = text.slice(m.index);
+    if (
+      kw === 'update' &&
+      /(?:^|[^A-Za-z0-9_$])do\s+$/i.test(before) &&
+      /^update\s+set(?![A-Za-z0-9_$])/i.test(rest)
+    )
+      continue;
+    if (
+      kw === 'update' &&
+      /(?:^|[^A-Za-z0-9_$])for\s+(?:no\s+key\s+)?$/i.test(before)
+    )
+      continue;
+    const head = SQL_WRITE_HEAD[kw].exec(rest);
+    const target = head && SQL_TARGET.exec(rest.slice(head[0].length));
+    if (!target) return { problem: `a ${kw} the check cannot read; ${REWORD}` };
+    const parts = chainParts(target[0]);
+    if (parts.length > 2 || (parts.length === 2 && !isPublic(parts[0]))) {
+      return {
+        problem: `a write to a table outside public (writes reach public tables only); ${REWORD}`,
+      };
+    }
+    const start = m.index + head[0].length;
+    spans.push([start, start + target[0].length]);
+  }
+  return { spans };
+}
+
+const SQL_QUALIFIED_CALL = new RegExp(
+  `${SQL_IDENT}(?:\\s*\\.\\s*${SQL_IDENT})+\\s*\\(`,
+  'g',
+);
+const SQL_READ_ONLY_CALLS = ['uid', 'jwt'];
+const isReadOnlyCall = (parts) =>
+  parts.length === 2 &&
+  (parts[0] === '"auth"' || parts[0].toLowerCase() === 'auth') &&
+  SQL_READ_ONLY_CALLS.some(
+    (f) => parts[1] === `"${f}"` || parts[1].toLowerCase() === f,
+  );
+const W = '[A-Za-z0-9_$]*';
+const SQL_SIDE_EFFECT_CALL = new RegExp(
+  `(?<![A-Za-z0-9_$])"?(?:set_config|dblink${W}|lo_${W}|pg_read${W}|pg_ls${W}|pg_stat_file|pg_terminate${W}|pg_cancel${W}|pg_sleep${W}|pg_reload_conf|pg_rotate_logfile|pg_advisory${W}|pg_notify)"?\\s*\\(`,
+  'i',
+);
+
+// Any schema-qualified call but auth.uid() and auth.jwt(), and the listed
+// unqualified functions with side effects, are refused.
+function functionProblem(text, spans) {
+  let t = text;
+  for (const [a, b] of spans)
+    t = t.slice(0, a) + ' '.repeat(b - a) + t.slice(b);
+  for (const m of t.matchAll(SQL_QUALIFIED_CALL)) {
+    if (!isReadOnlyCall(chainParts(m[0].replace(/\s*\($/, '')))) {
+      return `a schema-qualified function call (only auth.uid() and auth.jwt() are allowed); ${REWORD}`;
+    }
+  }
+  if (SQL_SIDE_EFFECT_CALL.test(t)) {
+    return `a function with side effects; ${REWORD}`;
+  }
+  return null;
+}
 const REWORD =
   'reword the query (the check is plain text and counts strings and comments too)';
 
-// A coarse text check on execute_sql, fail-closed. Rules 2, 4, 5 and 6 run
-// on the raw text and the comment-stripped text both, so a comment the
+// A coarse text check on execute_sql, fail-closed. Every rule but the first
+// word runs on the raw text and the comment-stripped text both, so a comment the
 // stripper misreads can never hide anything.
 export function sqlProblem(query) {
   if (typeof query !== 'string') return 'execute_sql needs a query string';
@@ -935,9 +1028,19 @@ export function sqlProblem(query) {
   }
 
   for (const [w, re] of SQL_KEYWORDS) {
-    if (texts.some((t) => re.test(t))) return `the word "${w}"; ${REWORD}`;
+    const hit = (t) => re.test(w === 'do' ? t.replace(SQL_UPSERT_DO, ' ') : t);
+    if (texts.some(hit)) return `the word "${w}"; ${REWORD}`;
   }
 
+  for (const t of texts) {
+    const { problem, spans } = writeTargets(t);
+    if (problem) return problem;
+    const fnProblem = functionProblem(t, spans);
+    if (fnProblem) return fnProblem;
+  }
+
+  // Kept from the first pass as an extra layer: a write anywhere in the
+  // statement may not name a system schema at all.
   if (texts.some((t) => SQL_WRITE.test(t))) {
     if (
       texts.some((t) => SQL_SYSTEM_SCHEMA.test(t) || SQL_UNICODE_IDENT.test(t))

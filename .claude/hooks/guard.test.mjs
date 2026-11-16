@@ -886,7 +886,13 @@ test('supabase: the ref file', () => {
   assert.equal(readSupabaseProjectRef(url('arr.json')), null);
   assert.equal(readSupabaseProjectRef(url('missing.json')), null);
   // Not passed: the committed file next to the hooks, which holds null.
-  assert.equal(readSupabaseProjectRef(), null);
+  // Not passed: the committed file next to the hooks. It holds null until
+  // the author commits the real ref, so accept either.
+  const committed = readSupabaseProjectRef();
+  assert.ok(
+    committed === null || /^[a-z0-9]{20}$/.test(committed),
+    'committed ref is null or a project ref',
+  );
   assert.equal(
     evaluate({
       tool_name: 'mcp__plugin_supabase_supabase__list_tables',
@@ -901,4 +907,107 @@ test('supabase: the ref file', () => {
     }).block,
     false,
   );
+});
+
+// Review fixes: write targets, side-effect functions, upserts.
+test('supabase sql: writes reach only public tables', () => {
+  for (const q of [
+    "insert into vault.secrets (secret) values ('x')",
+    'delete from realtime.messages',
+    "insert into net.http_request_queue (url) values ('x')",
+    'delete from supabase_functions.hooks',
+    'update graphql_public.x set a = 1',
+    "insert into cron.job (schedule, command) values ('* * * * *', chr(100)||'rop table public.users')",
+    'insert into "cron"."job" (command) values (\'x\')',
+    'update only cron.job set a = 1',
+    'delete from only cron.job',
+    'update cron . job set a = 1',
+    'update cron/**/.job set a = 1',
+    'update "Public".users set a = 1',
+    'update mydb.public.users set a = 1',
+    "with d as (insert into cron.job (command) values ('x') returning 1) select * from d",
+    'with d as (delete from realtime.messages returning 1) select 1',
+    // A write keyword the check cannot read is refused.
+    'insert public.users values (1)',
+    "select * from public.x where y = 'update'",
+  ])
+    assert.notEqual(sqlProblem(q), null, q);
+  for (const q of [
+    'update public.users set "updatedAt" = now() where id = \'00000000-0000-0000-0000-000000000000\'',
+    "insert into users (id) values ('x')",
+    'delete from "public"."users" where id = \'x\'',
+    "delete from only public.users where id = 'x'",
+    'UPDATE PUBLIC.users set a = 1',
+    "insert into public . users (id) values ('x')",
+    'with d as (delete from public.users returning id) select * from d',
+    'select * from auth.users',
+    'select * from public.users for update',
+    'select * from public.users for no key update',
+  ])
+    assert.equal(sqlProblem(q), null, q);
+});
+test('supabase sql: side-effect functions are refused', () => {
+  for (const q of [
+    "select cron.schedule('j','* * * * *', 'x')",
+    "select dblink_exec('x','y')",
+    "select dblink('x','y')",
+    "select vault.create_secret('x')",
+    'select pgsodium.create_key()',
+    "select set_config('role','service_role',false)",
+    "select SET_CONFIG ('role','service_role',false)",
+    "select \"set_config\"('a','b',false)",
+    "select lo_import('/etc/passwd')",
+    "select pg_read_file('x')",
+    "select pg_read_binary_file('x')",
+    "select pg_ls_dir('.')",
+    "select pg_stat_file('x')",
+    'select pg_terminate_backend(pid) from pg_stat_activity',
+    'select pg_cancel_backend(1)',
+    'select pg_sleep(10)',
+    "select pg_sleep_for('1 s')",
+    'select pg_reload_conf()',
+    'select pg_rotate_logfile()',
+    'select pg_advisory_lock(1)',
+    "select pg_notify('a','b')",
+    "select \"cron\".\"schedule\"('a','b','c')",
+    "select cron . schedule ('a','b','c')",
+    "select cron/**/.schedule('a','b','c')",
+    'select public.f()',
+    'select x.auth.uid()',
+    "update public.users set a = cron.schedule('a','b','c')",
+    "insert into public.users (id) select pg_read_file('x')",
+  ])
+    assert.notEqual(sqlProblem(q), null, q);
+  for (const q of [
+    'select count(*) from public.users',
+    'select now()',
+    'select gen_random_uuid()',
+    'select auth.uid()',
+    'select auth.jwt()',
+    'select AUTH.UID()',
+    'select "auth"."uid"()',
+    'select coalesce(a, b) from public.users',
+    'select u.id from public.users u where u.id = auth.uid()',
+    "insert into public.users (id) values ('x')",
+    'insert into "public"."users" (id) values (\'x\')',
+  ])
+    assert.equal(sqlProblem(q), null, q);
+});
+test('supabase sql: upserts pass, a DO statement does not', () => {
+  for (const q of [
+    "insert into public.users (id) values ('x') on conflict (id) do nothing",
+    'insert into public.users (id) values (\'x\') on conflict (id) do update set "updatedAt" = now()',
+    "INSERT INTO users (id) VALUES ('x') ON CONFLICT DO NOTHING;",
+  ])
+    assert.equal(sqlProblem(q), null, q);
+  for (const q of [
+    'do $$ begin end $$',
+    "do 'begin end'",
+    "DO language plpgsql 'begin end'",
+    '/* x */ do nothing',
+    'select 1 from x do',
+    "insert into public.users (id) values ('x') on conflict (id) do 'x'",
+    "insert into public.users (id) values ('x') on conflict (id) do update set role = 'x'",
+  ])
+    assert.notEqual(sqlProblem(q), null, q);
 });
