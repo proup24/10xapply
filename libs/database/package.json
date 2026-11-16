@@ -1,0 +1,45 @@
+{
+  "name": "@xapply/database",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    "./package.json": "./package.json",
+    ".": {
+      "@xapply/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./env": {
+      "@xapply/source": "./src/env/index.ts",
+      "types": "./dist/env/index.d.ts",
+      "import": "./dist/env/index.js",
+      "default": "./dist/env/index.js"
+    },
+    "./types": {
+      "@xapply/source": "./src/types.ts",
+      "types": "./dist/types.d.ts",
+      "import": "./dist/types.js",
+      "default": "./dist/types.js"
+    }
+  },
+  "nx": {
+    "name": "database"
+  },
+  "dependencies": {
+    "@prisma/orm-extension-supabase": "8.0.0-rc.21",
+    "@prisma/orm-postgres": "8.0.0-rc.21",
+    "@supabase/supabase-js": "^2.118.0",
+    "dotenv": "^18.0.9",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@prisma/cli-engine": "0.9.0",
+    "prisma": "8.0.0-rc.28",
+    "tsx": "^4.23.15"
+  }
+}
