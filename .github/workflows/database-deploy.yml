@@ -1,0 +1,46 @@
+name: Database deploy
+
+# The SHA in the run name tells which commit was migrated.
+run-name: Database deploy ${{ github.event.workflow_run.head_sha }}
+
+# Migrates the cloud database once CI has passed on main. Never seeds, and
+# never runs for pull requests.
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: prod
+    concurrency:
+      group: database-deploy
+      cancel-in-progress: false
+    env:
+      XAPPLY_SKIP_ENV_FILES: '1'
+      XAPPLY_ALLOW_REMOTE_DB: '1'
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      # Installs the pnpm version pinned in package.json's packageManager field
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Apply the Prisma migrations
+        run: pnpm db:migrate
