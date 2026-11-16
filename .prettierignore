@@ -7,3 +7,8 @@
 pnpm-lock.yaml
 /.superpowers
 apps/runner/src/apply/fixtures/*.html
+# Written by `prisma contract emit` and `prisma migration plan`
+libs/database/src/contract/contract.json
+libs/database/src/contract/contract.d.ts
+libs/database/src/migrations/**/*.json
+libs/database/src/migrations/snapshots

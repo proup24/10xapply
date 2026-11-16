@@ -1,0 +1,38 @@
+// use prisma-8
+//
+// Data contract for xapply. After editing, run
+// `pnpm --filter @xapply/database db:emit` to regenerate contract.json /
+// contract.d.ts, then
+// `pnpm --filter @xapply/database db:migration:plan --name <slug>`.
+
+// `JsDate` columns read and write JavaScript `Date` values; the `Temporal`
+// variants need a global `Temporal`, which Node 24 does not ship.
+model mixin Timestamps {
+  createdAt TimestamptzJsDate(3) @default(now())
+  updatedAt TimestamptzJsDate(3) @default(now()) @onCreate(now()) @onUpdate(now())
+}
+
+// One row per Supabase Auth user, inserted by the on_auth_user_created trigger.
+model User {
+  id       Uuid                   @id
+  authUser supabase:auth.AuthUser @relation(fields: [id], references: [id], onDelete: Cascade)
+  +Timestamps
+
+  @@map("users")
+  @@rls
+}
+
+// Users read and update only their own row. No insert (the sign-up trigger does it) and
+// no delete (removing the Auth user cascades).
+policy_select users_owner_read {
+  target = User
+  roles = [authenticated]
+  using = sql`id = auth.uid()`
+}
+
+policy_update users_owner_update {
+  target = User
+  roles = [authenticated]
+  using = sql`id = auth.uid()`
+  withCheck = sql`id = auth.uid()`
+}

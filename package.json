@@ -13,7 +13,11 @@
     "test:scripts": "node --test \"scripts/*.test.mjs\"",
     "db:start": "scripts/ensure-signing-key.sh && supabase start",
     "db:stop": "supabase stop",
-    "db:status": "supabase status"
+    "db:status": "supabase status",
+    "db:types": "supabase gen types typescript --local --schema public > libs/database/src/supabase/database.types.ts && prettier --write libs/database/src/supabase/database.types.ts",
+    "db:migrate": "pnpm --filter @xapply/database db:migrate",
+    "db:seed": "pnpm --filter @xapply/database db:seed",
+    "db:reset": "supabase stop --no-backup && scripts/ensure-signing-key.sh && supabase start && XAPPLY_SKIP_ENV_FILES=1 DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:55322/postgres pnpm --filter @xapply/database db:migrate && eval \"$(scripts/supabase-env.sh)\" && XAPPLY_SKIP_ENV_FILES=1 DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:55322/postgres pnpm --filter @xapply/database db:seed"
   },
   "private": true,
   "dependencies": {},

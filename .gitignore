@@ -56,6 +56,8 @@ vitest.config.*.timestamp*
 apps/bridge-extension/src/config.js
 pace-recordings/
 snapshots/
+# Prisma's contract snapshots, which the migrations import, are committed.
+!libs/database/src/migrations/snapshots/
 
 # Local Supabase JWT signing key (credential)
 supabase/signing_keys.json

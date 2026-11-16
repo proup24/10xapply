@@ -7,7 +7,8 @@ import { loadDatabaseEnvironment } from './src/env/index.js';
 // command that loads this config is guarded.
 const env = loadDatabaseEnvironment();
 
-export default definePrismaConfig({
+// Annotated so the declaration emit can name the type (TS2883).
+const config: ReturnType<typeof definePrismaConfig> = definePrismaConfig({
   orm: ormConfig({
     contract: './src/contract/contract.prisma',
     extensions: [supabasePack],
@@ -17,3 +18,5 @@ export default definePrismaConfig({
     },
   }),
 });
+
+export default config;
