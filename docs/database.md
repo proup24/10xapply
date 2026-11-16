@@ -22,11 +22,13 @@ The library's own scripts (`db:emit`, `db:format`, `db:migration:plan`, `db:migr
 4. Move the committed ref to the new contract hash, or `db:migrate` stops at the old contract (the cloud deploy too):
    `pnpm --filter @xapply/database exec prisma migration ref set db <hash>`
    The ref is `libs/database/src/migrations/app/refs/db.json`; the plan prints the hash.
-5. `pnpm db:reset`, then `pnpm db:types`, then `pnpm db:test`.
-6. Open the PR. CI's `database` job runs on database-area PRs and on every push.
-7. After CI passes on `main`, `.github/workflows/database-deploy.yml` migrates the cloud project. It uses the GitHub environment `prod` and the secret `DATABASE_URL`, and runs no seed.
+   A unit test in `libs/database` (`src/contract/db-ref.spec.ts`) fails while the ref is behind the contract or the newest migration.
+5. Give a new table its own `GRANT`s in the migration (a raw SQL step, as in `init_users`). Nothing is granted by default: the cloud project does not expose new `public` tables to the API roles, and the local stack is set the same way (`auto_expose_new_tables = false` in `supabase/config.toml`). Without a grant, `authenticated` and `service_role` get error 42501. Grant `anon` nothing unless the table is public.
+6. `pnpm db:reset`, then `pnpm db:types`, then `pnpm db:test`.
+7. Open the PR. CI's `database` job runs on database-area PRs and on every push.
+8. After CI passes on `main`, `.github/workflows/database-deploy.yml` migrates the cloud project. It uses the GitHub environment `prod` and the secret `DATABASE_URL`, and runs no seed.
 
-Every Prisma command and the seed refuse a non-local `DATABASE_URL`, `DIRECT_DATABASE_URL` or `SUPABASE_URL` unless the shell sets the remote opt-in variable (`XAPPLY_ALLOW_REMOTE_DB`). Only CI sets it. A value written in `.env` never counts.
+Every Prisma command and the seed refuse a `DATABASE_URL`, `DIRECT_DATABASE_URL` or `SUPABASE_URL` that is not this repo's local stack, unless the shell sets the remote opt-in variable (`XAPPLY_ALLOW_REMOTE_DB`). Local means `127.0.0.1`, `localhost` or `::1` on port 55321 or 55322, so 10xjobs's local stack (543xx) is refused too. Only CI sets the opt-in. A value written in `.env` never counts.
 
 ## Setup the author does once
 
@@ -34,17 +36,27 @@ Every Prisma command and the seed refuse a non-local `DATABASE_URL`, `DIRECT_DAT
 2. Mirror the Auth settings from `supabase/config.toml` by hand: invite-only, so public sign-up is off.
 3. Add the GitHub environment `prod` with the secret `DATABASE_URL`: the session pooler URL, port 5432. The deploy workflow fails until it exists, so merge the slice's PR after it exists.
 4. Commit the project ref to `.claude/supabase-project.json` (`{ "projectRef": "<ref>" }`). It is null until then, and with no ref the guard refuses every Supabase project call.
-5. Fill the local `.env` from `.env.example`. Keep the cloud block commented out unless you are doing something deliberate.
+5. Fill the local `.env` from `.env.example`. Do not put the cloud `DATABASE_URL` in `.env` on this machine: CI holds it, and nothing local needs it. The commented block in `.env.example` only shows the URL's shape.
+6. Sign the Supabase CLI out on this machine (`supabase logout`) whenever you don't need it signed in. The local stack needs no sign-in, and Claude's cloud work goes through the Supabase tools. The known gaps say why this matters.
 
 ## What Claude may do
 
-- **Supabase tools.** The guard holds them to an allowlist and to the ref in `.claude/supabase-project.json`. `execute_sql` takes one statement, a read or a write to `public` tables only. It refuses schema and privilege keywords, schema-qualified function calls (except `auth.uid` and `auth.jwt`) and a list of risky built-ins. `apply_migration`, notebooks and the project and branch tools are refused.
+- **Supabase tools.** The guard holds them to an allowlist and to the ref in `.claude/supabase-project.json`. `execute_sql` takes one statement, a read or a write to `public` tables only. It refuses schema and privilege keywords, schema-qualified function calls (except `auth.uid` and `auth.jwt`), a list of risky built-ins (`set_config`, `setval`, `nextval` and others), every `pg_*` function off a short read list, `U&"…"` identifiers and queries over 20,000 characters. `apply_migration`, notebooks and the project and branch tools are refused.
 - **The Supabase CLI in Bash.** Only the local commands: `start`, `stop`, `status`, `gen types --local`, `gen signing-key`, `db reset` (local) and `migration list --local`. It must run from inside the repo, with no remote flags and no expansion tricks. Any Bash command mentioning the opt-in variable name is refused unless it is read-only.
 - **Commit and PR text.** The guard refuses heredoc or `$(...)` commit and PR bodies that mention the CLI word. Use `git commit -F <file>` and `gh pr create --body-file <file>`.
+- **The folder name.** `supabase` as a folder given to `git`, `ls`, `prettier`, `tar`, `find`, `grep`, `rm`, `mkdir`, `cp`, `mv` or `echo` is not a CLI call (`git add supabase libs/database`). With any other command, write `supabase/`.
 
 ## Known gaps
 
 - **Free plan.** A free Supabase project pauses after a week without activity and has no downloadable backups. With only `users` and no account nothing is at risk yet. Slice 10 (the author's facts) should decide on the paid plan or a backup.
-- **`execute_sql` is checked as text.** A cleverly written query could slip a schema change past it. The real protection is that the schema changes only through CI; drift would show as a failed `db:verify` or migration.
-- **`db:verify` fails today** on two Supabase-owned objects (the auth `factor_type` enum and a `storage.objects` index), not on our tables.
-- **The CLI name can be built at run time.** Text checks can't stop an interpreter assembling it. The CLI on this machine is signed in to the author's account, so signing it out closes this fully.
+- **`execute_sql` is checked as text.** A cleverly written query could slip a schema change past it. The real protection is that the schema changes only through CI. Drift shows only as a failed migration on a later deploy, until the Prisma pack matches the platform and `db:verify` can pass (next point).
+- **`db:verify` fails today** on two Supabase-owned objects (the auth `factor_type` enum and a `storage.objects` index), not on our tables. So it cannot detect drift yet.
+- **The CLI and opt-in rules stop direct commands only.** The guard reads the text of each Bash command. It refuses a command that names the CLI with a remote subcommand or flag, and a command that sets the opt-in variable. It does not stop any of these:
+  - a script file in the repo, old or new, that holds the CLI command or sets the opt-in (`bash scripts/x.sh`, `./x.sh`). The guard does not read what the Write tool puts in a file;
+  - a new package script that does the same (`pnpm run x`);
+  - a name built from a variable or by an interpreter (`v=…; export "${v}…"`, `python3 -c`, `node -e`);
+  - a tool that runs a shell with the env files loaded (`dotenv -- sh -c …`), or a direct `psql` to a cloud URL. Neither goes through the library's local-only check.
+
+  A session working in good faith takes none of these paths, so the rules catch mistakes, not intent. The real barriers are two facts about this machine, and both are the author's to keep:
+  - **The CLI is signed out.** Run `supabase logout` when you don't need it. A signed-out CLI can reach no cloud project, whatever the command text says.
+  - **The cloud `DATABASE_URL` is not in the local `.env`.** Without the URL and its password on this machine, no local command can reach the cloud database. CI holds the only copy, as the `prod` environment's secret.

@@ -30,7 +30,7 @@ Failure even if it technically works:
 
 ## Stack
 
-- Nx 24 monorepo with pnpm, TypeScript strict with nodenext. Seven projects so far: the runner (`apps/runner`, a Node CLI), the bridge extension (`apps/bridge-extension`, plain-JS MV3), `libs/fact-bank` (the fact bank's schema, loader and check), `libs/answerer` (answers form questions from the bank through `claude -p`, plus its golden eval) `libs/disqualify` (the disqualification extractor, rules, decision and golden eval), `libs/database` (the Prisma contract, migrations, seed and env guard) and `apps/db-tests` (the RLS tests).
+- Nx 24 monorepo with pnpm, TypeScript strict with nodenext. Seven projects so far: the runner (`apps/runner`, a Node CLI), the bridge extension (`apps/bridge-extension`, plain-JS MV3), `libs/fact-bank` (the fact bank's schema, loader and check), `libs/answerer` (answers form questions from the bank through `claude -p`, plus its golden eval), `libs/disqualify` (the disqualification extractor, rules, decision and golden eval), `libs/database` (the Prisma contract, migrations, seed and env guard) and `apps/db-tests` (the RLS tests).
 - Expected, mirroring 10xjobs, **not built yet**: NestJS API (webhook intake) and workers (browser runs), Next.js web app, Redis queues, LLMs through `claude -p` on the author's subscription, browsers on our own server. Each piece is decided in its own slice.
 - **Set up** (slice 02): ESLint, Vitest and Prettier, all run through Nx.
 - **Set up** (slice 08): Supabase (Auth and Postgres with per-user row-level security) and Prisma, a local stack plus one cloud project. See [docs/database.md](docs/database.md).
@@ -87,7 +87,10 @@ See [docs/roadmap/README.md](docs/roadmap/README.md): phases, slice order and th
 - The author's disqualification rules are `disqualify.yaml` in the private folder (`authorizedCountries` and `locatedIn`). Claude may read and edit it, and runs `facts-check` after an edit.
 - The applied-jobs record is `applications.json` in the private folder. The runner writes it. Claude may read it, never write it; the guard blocks writes. Clear an entry by editing it by hand (the web app later).
 - The misses record is `answer-misses.yaml` in the private folder. The runner writes it after each apply run, listing the questions it could not answer. Claude may read and edit it.
-- Claude may read and write rows in 10xapply's Supabase project through the Supabase tools only, and the guard holds it to the ref in `.claude/supabase-project.json`. The schema changes only through CI (`database-deploy.yml`). The Supabase CLI is local-only. `XAPPLY_ALLOW_REMOTE_DB` is CI's alone.
+- Claude may read and write rows in 10xapply's Supabase project through the Supabase tools only. The guard holds them to an allowlist of tools and to the ref in `.claude/supabase-project.json`. `execute_sql` reaches rows in `public` tables only: one statement, with no schema or privilege change. The schema changes only through CI (`database-deploy.yml`). The Supabase CLI is local-only. `XAPPLY_ALLOW_REMOTE_DB` is CI's alone. See [docs/database.md](docs/database.md) for what these checks do not stop.
+- The guard refuses a Bash command word built by expansion, in every command and not only Supabase ones: a word containing `$`, a backtick, `{`, `}`, `?`, `*` or `[`, such as `$EDITOR file` or `"$HOME"/bin/tool`. Write the command word out in full. Arguments may still use expansion, and so may a `case` pattern such as `*)`.
+- The guard also refuses the lower-case word `supabase` inside `$(…)` or backticks, in every command. That blocks the default heredoc commit form (`git commit -m "$(cat <<'EOF' … EOF)"`) and a `gh pr create --body "…"` whose text mentions the CLI. Write the message to a file and use `git commit -F <file>` and `gh pr create --body-file <file>`. The folder is fine as a path (`supabase/config.toml`), and so is `eval "$(scripts/supabase-env.sh)"`.
+- If the guard itself crashes on a Bash or MCP call, the call is refused.
 - Personal overrides go in `.claude/settings.local.json`.
 - Prettier runs automatically on files Claude edits or writes.
 
