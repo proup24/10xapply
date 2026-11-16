@@ -30,9 +30,10 @@ Failure even if it technically works:
 
 ## Stack
 
-- Nx 24 monorepo with pnpm, TypeScript strict with nodenext. Five projects so far: the runner (`apps/runner`, a Node CLI), the bridge extension (`apps/bridge-extension`, plain-JS MV3), `libs/fact-bank` (the fact bank's schema, loader and check), `libs/answerer` (answers form questions from the bank through `claude -p`, plus its golden eval) and `libs/disqualify` (the disqualification extractor, rules, decision and golden eval).
-- Expected, mirroring 10xjobs, **not built yet**: NestJS API (webhook intake) and workers (browser runs), Next.js web app, Supabase (Auth and Postgres with per-user row-level security), Prisma, Redis queues, LLMs through `claude -p` on the author's subscription, browsers on our own server. Each piece is decided in its own slice.
+- Nx 24 monorepo with pnpm, TypeScript strict with nodenext. Seven projects so far: the runner (`apps/runner`, a Node CLI), the bridge extension (`apps/bridge-extension`, plain-JS MV3), `libs/fact-bank` (the fact bank's schema, loader and check), `libs/answerer` (answers form questions from the bank through `claude -p`, plus its golden eval) `libs/disqualify` (the disqualification extractor, rules, decision and golden eval), `libs/database` (the Prisma contract, migrations, seed and env guard) and `apps/db-tests` (the RLS tests).
+- Expected, mirroring 10xjobs, **not built yet**: NestJS API (webhook intake) and workers (browser runs), Next.js web app, Redis queues, LLMs through `claude -p` on the author's subscription, browsers on our own server. Each piece is decided in its own slice.
 - **Set up** (slice 02): ESLint, Vitest and Prettier, all run through Nx.
+- **Set up** (slice 08): Supabase (Auth and Postgres with per-user row-level security) and Prisma, a local stack plus one cloud project. See [docs/database.md](docs/database.md).
 - **Set up** (slice 03): Patchright (Playwright API) through our own bridge extension in the author's everyday Chrome (`apps/bridge-extension`, and the runner in `apps/runner`).
 
 ## Workflow
@@ -42,6 +43,7 @@ Build in small slices, one per session: brainstorm, then spec (`docs/superpowers
 ## Commands
 
 - `pnpm test:hooks` runs the guard hook tests.
+- `pnpm db:start`, `db:stop` and `db:status` run the local Supabase stack (API 55321, DB 55322, alongside 10xjobs's). `db:reset` rebuilds and seeds it, `db:migrate` and `db:seed` run against `DATABASE_URL`, `db:types` regenerates the Database type, and `db:test` runs the RLS tests (after `eval "$(scripts/supabase-env.sh)"`).
 - `pnpm test:scripts` runs the tests for the repo's own scripts (added in slice 02).
 - `pnpm lint`, `pnpm test`, `pnpm build` and `pnpm typecheck` run that target on all projects through Nx.
 - `pnpm format` writes Prettier formatting and `pnpm format:check` checks it, on changed files; add `--all` for everything.
@@ -85,6 +87,7 @@ See [docs/roadmap/README.md](docs/roadmap/README.md): phases, slice order and th
 - The author's disqualification rules are `disqualify.yaml` in the private folder (`authorizedCountries` and `locatedIn`). Claude may read and edit it, and runs `facts-check` after an edit.
 - The applied-jobs record is `applications.json` in the private folder. The runner writes it. Claude may read it, never write it; the guard blocks writes. Clear an entry by editing it by hand (the web app later).
 - The misses record is `answer-misses.yaml` in the private folder. The runner writes it after each apply run, listing the questions it could not answer. Claude may read and edit it.
+- Claude may read and write rows in 10xapply's Supabase project through the Supabase tools only, and the guard holds it to the ref in `.claude/supabase-project.json`. The schema changes only through CI (`database-deploy.yml`). The Supabase CLI is local-only. `XAPPLY_ALLOW_REMOTE_DB` is CI's alone.
 - Personal overrides go in `.claude/settings.local.json`.
 - Prettier runs automatically on files Claude edits or writes.
 

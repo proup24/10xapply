@@ -255,9 +255,11 @@ The author gives the runner one LinkedIn job URL. A real Chrome window on the au
 
 ### 08 Supabase and the database
 
+- **Spec:** [slice 08 spec](../superpowers/specs/2026-11-16-supabase-and-the-database-design.md).
 - **Scope:** a shared database library with the Prisma contract as the only schema source (RLS policies included), the local Supabase CLI stack, a Supabase Cloud dev project, migrate and seed scripts with the remote-database guard, and RLS tests.
 - **Copy from:** 10xjobs `libs/database`, `supabase/`, `apps/db-tests`, and specs `2026-11-03-accounts-and-isolation`, `2026-11-05-shared-dev-database`.
 - **Locked:** every row a user owns carries `userId` and is isolated by RLS; engine-only tables have RLS on with no policies. Separate Supabase project from 10xjobs (from `CLAUDE.md`).
+- **Spec answers:** settled in the spec: one cloud project holding the author's real data, `users` only, a migrate-only deploy (no seed), and Claude limited to rows in that project.
 
 ### 09 Web app and invite-only sign-in
 
