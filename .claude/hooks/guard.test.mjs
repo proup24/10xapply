@@ -1074,8 +1074,6 @@ test('supabase cli: other launch forms and the repo scripts', () => {
     'supabase -o env status',
     'supabase --version',
     'supabase',
-    'supabase link --help',
-    'supabase db push -h',
     'supabase db reset --local',
     'npx supabase start',
     'yarn supabase status',
@@ -1093,6 +1091,8 @@ test('supabase cli: other launch forms and the repo scripts', () => {
   ])
     assert.equal(blocked('Bash', { command: c }), false, c);
   for (const c of [
+    'supabase link --help',
+    'supabase db push -h',
     '/home/linuxbrew/.linuxbrew/bin/supabase link --project-ref abc',
     'node_modules/.bin/supabase db push',
     './node_modules/.bin/supabase login',
@@ -1138,11 +1138,11 @@ test('remote db opt-in: hidden forms are refused', () => {
     'XAPPLY_ALLOW_REMOTE_DB= pnpm db:migrate',
     'export XAPPLY_ALLOW_REMOTE_DB+=1',
     "echo 'x; XAPPLY_ALLOW_REMOTE_DB=1 pnpm db:migrate",
+    'MY_XAPPLY_ALLOW_REMOTE_DB_NOTE=1 true',
   ])
     assert.equal(blocked('Bash', { command: c }), true, c);
   for (const c of [
     'XAPPLY_SKIP_ENV_FILES=1 pnpm db:migrate',
-    'MY_XAPPLY_ALLOW_REMOTE_DB_NOTE=1 true',
     'grep -r XAPPLY_ALLOW_REMOTE_DB libs',
   ])
     assert.equal(blocked('Bash', { command: c }), false, c);
@@ -1165,6 +1165,149 @@ test('supabase cli: the reason names the problem', () => {
     reason,
     /^Supabase CLI blocked: .+\. Claude may run the local stack only \(see CLAUDE\.md\)\.$/,
   );
+});
+
+const repoRoot = new URL('../..', import.meta.url).pathname.replace(/\/$/, '');
+
+test('supabase cli review C1: -h cannot skip the checks', () => {
+  for (const c of [
+    'supabase projects delete abc --network-id -h --yes',
+    'supabase db push --linked --network-id -h',
+    'supabase --network-id -h db push --db-url postgresql://x',
+    'supabase db reset --network-id -h --linked',
+  ])
+    assert.equal(blocked('Bash', { command: c }), true, c);
+});
+
+test('supabase cli review C2: the positional words must match exactly', () => {
+  for (const c of [
+    'supabase --yes --network-id start projects delete abc',
+    'supabase --network-id stop orgs create foo',
+    'supabase --network-id status projects create x --org-id o --db-password pw --region eu-west-1',
+    'supabase --network-id start secrets set A=b',
+    'supabase start extra',
+    'supabase gen types typescript extra --local',
+    'supabase gen types rust --local',
+  ])
+    assert.equal(blocked('Bash', { command: c }), true, c);
+  for (const c of [
+    'supabase start -x studio,realtime,edge-runtime,imgproxy,logflare,vector',
+    'supabase status -o env',
+    'supabase stop --no-backup',
+    'supabase --network-id net start',
+    'supabase --dns-resolver https start',
+    'supabase --unknown=value start',
+    'supabase --unknown start',
+    'supabase gen types --local --schema public',
+    'supabase gen types typescript -s public --local',
+    'supabase gen types go --local',
+    'supabase gen signing-key --algorithm ES256',
+  ])
+    assert.equal(blocked('Bash', { command: c }), false, c);
+});
+
+test('supabase cli review I1: every position and nested strings', () => {
+  for (const c of [
+    'setsid supabase db reset --linked',
+    'setsid supabase migration repair 1 --status applied',
+    "script -c 'supabase db push'",
+    "npx -c 'supabase link'",
+    "npm exec -c 'supabase link'",
+    "pnpm exec bash -c 'supabase link'",
+    "env -S 'supabase link'",
+    'echo link | xargs supabase',
+  ])
+    assert.equal(blocked('Bash', { command: c }), true, c);
+  for (const c of [
+    'ls supabase',
+    'pnpm add -D supabase',
+    'cat supabase/config.toml',
+    'grep -rn supabase libs',
+    "grep 'supabase link' docs",
+    'git log --oneline -- supabase',
+  ])
+    assert.equal(blocked('Bash', { command: c }), false, c);
+});
+
+test('supabase cli review I2: backslash-newline joins the word', () => {
+  assert.equal(blocked('Bash', { command: 'supa\\\nbase link' }), true);
+  assert.equal(blocked('Bash', { command: '"supa\\\nbase" link' }), true);
+  assert.equal(
+    blocked('Bash', {
+      command: 'XAPPLY_ALLOW_\\\nREMOTE_DB=1 pnpm db:migrate',
+    }),
+    true,
+  );
+  assert.equal(
+    blocked('Bash', {
+      command: 'XAPPLY_ALLOW_REMOTE_DB\\\n=1 pnpm db:migrate',
+    }),
+    true,
+  );
+  assert.equal(blocked('Bash', { command: 'supabase \\\n  start' }), false);
+  assert.equal(
+    blocked('Bash', { command: 'git push \\\n  -u origin feature-x' }),
+    false,
+  );
+});
+
+test('supabase cli review I3: the opt-in text outside read-only commands', () => {
+  for (const c of [
+    'env XAPPLY_ALLOW_REMOTE_DB${E}=1 pnpm db:migrate',
+    "XAPPLY_ALLOW_REMOTE_D$'B'=1 pnpm db:migrate",
+    "XAPPLY_ALLOW_REM$'OTE'_DB=1 pnpm db:migrate",
+    'printf -v XAPPLY_ALLOW_REMOTE_DB 1; export XAPPLY_ALLOW_REMOTE_DB; pnpm db:migrate',
+    'read XAPPLY_ALLOW_REMOTE_DB <<< 1; export XAPPLY_ALLOW_REMOTE_DB',
+    'V=XAPPLY_ALLOW_REMOTE_DB; export "$V=1"',
+    'grep ALLOW_REMOTE x > .envrc',
+    'XAPPLY_ALLOW_REMOTE_DB=1 cat x',
+    'sed -i s/x/ALLOW_REMOTE/ f',
+    'git -c core.pager=x log ALLOW_REMOTE',
+    'grep ALLOW_REMOTE x | bash',
+  ])
+    assert.equal(blocked('Bash', { command: c }), true, c);
+  for (const c of [
+    'grep -rn ALLOW_REMOTE libs/database',
+    'rg ALLOW_REMOTE .github 2>/dev/null | head -5',
+    'git diff -- libs | grep ALLOW_REMOTE',
+    'git log -S ALLOW_REMOTE --oneline',
+    "sed -n '/ALLOW_REMOTE/p' libs/database/package.json",
+  ])
+    assert.equal(blocked('Bash', { command: c }), false, c);
+});
+
+test('supabase cli review minors', () => {
+  for (const c of [
+    'supabase stop --all',
+    'supabase --workdir /tmp/other start',
+    'supabase --workdir=../10xjobs start',
+    'supabase --workdir ../10xjobs start',
+    `supabase --workdir ${repoRoot}/../10xjobs start`,
+    'supabase gen types typescript --schema public',
+    'SUPABASE_PROJECT_ID=abc supabase start',
+    'env SUPABASE_DB_PASSWORD=x supabase db reset',
+    'SUPABASE_ACCESS_TOKEN=x pnpm exec supabase status',
+    'echo $(supabase link)',
+    'echo `supabase link`',
+    'cat <(supabase db dump)',
+    'S=supabase; $S link',
+    "bash <<< 'supabase link'",
+    'echo supabase link | bash',
+    'echo supabase link | sh',
+    'printf "supabase link" | zsh',
+  ])
+    assert.equal(blocked('Bash', { command: c }), true, c);
+  for (const c of [
+    'supabase --workdir . start',
+    'supabase --workdir ./ start',
+    `supabase --workdir ${repoRoot} start`,
+    `supabase --workdir=${repoRoot}/supabase status`,
+    'eval "$(scripts/supabase-env.sh)"',
+    'echo "$(cat supabase/config.toml)"',
+    'SUPABASE_URL=x supabase status',
+    'bash scripts/supabase-env.sh',
+  ])
+    assert.equal(blocked('Bash', { command: c }), false, c);
 });
 
 test('supabase cli: the exported checks', () => {

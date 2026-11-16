@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
-import { pathToFileURL } from 'node:url';
+import { isAbsolute, resolve, sep } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const segments = (p) => p.split('/');
 // `/usr/bin/git` runs git: compare command words by their last segment.
@@ -87,11 +88,12 @@ function parse(command) {
     if (quote) {
       if (ch === quote) quote = null;
       else if (ch === '\\' && quote === '"' && i + 1 < command.length) {
-        token += command[++i];
+        // `\<newline>` is removed inside "..." too.
+        if (command[++i] !== '\n') token += command[i];
       } else token += ch;
     } else if (ch === '\\') {
-      if (command[i + 1] === '\n') endToken();
-      else token += command[i + 1] ?? '';
+      // Bash deletes `\<newline>` without ending the word.
+      if (command[i + 1] !== '\n') token += command[i + 1] ?? '';
       i++;
     } else if (ch === '"' || ch === "'") {
       quote = ch;
@@ -787,12 +789,29 @@ function findBlockedToken(command) {
 
 // --- Supabase CLI (spec section 6) -----------------------------------------
 // The CLI on this machine is signed in to an account that also holds other
-// projects, so Claude may run the local stack only. An allowlist: anything not
-// named here is refused.
+// projects, so Claude may run the local stack only. An allowlist on the full
+// sequence of positional words: anything not named here is refused.
 // `supabase`, a path ending in it, or a package spec `supabase@2.x`.
 const isSupabaseCli = (t) => /^supabase(@[^/]*)?$/.test(basename(t ?? ''));
-// Global flags that take a value, so the value is not the subcommand.
-const SUPABASE_VALUE_FLAGS = ['--workdir', '--profile', '--output', '-o'];
+// The CLI word in raw text: not part of a longer name (`supabase-env.sh`) or
+// a folder (`supabase/config.toml`).
+const CLI_WORD = /(?<![\w.-])supabase(?![\w./-])/;
+// Flags that take a value, so the value is not a positional word. Any other
+// flag counts as boolean unless it carries `=value`.
+const SUPABASE_VALUE_FLAGS = [
+  '--workdir',
+  '--profile',
+  '-o',
+  '--output',
+  '--network-id',
+  '--dns-resolver',
+  '-x',
+  '--exclude',
+  '--schema',
+  '-s',
+  '--algorithm',
+  '--status',
+];
 // Flags that point any command at a remote database or project.
 const SUPABASE_REMOTE_FLAGS = [
   '--project-ref',
@@ -801,123 +820,203 @@ const SUPABASE_REMOTE_FLAGS = [
   '--db-url',
   '--password',
 ];
-const SUPABASE_ANY_ARGS = ['start', 'stop', 'status'];
-const SUPABASE_GEN = ['types', 'signing-key'];
-// Backstop for the CLI word in an argument position (`find -exec supabase
-// link`): subcommands that only ever reach the account or a remote project.
-const SUPABASE_REMOTE_WORDS = [
-  'link',
-  'unlink',
-  'login',
-  'logout',
-  'projects',
-  'orgs',
-  'secrets',
-  'branches',
-  'functions',
-  'domains',
-  'sso',
-  'backups',
-  'storage',
-];
+const GEN_LANGS = ['typescript', 'go', 'swift', 'python'];
+// The allowed positional sequences, and the flag each one needs.
+const SUPABASE_ALLOWED = new Map([
+  ['', null], // `supabase`, `supabase --help`, `supabase --version`
+  ['start', null],
+  ['stop', null],
+  ['status', null],
+  ['gen types', '--local'],
+  ...GEN_LANGS.map((l) => [`gen types ${l}`, '--local']),
+  ['gen signing-key', null],
+  ['db reset', null],
+  ['migration list', '--local'],
+]);
+// Variables that point the CLI at an account or a remote project.
+const SUPABASE_ENV =
+  /^(SUPABASE_PROJECT_ID|SUPABASE_DB_PASSWORD|SUPABASE_ACCESS_TOKEN)=/;
+const REPO_ROOT = resolve(fileURLToPath(new URL('../..', import.meta.url)));
 
+const flagName = (a) => a.split('=')[0];
 const remoteFlag = (a) =>
-  SUPABASE_REMOTE_FLAGS.some((f) => a === f || a.startsWith(`${f}=`)) ||
-  /^-p/.test(a);
-
-// The non-flag words after the CLI word, skipping the values of value flags.
-function supabaseWords(args) {
-  const words = [];
-  for (let j = 0; j < args.length; j++) {
-    if (SUPABASE_VALUE_FLAGS.includes(args[j])) j++;
-    else if (args[j] !== '--' && !args[j].startsWith('-')) words.push(args[j]);
-  }
-  return words;
-}
+  SUPABASE_REMOTE_FLAGS.includes(flagName(a)) || /^-p/.test(a);
+const insideRepo = (v) =>
+  // parse strips a leading `./`, so `./` arrives as ''.
+  v === '' ||
+  v === '.' ||
+  v === './' ||
+  (isAbsolute(v) &&
+    (resolve(v) === REPO_ROOT || resolve(v).startsWith(REPO_ROOT + sep)));
 
 // Why one CLI call (`args` follow the CLI word) is refused, or null.
 function supabaseArgsProblem(args) {
-  if (args.some((a) => a === '--help' || a === '-h')) return null;
-  const words = supabaseWords(args);
   const flag = args.find(remoteFlag);
-  if (flag) return `the ${flag.split('=')[0]} flag reaches a remote project`;
-  const [sub, second] = words;
-  if (sub === undefined) return null; // `supabase`, `supabase --version`
-  if (SUPABASE_ANY_ARGS.includes(sub)) return null;
-  if (sub === 'gen' && SUPABASE_GEN.includes(second)) return null;
-  if (sub === 'db' && second === 'reset') return null;
-  if (sub === 'migration' && second === 'list') {
-    return args.includes('--local') ? null : 'migration list needs --local';
+  if (flag) return `the ${flagName(flag)} flag reaches a remote project`;
+  const positionals = [];
+  const flags = [];
+  for (let j = 0; j < args.length; j++) {
+    const a = args[j];
+    if (a === '--') continue;
+    if (SUPABASE_VALUE_FLAGS.includes(a)) {
+      flags.push([a, args[++j] ?? '']);
+    } else if (a.startsWith('-')) {
+      const eq = a.indexOf('=');
+      flags.push(eq < 0 ? [a, undefined] : [a.slice(0, eq), a.slice(eq + 1)]);
+    } else positionals.push(a);
   }
-  return `\`supabase ${[sub, second].filter(Boolean).join(' ')}\` is not a local command`;
+  if (flags.some(([n]) => n === '--all')) {
+    return '--all reaches other local stacks';
+  }
+  if (flags.some(([n, v]) => n === '--workdir' && !insideRepo(v ?? ''))) {
+    return '--workdir must stay inside the repo';
+  }
+  const key = positionals.join(' ');
+  if (!SUPABASE_ALLOWED.has(key)) {
+    return `\`supabase ${key}\` is not a local command`;
+  }
+  const needs = SUPABASE_ALLOWED.get(key);
+  if (needs && !flags.some(([n]) => n === needs)) {
+    return `\`supabase ${key}\` needs ${needs}`;
+  }
+  return null;
 }
 
-// Index of the CLI word in a command (`args` start at the command word), or
-// -1. A package manager runs it through exec/dlx/npx/yarn or as a bin; its
-// built-in commands (`pnpm add supabase`) name the package, not the CLI.
-function supabaseCliIndex(args) {
-  if (isSupabaseCli(args[0])) return 0;
-  if (!PACKAGE_MANAGERS.includes(basename(args[0] ?? ''))) return -1;
-  let first;
-  for (let j = 1; j < args.length; j++) {
-    if (PM_DIR_FLAGS.includes(args[j])) j++;
-    else if (!args[j].startsWith('-')) {
-      first = args[j];
-      break;
+// The text of every `$(…)`, `<(…)`, `>(…)` and backtick substitution.
+function substitutions(command) {
+  const out = [];
+  for (let i = 0; i < command.length; i++) {
+    if (/[$<>]/.test(command[i]) && command[i + 1] === '(') {
+      let depth = 0;
+      let j = i + 1;
+      for (; j < command.length; j++) {
+        if (command[j] === '(') depth++;
+        else if (command[j] === ')' && --depth === 0) break;
+      }
+      out.push(command.slice(i + 2, j));
+    } else if (command[i] === '`') {
+      const j = command.indexOf('`', i + 1);
+      out.push(command.slice(i + 1, j < 0 ? command.length : j));
+      i = j < 0 ? command.length : j;
     }
   }
-  if (PM_BUILTINS.includes(first)) return -1;
-  return args.findIndex((a, j) => j > 0 && isSupabaseCli(a));
+  return out;
+}
+
+// The command words the opt-in check accepts: they only read and print.
+const TEXT_READERS = ['grep', 'rg', 'cat', 'head', 'tail', 'less', 'wc'];
+const GIT_READS = ['diff', 'log', 'show', 'grep'];
+
+// True when the segment only reads. The command word must come first (no
+// assignments or wrappers in front). With `strict`, a redirect may only
+// target /dev/null. `extra` lists more read-only command words.
+function readOnlySegment(tokens, { strict = true, extra = [] } = {}) {
+  if (!tokens.length || commandIndex(tokens) !== 0) return false;
+  if (
+    strict &&
+    tokens.some((t, j) => tokens[j - 1] === REDIRECT && t !== '/dev/null')
+  ) {
+    return false;
+  }
+  const w = basename(tokens[0]);
+  if (TEXT_READERS.includes(w) || extra.includes(w)) return true;
+  if (w === 'sed') {
+    return !tokens.some(
+      (t) => t.startsWith('--in-place') || /^-[a-zA-Z]*i/.test(t),
+    );
+  }
+  if (w !== 'git') return false;
+  let j = 1;
+  while (tokens[j]?.startsWith('-')) {
+    if (/^(-c|--config|--exec-path)/.test(tokens[j])) return false;
+    j += tokens[j] === '-C' ? 2 : 1;
+  }
+  return GIT_READS.includes(tokens[j]);
 }
 
 // Returns why a Supabase CLI call in the command is refused, or null.
 export function supabaseCliProblem(command) {
   const { segments: parts, unclosed } = parse(command);
-  if (unclosed && rawTokens(command).some(isSupabaseCli)) {
+  if (
+    unclosed &&
+    (rawTokens(command).some(isSupabaseCli) || CLI_WORD.test(command))
+  ) {
     return 'a supabase call inside an unterminated quote cannot be checked';
+  }
+  if (substitutions(command).some((s) => CLI_WORD.test(s))) {
+    return 'a supabase call inside a command substitution cannot be checked';
   }
   for (const tokens of parts) {
     const i = commandIndex(tokens);
     const nested = nestedCommand(tokens, i);
     const nestedProblem = nested && supabaseCliProblem(nested);
     if (nestedProblem) return nestedProblem;
-    const args = withoutRedirects(tokens.slice(i));
-    const at = supabaseCliIndex(args);
-    if (at >= 0) {
-      const problem = supabaseArgsProblem(args.slice(at + 1));
-      if (problem) return problem;
+    // A shell reading its commands from stdin or a here-string.
+    if (
+      SHELLS.includes(basename(tokens[i] ?? '')) &&
+      nested === undefined &&
+      CLI_WORD.test(command)
+    ) {
+      return 'a shell reading a supabase command from input cannot be checked';
+    }
+    if (readOnlySegment(tokens, { strict: false, extra: READ_ONLY_TOOLS })) {
       continue;
     }
-    // The CLI word as an argument: refuse the account and remote commands.
-    for (let k = 1; k < args.length; k++) {
-      if (!isSupabaseCli(args[k])) continue;
-      const [sub, second] = supabaseWords(args.slice(k + 1));
-      if (
-        SUPABASE_REMOTE_WORDS.includes(sub) ||
-        (sub === 'db' && ['push', 'pull', 'dump'].includes(second))
-      ) {
-        return `\`supabase ${sub}\` is not a local command`;
+    // A token with spaces may be a command run by `script -c`, `npx -c`,
+    // `env -S` and the like: check it as one.
+    for (const t of tokens) {
+      if (/\s/.test(t) && t.includes('supabase')) {
+        const problem = supabaseCliProblem(t);
+        if (problem) return problem;
       }
     }
+    if (
+      tokens.some(
+        (t) => /^\w+=/.test(t) && isSupabaseCli(t.slice(t.indexOf('=') + 1)),
+      )
+    ) {
+      return 'the supabase word in a variable cannot be checked';
+    }
+    const args = withoutRedirects(tokens);
+    let launched = false;
+    for (let k = 0; k < args.length; k++) {
+      if (!isSupabaseCli(args[k])) continue;
+      launched = true;
+      const problem = supabaseArgsProblem(args.slice(k + 1));
+      if (problem) return problem;
+    }
+    if (!launched) continue;
+    // xargs appends stdin to the arguments, so they cannot be checked.
+    if (tokens.includes('xargs')) {
+      return 'a supabase call through xargs cannot be checked';
+    }
+    const env = tokens.find((t) => SUPABASE_ENV.test(t));
+    if (env) return `${flagName(env)} points the CLI away from the local stack`;
   }
   return null;
 }
 
-// CI alone opts the database scripts in to a remote database. Any assignment
-// of the variable is refused, wherever it appears: `VAR=1 cmd`, `env VAR=1`,
-// `export VAR=1`, quoted or nested.
+// CI alone opts the database scripts in to a remote database. The check is
+// on text: a command that mentions ALLOW_REMOTE is refused unless every
+// segment only reads. An assignment of the variable is refused anywhere.
 const REMOTE_OPT_IN = /(?<![A-Za-z0-9_])XAPPLY_ALLOW_REMOTE_DB\+?=/;
+const OPT_IN_TEXT = 'ALLOW_REMOTE';
+const OPT_IN = 'the remote database opt-in';
 export function remoteOptInProblem(command) {
   const { segments: parts, unclosed } = parse(command);
-  if (unclosed && REMOTE_OPT_IN.test(command)) {
-    return 'the remote database opt-in';
-  }
-  for (const tokens of parts) {
-    if (tokens.some((t) => REMOTE_OPT_IN.test(t))) {
-      return 'the remote database opt-in';
-    }
-  }
-  return null;
+  const tokens = parts.flat();
+  if (tokens.some((t) => REMOTE_OPT_IN.test(t))) return OPT_IN;
+  // Bash drops `\<newline>` and `$'…'` quoting joins words, so the text is
+  // also read with those removed.
+  const texts = [
+    command,
+    command.replace(/\\\n/g, ''),
+    tokens.join(' ').replace(/\$/g, ''),
+  ];
+  if (!texts.some((t) => t.includes(OPT_IN_TEXT))) return null;
+  if (unclosed) return OPT_IN;
+  const reads = parts.every((t) => t.length === 0 || readOnlySegment(t));
+  return reads ? null : OPT_IN;
 }
 
 // --- Supabase MCP tools (spec section 6) -----------------------------------
