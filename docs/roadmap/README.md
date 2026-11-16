@@ -178,6 +178,11 @@ The author gives the runner one LinkedIn job URL. A real Chrome window on the au
   - Date fields and multi-select fields _(user)_.
   - The three hard-question jobs the author saved for this slice (4488500594, 4490505838, 4490356080) _(user)_.
   - From the walkthrough: all four of those jobs that were snapshotted should end `disqualified` under the author's rules, so they serve as fixtures. The live dry runs use saved jobs the author is eligible for.
+- **Left open when 07b closed** (2026-11-16) _(user: no eligible saved jobs yet, come back to it)_:
+  - Reading and filling date fields in the runner (the plan's Task 8). The answerer side is built; no snapshot has had a date field.
+  - Filling the city typeahead live, and recording a lasting option id. It needs a snapshot with the suggestion list open. Until then a required city box stops the run and an optional one is left blank.
+  - The live dry runs (the plan's Task 11): every job in the set reaches the review page, one live date field and one live multi-select are filled and read back. It needs saved jobs the author is eligible for.
+  - These are picked up when the author has such jobs, before slice 14.
   - The other slice 06 gaps: the email dropdown and the step-1 text box the runner can't read.
 - **Locked:** the slice 05 and 06 rules still hold. An answer the bank can't back is asked or stops the run, never guessed.
 - **Spec:** [slice 07b spec](../superpowers/specs/2026-11-14-fill-more-of-the-form-design.md).
