@@ -1310,6 +1310,99 @@ test('supabase cli review minors', () => {
     assert.equal(blocked('Bash', { command: c }), false, c);
 });
 
+test('supabase cli review 2.1: readers that run programs are not read-only', () => {
+  for (const c of [
+    "sed -n '1e supabase link' package.json",
+    "git grep -O'supabase link #' foo",
+    'touch link; rg --pre supabase x link',
+    "ugrep --filter='*:supabase link' x y",
+    "sed -n '1e V=XAPPLY_ALLOW_REMOTE_DB; export $V=1; pnpm db:migrate' package.json",
+    "sed 's/x/y/e' f ALLOW_REMOTE",
+    "sed -n '1w out' f ALLOW_REMOTE",
+    "sed -n 'p;W out' f ALLOW_REMOTE",
+    'rg --pre=x ALLOW_REMOTE .',
+    'git grep --open-files-in-pager=x ALLOW_REMOTE',
+    'git diff --output=x ALLOW_REMOTE',
+    "grep -A 3 'supabase link' docs",
+  ])
+    assert.equal(blocked('Bash', { command: c }), true, c);
+  for (const c of [
+    'grep -rn ALLOW_REMOTE libs/database',
+    "grep -rn 'supabase link' docs",
+    "rg 'supabase link' docs",
+    "git grep 'supabase link'",
+    "sed -n '1,20p' file",
+    "sed -n '/ALLOW_REMOTE/p' libs/database/package.json",
+    'rg --pre-glob x ALLOW_REMOTE .',
+  ])
+    assert.equal(blocked('Bash', { command: c }), false, c);
+});
+
+test('supabase cli review 2.2: expansion cannot build the CLI word', () => {
+  for (const c of [
+    "$'supabase' link",
+    '$"supabase" link',
+    "bash -c $'supabase link'",
+    '{supabase,link}',
+    '{supabase,db,push}',
+    'supabase${IFS}link',
+    "sh -c 'supabase${IFS}link'",
+    'supabas? link',
+    'SUPABAS* link',
+    'node_modules/.bin/supabas[e] link',
+    'echo $(echo supabase) link',
+  ])
+    assert.equal(blocked('Bash', { command: c }), true, c);
+  for (const c of [
+    "$'supabase' start",
+    'cat supabase/config.toml',
+    'prettier --write libs/database/src/supabase/database.types.ts',
+    'eval "$(scripts/supabase-env.sh)"',
+    'echo "$(supabase status -o env)"',
+    'ls supabase/migrations/*',
+    "printf '%s\\n' $'a\\tb'",
+  ])
+    assert.equal(blocked('Bash', { command: c }), false, c);
+});
+
+test('supabase cli review 2.3: cd, pushd and variables cannot leave the repo', () => {
+  for (const c of [
+    'cd /home/lab/apps/10xjobs && supabase db reset',
+    'pushd ../10xjobs; supabase stop',
+    'cd && supabase start',
+    'cd - && supabase start',
+    `cd ${repoRoot}/../10xjobs && supabase status`,
+    "cd /tmp && bash -c 'supabase start'",
+    'SUPABASE_WORKDIR=/home/lab/apps/10xjobs supabase db reset',
+    'SUPABASE_PROFILE=x supabase start',
+    'export SUPABASE_WORKDIR=/tmp; supabase start',
+    'env SUPABASE_INTERNAL_X=1 pnpm exec supabase status',
+  ])
+    assert.equal(blocked('Bash', { command: c }), true, c);
+  for (const c of [
+    `cd ${repoRoot} && pnpm exec supabase status`,
+    `cd ${repoRoot}/libs/database && supabase status`,
+    'cd /tmp && ls',
+    'SUPABASE_URL=x SUPABASE_SERVICE_ROLE_KEY=y SUPABASE_PUBLISHABLE_KEY=z supabase status',
+    'SUPABASE_WORKDIR=x pnpm db:seed',
+  ])
+    assert.equal(blocked('Bash', { command: c }), false, c);
+});
+
+test('supabase cli review 2: single quotes do not substitute', () => {
+  for (const c of [
+    "git commit -m 'see `supabase start`'",
+    "git commit -m 'run $(supabase status -o env)'",
+  ])
+    assert.equal(blocked('Bash', { command: c }), false, c);
+  for (const c of [
+    'git commit -m "see `supabase link`"',
+    'echo "$(supabase link)"',
+    "echo 'x' `supabase link`",
+  ])
+    assert.equal(blocked('Bash', { command: c }), true, c);
+});
+
 test('supabase cli: the exported checks', () => {
   assert.equal(supabaseCliProblem('supabase start'), null);
   assert.notEqual(supabaseCliProblem('supabase link'), null);
