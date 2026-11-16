@@ -79,6 +79,7 @@ function parse(command) {
   const heredocs = [];
   let token = '';
   let quote = null;
+  let tick = false;
   const endToken = () => {
     if (token) segments.at(-1).push(token.replace(/^\.\//, ''));
     token = '';
@@ -99,7 +100,12 @@ function parse(command) {
       ch === '$' &&
       (command[i + 1] === '"' || command[i + 1] === "'")
     ) {
-      // `$'…'` and `$"…"` quote like '…' and "…": drop the `$`, as bash does.
+      // `$'…'` and `$"…"` quote like '…' and "…": drop the `$`, as bash
+      // does. A `$'…'` with a backslash escape (`\x73`) keeps its `$`, so it
+      // reads as an expansion and fails closed.
+      const end = command.indexOf("'", i + 2);
+      const span = command.slice(i + 2, end < 0 ? command.length : end);
+      if (command[i + 1] === "'" && span.includes('\\')) token += '$';
     } else if (ch === '"' || ch === "'") {
       quote = ch;
     } else if (ch === '#' && !token) {
@@ -135,6 +141,8 @@ function parse(command) {
       } else segments.at(-1).push(REDIRECT);
     } else if (/[;&|()`]/.test(ch)) {
       endToken();
+      // An opening backtick leaves a marker where the substitution stands.
+      if (ch === '`' && (tick = !tick)) segments.at(-1).push('`');
       segments.push([]);
     } else if (/\s/.test(ch)) {
       endToken();
@@ -989,12 +997,12 @@ function patternIndex(tokens) {
 
 // The CLI word, or part of it, in any spelling.
 const CLI_PART = /supabas|upabase/i;
-// A token bash may expand into the CLI word: braces, variables, globs.
-// `$(…)` and backtick spans are checked as substitutions instead.
-const expandsToCli = (t) => {
-  const s = t.replace(/\$\([^()]*\)|`[^`]*`/g, '');
-  return CLI_PART.test(s) && /[{}$?*[]/.test(s);
-};
+// Characters that make bash build a word at run time: variables, braces,
+// globs and substitutions.
+const EXPANSION = /[$`{}?*[]/;
+// A committed repo script run through a substitution, as in
+// `eval "$(scripts/supabase-env.sh)"`.
+const REPO_SCRIPT = /^scripts\/[\w.-]+$/;
 // Variables the CLI may read; the local stack's own values are allowed.
 const SUPABASE_ENV_OK = [
   'SUPABASE_URL',
@@ -1006,16 +1014,103 @@ const supabaseEnv = (t) => {
   return m && !SUPABASE_ENV_OK.includes(m[1]) ? m[1] : null;
 };
 
-// A substitution with the CLI word passes only when it is one allowed CLI
-// call; anything else (`$(echo supabase) link`) cannot be checked.
-function substitutionProblem(text, away) {
-  if (!CLI_WORD.test(text)) return null;
-  const { segments: parts, unclosed } = parse(text);
-  const calls = parts.filter((t) => t.length);
-  if (unclosed || calls.length !== 1 || !isSupabaseCli(calls[0][0])) {
-    return 'a supabase call inside a command substitution cannot be checked';
+// A cd or pushd target that stays in the repo: an absolute path inside it,
+// or a relative one with no `..`, `~` or `$` (the shell starts in the repo).
+const cdInsideRepo = (v) =>
+  v !== undefined &&
+  (insideRepo(v) || (!isAbsolute(v) && !/\.\.|~|\$|^-/.test(v)));
+
+// The `env -C <dir>` and `env --chdir[=]<dir>` values in a segment.
+function envChdirs(tokens) {
+  const dirs = [];
+  tokens.forEach((t, k) => {
+    if (basename(t) !== 'env') return;
+    for (let j = k + 1; j < tokens.length; j++) {
+      const a = tokens[j];
+      if (a === '-C' || a === '--chdir') dirs.push(tokens[++j]);
+      else if (a.startsWith('--chdir=')) dirs.push(a.slice(8));
+      else if (/^-C./.test(a)) dirs.push(a.slice(2));
+      else if (!a.startsWith('-') && !/^\w+=/.test(a)) break;
+    }
+  });
+  return dirs;
+}
+
+// Indexes of the words a launcher runs, besides the command word itself:
+// the word after `pnpm exec`/`dlx`, `npx`, `npm exec`, `yarn` and `setsid`.
+// env, xargs, nohup, time, command, exec and sudo are skipped by
+// commandIndex, so the command word is already the word they run.
+function launchedWords(args) {
+  const out = [];
+  const w = basename(args[0] ?? '');
+  if (w === 'setsid') {
+    const j = args.findIndex((a, k) => k > 0 && !a.startsWith('-'));
+    if (j > 0) out.push(j);
   }
-  return supabaseCliProblem(text, away);
+  if (PACKAGE_MANAGERS.includes(w)) {
+    let exec = false;
+    for (let j = 1; j < args.length; j++) {
+      const a = args[j];
+      if (PM_DIR_FLAGS.includes(a)) j++;
+      else if (a.startsWith('-')) continue;
+      else if (!exec && PM_EXEC.includes(a)) exec = true;
+      else {
+        out.push(j);
+        break;
+      }
+    }
+  }
+  return out;
+}
+
+// True when the segment would be read-only but for a flag or sed command
+// that runs another program (SED_RUNS, READER_RUNS, GIT_RUNS).
+function readerRuns(tokens, i) {
+  const t = tokens.slice(i);
+  const w = basename(t[0] ?? '');
+  const args = t.slice(1);
+  if (READER_RUNS[w]) return args.some((a) => READER_RUNS[w].test(a));
+  if (w === 'sed') return args.some((a) => SED_RUNS.test(a));
+  if (w !== 'git') return false;
+  const j = gitSubcommand(t);
+  return (
+    j > 0 &&
+    GIT_READS.includes(t[j]) &&
+    t.slice(j + 1).some((a) => GIT_RUNS.test(a))
+  );
+}
+
+// The indexes of `git commit -m`/`--message` values: prose, not commands.
+function commitMessages(tokens, i) {
+  const skip = new Set();
+  if (basename(tokens[i] ?? '') !== 'git') return skip;
+  const t = tokens.slice(i);
+  const sub = gitSubcommand(t);
+  if (sub < 0 || t[sub] !== 'commit') return skip;
+  for (let j = sub + 1; j < t.length; j++) {
+    if (t[j] === '--message' || /^-[a-zA-Z]*m$/.test(t[j])) skip.add(i + ++j);
+    else if (t[j].startsWith('--message=') || /^-[a-zA-Z]*m./.test(t[j])) {
+      if (!t[j].startsWith('--') || t[j].startsWith('--message=')) {
+        skip.add(i + j);
+      }
+    }
+  }
+  return skip;
+}
+
+// Why a word bash runs is refused, or null: it must not be built by
+// expansion. A lone `$` or backtick token is a substitution in that place;
+// only a committed repo script may run there.
+function launchWordProblem(word, next) {
+  if (word === undefined) return null;
+  if (word === '$' || word === '`') {
+    return next?.length === 1 && REPO_SCRIPT.test(next[0])
+      ? null
+      : 'a command run from a substitution cannot be checked';
+  }
+  return EXPANSION.test(word)
+    ? 'a command word built by expansion cannot be checked'
+    : null;
 }
 
 // Returns why a Supabase CLI call in the command is refused, or null.
@@ -1028,14 +1123,19 @@ export function supabaseCliProblem(command, away = false) {
   ) {
     return 'a supabase call inside an unterminated quote cannot be checked';
   }
-  for (const s of substitutions(command)) {
-    const problem = substitutionProblem(s, away);
-    if (problem) return problem;
+  const subs = substitutions(command);
+  if (subs.some((s) => CLI_WORD.test(s))) {
+    return 'a supabase call inside a command substitution cannot be checked';
   }
   // An exported variable reaches every later segment.
   const env = parts.flat().map(supabaseEnv).find(Boolean);
-  for (const tokens of parts) {
+  for (const [n, tokens] of parts.entries()) {
     const i = commandIndex(tokens);
+    const args = withoutRedirects(tokens.slice(i));
+    for (const k of [0, ...launchedWords(args)]) {
+      const problem = launchWordProblem(args[k], parts[n + 1]);
+      if (problem) return problem;
+    }
     const nested = nestedCommand(tokens, i);
     const nestedProblem = nested && supabaseCliProblem(nested, away);
     if (nestedProblem) return nestedProblem;
@@ -1047,31 +1147,40 @@ export function supabaseCliProblem(command, away = false) {
     ) {
       return 'a shell reading a supabase command from input cannot be checked';
     }
-    const args = withoutRedirects(tokens.slice(i));
     if (args[0] === 'cd' || args[0] === 'pushd') {
       const target = args.slice(1).find((a) => !a.startsWith('-'));
-      if (target === undefined || !insideRepo(target)) away = true;
+      if (!cdInsideRepo(target)) away = true;
+      continue;
     }
+    const segmentAway = away || envChdirs(tokens).some((d) => !cdInsideRepo(d));
     const readOnly = readOnlySegment(tokens, {
       strict: false,
       extra: READ_ONLY_TOOLS,
     });
     // A token with spaces may be a command run by `script -c`, `npx -c`,
     // `env -S`, `sed e` and the like: check it as one. A read-only search's
-    // pattern is never run.
-    const pattern = readOnly ? patternIndex(tokens) : -1;
+    // pattern and a commit message are never run.
+    const skip = commitMessages(tokens, i);
+    if (readOnly) skip.add(patternIndex(tokens));
     for (const [j, t] of tokens.entries()) {
-      if (j === pattern || !/\s/.test(t) || !CLI_PART.test(t)) continue;
+      if (skip.has(j) || !/\s/.test(t) || !CLI_PART.test(t)) continue;
       // The command may be glued to a flag: `-O'cmd'`, `--flag=cmd`.
       const unglued = t.replace(/^--[\w-]+=|^-[A-Za-z]/, '');
       for (const text of new Set([t, unglued])) {
-        const problem = supabaseCliProblem(text, away);
+        const problem = supabaseCliProblem(text, segmentAway);
         if (problem) return problem;
       }
     }
     if (readOnly) continue;
-    if (tokens.some(expandsToCli)) {
-      return 'a supabase word built by expansion cannot be checked';
+    // A reader made to run a program named by a glued flag value.
+    if (
+      readerRuns(tokens, i) &&
+      tokens.some((t) => {
+        const u = t.replace(/^--[\w-]+=|^-[A-Za-z]/, '');
+        return isSupabaseCli(u) || /supabase(\s|$)/.test(u);
+      })
+    ) {
+      return 'a reader that runs a program names supabase';
     }
     if (
       tokens.some(
@@ -1085,15 +1194,23 @@ export function supabaseCliProblem(command, away = false) {
     for (let k = 0; k < cli.length; k++) {
       if (!isSupabaseCli(cli[k])) continue;
       launched = true;
+      if (cli.slice(k + 1).some((a) => EXPANSION.test(a))) {
+        return 'a supabase argument built by expansion cannot be checked';
+      }
       const problem = supabaseArgsProblem(cli.slice(k + 1));
       if (problem) return problem;
     }
     if (!launched) continue;
+    // The segment split hides `supabase \`echo link\``: with any
+    // substitution in the command, a launch cannot be checked.
+    if (subs.length) {
+      return 'a supabase call next to a command substitution cannot be checked';
+    }
     // xargs appends stdin to the arguments, so they cannot be checked.
     if (tokens.includes('xargs')) {
       return 'a supabase call through xargs cannot be checked';
     }
-    if (away) return 'a cd or pushd out of the repo comes before it';
+    if (segmentAway) return 'a cd, pushd or env -C out of the repo comes first';
     if (env) return `${env} points the CLI away from the local stack`;
   }
   return null;

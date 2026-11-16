@@ -1303,7 +1303,6 @@ test('supabase cli review minors', () => {
     `supabase --workdir ${repoRoot} start`,
     `supabase --workdir=${repoRoot}/supabase status`,
     'eval "$(scripts/supabase-env.sh)"',
-    'echo "$(cat supabase/config.toml)"',
     'SUPABASE_URL=x supabase status',
     'bash scripts/supabase-env.sh',
   ])
@@ -1358,7 +1357,6 @@ test('supabase cli review 2.2: expansion cannot build the CLI word', () => {
     'cat supabase/config.toml',
     'prettier --write libs/database/src/supabase/database.types.ts',
     'eval "$(scripts/supabase-env.sh)"',
-    'echo "$(supabase status -o env)"',
     'ls supabase/migrations/*',
     "printf '%s\\n' $'a\\tb'",
   ])
@@ -1399,6 +1397,109 @@ test('supabase cli review 2: single quotes do not substitute', () => {
     'git commit -m "see `supabase link`"',
     'echo "$(supabase link)"',
     "echo 'x' `supabase link`",
+  ])
+    assert.equal(blocked('Bash', { command: c }), true, c);
+});
+
+test('supabase cli review 3.A: expansion by position', () => {
+  for (const c of [
+    "$'\\x73upabase' link",
+    "$'\\163upabase' link",
+    'x=supa; ${x}base link',
+    'supa$@base link',
+    'node_modules/.bin/s*e link',
+    'supabase `echo link`',
+    'supabase start `echo --db-url`',
+    'supabase start $(echo --db-url)',
+    'supabase start $FLAGS',
+    'supabase start -x "*"',
+    'pnpm exec $CLI link',
+    'npx s*e link',
+    'npm exec -- ${X} link',
+    'yarn {supabase,link}',
+    'env A=1 $CLI link',
+    'xargs $CLI < f',
+    'setsid $CLI link',
+    'nohup $CLI link',
+    'sudo s?pabase link',
+    "bash -c '$CLI link'",
+    "env -S '$CLI link' x",
+    '$(echo c3VwYWJhc2U= | base64 -d) link',
+    '`echo c3VwYWJhc2U= | base64 -d` link',
+    'echo "$(cat supabase/config.toml)"',
+    'echo "$(supabase status -o env)"',
+  ])
+    assert.equal(blocked('Bash', { command: c }), true, c);
+  for (const c of [
+    'bash /x/scripts/review-package $PWD/docs/superpowers/plans/2026-11-16-supabase-and-the-database.md a b',
+    'git add supabase/migrations/*',
+    'git add "supabase/migrations/2026*.sql"',
+    'prettier --write supabase/**/*.sql',
+    'pnpm prettier --write .superpowers/sdd/2026-11-16-supabase-and-the-database/*.md',
+    'node --test $PWD/.superpowers/sdd/2026-11-16-supabase-and-the-database/t.mjs',
+    'cp x .superpowers/sdd/2026-11-16-supabase-and-the-database/$NAME',
+    'eval "$(scripts/supabase-env.sh)" && pnpm db:test',
+    "printf '%s\\n' $'a\\tb'",
+    'echo $(date) done',
+    'X=$(git rev-parse HEAD) && echo $X',
+  ])
+    assert.equal(blocked('Bash', { command: c }), false, c);
+});
+
+test('supabase cli review 3.B: readers with a glued program flag', () => {
+  for (const c of [
+    'touch link; rg --pre=supabase x link',
+    'git grep -Osupabase x link',
+    'git grep --open-files-in-pager=supabase x link',
+    'ugrep --filter=x:supabase x link',
+    'rg --pre=/home/linuxbrew/.linuxbrew/bin/supabase x link',
+  ])
+    assert.equal(blocked('Bash', { command: c }), true, c);
+  for (const c of [
+    'grep -rn ALLOW_REMOTE libs/database',
+    "grep -rn 'supabase link' docs",
+    "sed -n '1,20p' file",
+    'rg --pre-glob x supabase .',
+    'git grep -n supabase -- libs',
+  ])
+    assert.equal(blocked('Bash', { command: c }), false, c);
+});
+
+test('supabase cli review 3.C: cd, pushd and env -C', () => {
+  for (const c of [
+    'cd supabase && ls',
+    'cd libs/database && pnpm exec supabase status',
+    'cd supabase && supabase status',
+    'pushd libs; supabase status',
+  ])
+    assert.equal(blocked('Bash', { command: c }), false, c);
+  for (const c of [
+    'cd ../10xjobs && supabase stop',
+    'cd ~/x && supabase stop',
+    'cd $HOME && supabase stop',
+    'cd libs/../../10xjobs && supabase stop',
+    'env -C /tmp supabase start',
+    'env --chdir=/tmp pnpm exec supabase status',
+    'env --chdir /tmp supabase status',
+    'env -C/tmp supabase status',
+  ])
+    assert.equal(blocked('Bash', { command: c }), true, c);
+});
+
+test('supabase cli review 3.D: git commit messages are prose', () => {
+  for (const c of [
+    'git commit -m "feat(db): supabase migrations"',
+    'git commit -m "feat(db): supabase link docs"',
+    'git commit --message="feat(db): supabase link docs"',
+    'git commit -am "feat(db): supabase link docs"',
+    'git commit -m "a" -m "supabase link docs"',
+  ])
+    assert.equal(blocked('Bash', { command: c }), false, c);
+  for (const c of [
+    'git commit -m "feat(db): XAPPLY_ALLOW_REMOTE_DB=1 in CI"',
+    'git commit -m "x" && supabase link',
+    'git commit -m "see `supabase link`"',
+    'git push origin main -m "supabase"',
   ])
     assert.equal(blocked('Bash', { command: c }), true, c);
 });
