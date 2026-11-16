@@ -7,8 +7,9 @@ import {
 describe('isLocalUrl', () => {
   it.each([
     'postgresql://postgres:postgres@127.0.0.1:55322/postgres',
-    'postgresql://u:p@localhost:5432/db',
-    'http://[::1]:54321',
+    'postgresql://u:p@localhost:55322/db',
+    'http://127.0.0.1:55321',
+    'http://[::1]:55321',
   ])('treats %s as local', (url) => expect(isLocalUrl(url)).toBe(true));
 
   it('treats a pooler URL as remote', () =>
@@ -51,13 +52,13 @@ describe('guard bypass attempts', () => {
   const local = 'postgresql://postgres:postgres@127.0.0.1:55322/postgres';
 
   it.each([
-    'postgresql://u:p@localhost:5432/db?host=db.example.com',
-    'postgresql://u:p@localhost:5432/db?hostaddr=10.0.0.5',
-    'postgresql://u:p@localhost:5432/db?host=/var/run/postgresql',
-    'postgresql://u:p@localhost:5432/db?host=localhost,db.example.com',
-    'postgresql://u:p@LOCALHOST.evil.com:5432/db',
-    'postgresql://u:p@localhost.evil.com:5432/db',
-    'postgresql://u:p@127.0.0.2:5432/db',
+    'postgresql://u:p@localhost:55322/db?host=db.example.com',
+    'postgresql://u:p@localhost:55322/db?hostaddr=10.0.0.5',
+    'postgresql://u:p@localhost:55322/db?host=/var/run/postgresql',
+    'postgresql://u:p@localhost:55322/db?host=localhost,db.example.com',
+    'postgresql://u:p@LOCALHOST.evil.com:55322/db',
+    'postgresql://u:p@localhost.evil.com:55322/db',
+    'postgresql://u:p@127.0.0.2:55322/db',
     'not a url',
   ])('treats %s as remote', (url) => expect(isLocalUrl(url)).toBe(false));
 
@@ -66,7 +67,7 @@ describe('guard bypass attempts', () => {
       assertLocalDatabase(
         {
           DATABASE_URL:
-            'postgresql://u:p@localhost:5432/db?host=db.example.com',
+            'postgresql://u:p@localhost:55322/db?host=db.example.com',
         },
         {},
       ),
@@ -74,7 +75,7 @@ describe('guard bypass attempts', () => {
 
   it('allows a local host query parameter', () =>
     expect(
-      isLocalUrl('postgresql://u:p@localhost:5432/db?host=127.0.0.1'),
+      isLocalUrl('postgresql://u:p@localhost:55322/db?host=127.0.0.1'),
     ).toBe(true));
 
   it('refuses an unparseable URL naming <unparseable>', () =>
@@ -149,6 +150,72 @@ describe('brief cases', () => {
       assertLocalDatabase(
         { DATABASE_URL: pw },
         { XAPPLY_ALLOW_REMOTE_DB: '1' },
+      ),
+    ).not.toThrow());
+});
+
+describe('ports of the local stack', () => {
+  it.each([
+    // 10xjobs's local stack, and the Postgres and HTTP defaults
+    'postgresql://postgres:postgres@127.0.0.1:54322/postgres',
+    'postgresql://postgres:postgres@localhost:54322/postgres',
+    'http://127.0.0.1:54321',
+    'http://[::1]:54321',
+    'postgresql://u:p@localhost:5432/db',
+    'postgresql://u:p@localhost/db',
+    'http://localhost',
+    'postgresql://u:p@127.0.0.1:55320/postgres',
+    // a port query parameter overrides the authority's
+    'postgresql://u:p@127.0.0.1:55322/db?port=54322',
+    'postgresql://u:p@127.0.0.1:55322/db?port=55322,54322',
+  ])('refuses %s', (url) => expect(isLocalUrl(url)).toBe(false));
+
+  it("allows a port query parameter that is the stack's own", () =>
+    expect(isLocalUrl('postgresql://u:p@127.0.0.1:55322/db?port=55322')).toBe(
+      true,
+    ));
+
+  it('names the variable, host and port, never the password', () => {
+    let message = '';
+    try {
+      assertLocalDatabase(
+        {
+          DATABASE_URL:
+            'postgresql://postgres:secretpw@127.0.0.1:54322/postgres',
+        },
+        {},
+      );
+    } catch (error) {
+      message = (error as Error).message;
+    }
+    expect(message).toMatch(
+      /DATABASE_URL at 127\.0\.0\.1:54322.*55321 and 55322.*XAPPLY_ALLOW_REMOTE_DB=1/,
+    );
+    expect(message).not.toContain('secretpw');
+  });
+
+  it('names a missing port as the default', () =>
+    expect(() =>
+      assertLocalDatabase({ SUPABASE_URL: 'http://localhost' }, {}),
+    ).toThrow(/SUPABASE_URL at localhost:default/));
+
+  it('allows another port with the opt-in', () =>
+    expect(() =>
+      assertLocalDatabase(
+        { DATABASE_URL: 'postgresql://u:p@127.0.0.1:54322/postgres' },
+        { XAPPLY_ALLOW_REMOTE_DB: '1' },
+      ),
+    ).not.toThrow());
+
+  it("accepts CI's and .env.example's URLs", () =>
+    expect(() =>
+      assertLocalDatabase(
+        {
+          DATABASE_URL:
+            'postgresql://postgres:postgres@127.0.0.1:55322/postgres',
+          SUPABASE_URL: 'http://127.0.0.1:55321',
+        },
+        {},
       ),
     ).not.toThrow());
 });

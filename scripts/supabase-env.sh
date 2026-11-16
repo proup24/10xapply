@@ -4,7 +4,8 @@
 #   eval "$(scripts/supabase-env.sh)"
 set -euo pipefail
 
-status="$(pnpm exec supabase status -o env 2>/dev/null)"
+# A stopped stack makes `status` fail: keep going so the message below prints.
+status="$(pnpm exec supabase status -o env 2>/dev/null)" || status=''
 
 value() {
   printf '%s\n' "$status" | sed -n "s/^$1=//p" | head -n 1 | tr -d '"'

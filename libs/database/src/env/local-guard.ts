@@ -1,34 +1,54 @@
 /** Hosts of the local Supabase CLI stack. */
 const LOCAL_HOSTS = new Set(['127.0.0.1', 'localhost', '::1']);
+/**
+ * 10xapply's own local stack: API on 55321, DB on 55322 (`supabase/config.toml`).
+ * 10xjobs's stack runs on the same machine on 543xx and must never be touched,
+ * so a local host on any other port, or with no port, is refused too.
+ */
+const LOCAL_PORTS = new Set(['55321', '55322']);
 
 /**
- * @description Returns the first non-local host `url` would connect to, or
- * undefined when every host is local. Besides the authority, pg-connection-string
- * and libpq let `host` and `hostaddr` query parameters override it, so those
- * count too (socket paths included). Unparseable URLs yield `<unparseable>`.
+ * @description Returns the first target of `url` that is not 10xapply's local
+ * stack, or undefined when every target is. A non-local host comes back as
+ * `{ host }`; a local host on another port as `{ port: 'host:port' }`. Besides
+ * the authority, pg-connection-string and libpq let `host`, `hostaddr` and
+ * `port` query parameters override it, so those count too (socket paths
+ * included). Unparseable URLs yield the host `<unparseable>`.
  */
-function remoteHostOf(url: string): string | undefined {
+function foreignTargetOf(
+  url: string,
+): { host: string } | { port: string } | undefined {
   let parsed: URL;
   try {
     parsed = new URL(url);
   } catch {
-    return '<unparseable>';
+    return { host: '<unparseable>' };
   }
-  const hosts = [parsed.hostname.replace(/^\[|\]$/g, '')];
+  const hostname = parsed.hostname.replace(/^\[|\]$/g, '');
+  const hosts = [hostname];
   for (const key of ['host', 'hostaddr']) {
     for (const value of parsed.searchParams.getAll(key)) {
       hosts.push(...value.split(','));
     }
   }
-  return hosts.find((host) => !LOCAL_HOSTS.has(host));
+  const remote = hosts.find((host) => !LOCAL_HOSTS.has(host));
+  if (remote !== undefined) return { host: remote };
+  const ports = [parsed.port];
+  for (const value of parsed.searchParams.getAll('port')) {
+    ports.push(...value.split(','));
+  }
+  const port = ports.find((value) => !LOCAL_PORTS.has(value));
+  if (port !== undefined) return { port: `${hostname}:${port || 'default'}` };
+  return undefined;
 }
 
 /**
- * @description True when every host `url` connects to is the local Supabase
- * stack (`127.0.0.1`, `localhost` or `::1`). Unparseable URLs are not local.
+ * @description True when every target of `url` is 10xapply's local Supabase
+ * stack: `127.0.0.1`, `localhost` or `::1`, on port 55321 or 55322.
+ * Unparseable URLs are not local.
  */
 export function isLocalUrl(url: string): boolean {
-  return remoteHostOf(url) === undefined;
+  return foreignTargetOf(url) === undefined;
 }
 
 /**
@@ -41,9 +61,9 @@ export function captureRemoteOptIn(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
 }
 
 /**
- * @description Throws unless every defined URL is local, or
- * `XAPPLY_ALLOW_REMOTE_DB=1` is set. The message names the variable and host
- * only, never the password or the full URL.
+ * @description Throws unless every defined URL is 10xapply's local stack, or
+ * `XAPPLY_ALLOW_REMOTE_DB=1` is set. The message names the variable, the host
+ * and (for a local host) the port only, never the password or the full URL.
  */
 export function assertLocalDatabase(
   urls: Record<string, string | undefined>,
@@ -52,10 +72,12 @@ export function assertLocalDatabase(
   if (env.XAPPLY_ALLOW_REMOTE_DB === '1') return;
   for (const [name, url] of Object.entries(urls)) {
     if (url === undefined) continue;
-    const host = remoteHostOf(url);
-    if (host === undefined) continue;
+    const target = foreignTargetOf(url);
+    if (target === undefined) continue;
     throw new Error(
-      `Refusing to use ${name} at non-local host ${host}. Set XAPPLY_ALLOW_REMOTE_DB=1 to allow it.`,
+      'host' in target
+        ? `Refusing to use ${name} at non-local host ${target.host}. Set XAPPLY_ALLOW_REMOTE_DB=1 to allow it.`
+        : `Refusing to use ${name} at ${target.port}: 10xapply's local stack is on ports 55321 and 55322 only. Set XAPPLY_ALLOW_REMOTE_DB=1 to allow it.`,
     );
   }
 }
