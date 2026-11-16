@@ -1,0 +1,23 @@
+{
+  "name": "@xapply/db-tests",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@supabase/supabase-js": "^2.118.0",
+    "pg": "^8.23.1"
+  },
+  "nx": {
+    "targets": {
+      "db-test": {
+        "cache": false
+      },
+      "db-test-ci": {
+        "cache": false
+      }
+    }
+  },
+  "devDependencies": {
+    "@types/pg": "^8.23.1"
+  }
+}

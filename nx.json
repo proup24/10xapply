@@ -37,6 +37,16 @@
       "options": {
         "testTargetName": "test",
         "testMode": "run"
+      },
+      "exclude": ["apps/db-tests/**/*"]
+    },
+    {
+      "plugin": "@nx/vitest",
+      "include": ["apps/db-tests/**/*"],
+      "options": {
+        "testTargetName": "db-test",
+        "ciTargetName": "db-test-ci",
+        "testMode": "run"
       }
     }
   ],
@@ -44,6 +54,9 @@
   "targetDefaults": {
     "test": {
       "dependsOn": ["^build"]
+    },
+    "db-test-ci--**/**": {
+      "cache": false
     }
   }
 }
