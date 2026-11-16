@@ -245,6 +245,14 @@ The author gives the runner one LinkedIn job URL. A real Chrome window on the au
 
 10 and 11–12 are independent and can be built in either order.
 
+**Build order after 07b** _(user, 2026-11-16)_: 08, 11 and 12 come next, ahead of 07c to 07f. Real matches from 10xjobs then give the author jobs they are eligible for, which 07b's open items and 07c's misses need. Intake stays on the NestJS API (slice 11), as locked under "Mirror 10xjobs", not on Supabase edge functions _(user)_. Until 12 lands, the author picks a few eligible 10xjobs matches by hand for 07b's dry runs. The order is then:
+
+1. 08 Supabase and the database
+2. 11 Hosted API
+3. 12 Webhook intake, with the small sending PR in 10xjobs. Until 13, matches are read in the Supabase dashboard.
+4. 07c and 07f side by side, then 07d and 07e
+5. 09, 10, 13, 14 and on, as in the table
+
 ### 08 Supabase and the database
 
 - **Scope:** a shared database library with the Prisma contract as the only schema source (RLS policies included), the local Supabase CLI stack, a Supabase Cloud dev project, migrate and seed scripts with the remote-database guard, and RLS tests.
