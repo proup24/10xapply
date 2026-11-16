@@ -21,7 +21,7 @@ The slice also changes a guardrail that has held since slice 01. From now on Cla
 
 ## Non-goals
 
-- **Better answers from the bank** _(user: moved to 07c)_. That covers experience questions, salary, and the five bank-silent Yes/No questions from slice 06. This slice only records these misses; it doesn't change the answerer, its prompts, or the bank's wording to fix them. The one answerer change is the `date` type and its date-offset math (see "Field types").
+- **Better answers from the bank** _(user: moved to 07c)_. That covers experience questions, salary, and the five bank-silent Yes/No questions from slice 06. This slice only records these misses; it doesn't change the answerer, its prompts, or the bank's wording to fix them. The answerer changes are the `date` type and its date-offset math, and the contact-field check (see "Field types").
 - Real submits as part of this slice. The author may submit as usual, but no part of "Done when" needs one.
 - More applications, or wider use of the account. The limits on how often Claude runs against LinkedIn stay the same (see "Safety and the guard").
 - Phase 2 pieces (database, web app, unattended runs).
@@ -44,6 +44,8 @@ _(user)_
 
 A posting that has expired is replaced by another one the author picks.
 
+**What the snapshots showed** _(walkthrough, 2026-11-15 and 16)_: 4488500594 expired. The other four (4490505838 Orbis, 4490356080 Nametag, 4490324628 Playtech, 4490304984 Computer Futures) were snapshotted, and all four should end `disqualified` under the author's rules (US citizenship, US authorization, Ukraine authorization, on site in Germany). They serve as fixtures, not live walkthroughs. The live dry runs use saved jobs the author is eligible for, at least one with a date field. None of the four snapshots has a date field.
+
 ## How the work goes
 
 _(my call)_
@@ -59,10 +61,15 @@ _(my call)_
 
 What the runner handles today: `text`, `textarea`, `number`, `select`, `radio`, `checkbox-group`, `checkbox`, `file` (resume) and `typeahead`. What's added or fixed:
 
-- **Date.** A new `date` field type, whether LinkedIn draws it with a calendar picker or as a text box with a date format. Reading picks up the format the field expects. Filling types the date into the box when LinkedIn allows that, else picks it in the calendar through the pace module. Afterwards the runner reads the value back and checks it matches. The answerer gets the type so it can answer with a date. A date counts as backed only when it comes from the bank, directly or by a `math` derivation. The existing `MathSpec` has no date arithmetic, so this slice adds one kind, a date offset (run date + a duration the bank states, such as the notice period for "earliest start date"), checked in code like the other math kinds, with example-set eval cases _(my call: a date type the answerer can't back is almost always a miss, and this is the one answerer change the slice makes)_. A date the bank can't back blocks like any other question.
+- **Date.** A new `date` field type, whether LinkedIn draws it with a calendar picker or as a text box with a date format. Reading picks up the format the field expects. Filling types the date into the box when LinkedIn allows that, else picks it in the calendar through the pace module. Afterwards the runner reads the value back and checks it matches. The answerer gets the type so it can answer with a date. A date counts as backed only when it comes from the bank, directly or by a `math` derivation. The existing `MathSpec` has no date arithmetic, so this slice adds one kind, a date offset (run date + a duration the bank states, such as the notice period for "earliest start date"), checked in code like the other math kinds, with example-set eval cases _(my call: a date type the answerer can't back is almost always a miss)_. A date the bank can't back blocks like any other question.
 - **Multi-select (checkbox group).** Already supported in code, but never run on a live form. It must fill and read back correctly on at least one live form in the set. If none of the set has one, the author adds a job that does.
-- **Email dropdown** (job 4490304984). A `select` whose options are email addresses is mapped to the bank's email field in code, without the model, like the other simple fields. The option matching the bank's email is picked. If LinkedIn masks the addresses or none matches, it blocks with a clear reason and goes into the misses record. It is never guessed. The snapshot shows what LinkedIn actually lists there.
-- **The step-1 text box** (job 4490324628). Slice 06 found an `input type=text` with no role that the form reader rejected, either for lack of a label or for lack of a unique selector. The snapshot decides which. The fix follows from that, and it may turn out to be a date box.
+- **Email dropdown** (job 4490304984). The snapshot showed the cause: the form was in German, and the label "E-Mail-Adresse" isn't one of the English labels the code mapping knows, so the field went to the model. The fix: a `select` whose options are all email addresses is mapped to the bank's email field in code, without the model, whatever the label's language. The option matching the bank's email is picked, ignoring case. If LinkedIn masks the addresses or none matches, it blocks with a clear reason and goes into the misses record. It is never guessed.
+- **Contact fields in any language** _(user, from the 07b walkthrough)_. On the same form the model answered "Handynummer" (mobile number) with the bank's phone but labelled it `as-written`, and the code check rejected it as `not as written`, because that label is meant for known answers. The fix is in the check, not in a list of label words: an `as-written` answer whose only source is a bank field passes when the value equals that field's value exactly. This is the one other answerer change in this slice.
+- **The step-1 text box** (job 4490324628). The snapshot showed it is the optional "Location (city)" typeahead, whose label is a `<p>` in the field's container rather than a `<label>`. Orbis's step 1 has the same box. The reader takes the label from that `<p>`. Filling it types the bank's city and picks a suggestion that starts with the city and contains the bank's country _(user)_. When LinkedIn gives a suggestion a lasting id, the runner records it; a snapshot with the suggestion list open decides whether it does.
+- **Other controls from the snapshots** _(walkthrough)_:
+  - Checkbox groups, and single "I consent" boxes, whose question is a `<p>` above the fieldset and whose boxes have no `aria-label` (Orbis step 6, Playtech step 5). The reader takes the question from that `<p>`. This is the live multi-select.
+  - A radio group labelled through `aria-labelledby` and a heading (Orbis's "Disability").
+  - A `select` with repeated option texts (Orbis's "School", 2,467 options, two repeated). It is read, but a repeated option is never picked.
 - **Anything else the walkthroughs turn up.** An ordinary control, meaning a standard input or a common LinkedIn widget with a readable label, gets added here. An odd one stays an `unknown-field` safety stop and goes on a list in the PR for a later slice. The safety stop itself never changes: a field the runner can't read still ends the run without submitting.
 
 ## The misses record

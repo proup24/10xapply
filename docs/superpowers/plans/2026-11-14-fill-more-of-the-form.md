@@ -412,29 +412,29 @@ Also:
 
 - [ ] **Step 3: Commit** `feat(runner): read and fill date fields`
 
-### Task 9: The email dropdown and the step-1 text box, from their snapshots
+### Task 9: The email dropdown, contact fields in any language, and the city typeahead
+
+The causes are known from the walkthrough snapshots (see the spec's "Field types").
 
 **Files:**
 
-- Modify: `libs/answerer/src/fields.ts` (`FIELD_PATTERNS.email`, or the option match for emails) and/or `apps/runner/src/linkedin/form-step.ts` (`push` or `labelOf`), as the evidence shows
-- Create: fixtures `step-email-select.html` and `step-1-text-box.html`
-- Test: `libs/answerer/src/fields.spec.ts`, `apps/runner/src/linkedin/form-step.spec.ts`
+- Modify: `libs/answerer/src/fields.ts` (`mapField`: a select whose options are all email addresses maps to `email`)
+- Modify: `libs/answerer/src/checks.ts` (`as-written` with a single bank-field source passes when the value equals the field's value)
+- Modify: `apps/runner/src/linkedin/form-step.ts` (`labelOf`: a typeahead's label from the `<p>` in its field container)
+- Modify: `apps/runner/src/apply/fill.ts` (typeahead pick: starts with the bank's city and contains its country)
+- Create: fixtures `step-contact-city.html` (Orbis or Playtech step 1) and `step-contact-de.html` (Computer Futures step 1), scrubbed and leak-checked
+- Test: `fields.spec.ts`, `checks.spec.ts`, `form-step.spec.ts`, `fill.spec.ts`
 
-- [ ] **Step 1: Find the cause**
+- [ ] **Step 1: Write the failing tests**
 
-Read the full reports in `private/runs/` for `2026-11-13T05-40-20.584Z` (email) and `2026-11-13T05-26-50.502Z` (text box), and the two raw snapshots. Write down which of these it is:
+- `mapField` fills a select labelled "E-Mail-Adresse" whose only option is the bank's email, case-insensitively, without a model call.
+- When every option is masked (contains `*`) or none matches, `mapField` returns `{ kind: 'blocked', reason: 'bank-silent', detail: 'no option matches field email' }` and never reaches the model.
+- `checkCandidate` passes an `as-written` text answer "Handynummer" whose only source is `field: phone` and whose value is the bank's phone; it still fails when the value differs by one digit, or when a known answer is cited too.
+- Both step-1 fixtures read "Location (city)" as a `typeahead` with that label and `required: false`, and no unknowns.
+- The typeahead pick chooses "Tangier, Tanger-Tetouan-Al Hoceima, Morocco" over "Tangier, Morocco Street, Lagos" and stops when no suggestion matches.
 
-- the email label wasn't a whole `FIELD_PATTERNS` label, or the option didn't match;
-- the text box had no label, or no unique selector.
-
-- [ ] **Step 2: Write the failing tests**
-
-- `mapField` fills the email select from the bank with the exact option text, case-insensitively.
-- When every option is masked (contains `*`, or doesn't match), `mapField` returns `{ kind: 'blocked', reason: 'bank-silent', detail: 'no option matches field email' }` and never reaches the model.
-- The step-1 fixture reads its box as a field with its label. If it's a date, it reads as `type: 'date'`.
-
-- [ ] **Step 3: Implement the fix the evidence points to, then run the tests and see them pass.**
-- [ ] **Step 4: Commit** `fix: email dropdown from the bank; read the step-1 text box`
+- [ ] **Step 2: Implement, then run the tests and see them pass:** `pnpm nx test answerer`, `pnpm nx test runner`.
+- [ ] **Step 3: Commit** `fix: email dropdown and contact fields in any language; read the city typeahead`
 
 ### Task 10: Multi-select on a real form, and anything else the snapshots show
 
@@ -442,6 +442,8 @@ Read the full reports in `private/runs/` for `2026-11-13T05-40-20.584Z` (email) 
 
 - Create: the fixtures that show a checkbox group or another new control
 - Test: `form-step.spec.ts`, `fill.spec.ts`
+
+The known cases from the walkthrough are: checkbox groups and single consent boxes with a `<p>` question above the fieldset (Orbis step 6, Playtech step 5); a radio group labelled by `aria-labelledby` (Orbis "Disability"); and a select with repeated option texts (Orbis "School"), read but never picked on a repeated option.
 
 - [ ] **Step 1: Test each scrubbed snapshot**
 
