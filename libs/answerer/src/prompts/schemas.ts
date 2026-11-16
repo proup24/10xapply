@@ -45,10 +45,12 @@ export const generatorOutput = z.object({
   inferences: z.array(z.object({ claim: z.string(), source: sourceOutput })),
   math: z
     .object({
-      kind: z.enum(['years-since', 'arithmetic']),
+      kind: z.enum(['years-since', 'arithmetic', 'date-offset']),
       year: z.number().int().nullable(),
       month: z.number().int().min(1).max(12).nullable(),
       expression: z.string().nullable(),
+      amount: z.number().int().min(0).nullable(),
+      unit: z.enum(['day', 'week', 'month']).nullable(),
     })
     .nullable(),
 });
@@ -126,6 +128,11 @@ function toMath(m: GeneratorOutput['math']): MathSpec {
     return present(m.expression)
       ? { kind: 'arithmetic', expression: m.expression }
       : bad('arithmetic without an expression');
+  }
+  if (m.kind === 'date-offset') {
+    if (m.amount === null) return bad('date-offset without an amount');
+    if (m.unit === null) return bad('date-offset without a unit');
+    return { kind: 'date-offset', amount: m.amount, unit: m.unit };
   }
   return bad('unknown math kind');
 }

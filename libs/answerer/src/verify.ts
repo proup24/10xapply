@@ -1,4 +1,5 @@
 import type { z } from 'zod';
+import { addOffset, MathError } from './math.js';
 import {
   claimsOutput,
   fitOutput,
@@ -75,6 +76,13 @@ function sameBlindValue(
     const v = verifierValue.trim();
     return NUMBER_ONLY.test(v) && Number(v) === Number(checked);
   }
+  if (q.type === 'date') {
+    return (
+      typeof verifierValue === 'string' &&
+      typeof checked === 'string' &&
+      verifierValue.trim() === checked.trim()
+    );
+  }
   if ((TEXT_TYPES as readonly string[]).includes(q.type)) {
     if (typeof verifierValue !== 'string' || typeof checked !== 'string')
       return false;
@@ -110,6 +118,27 @@ const FIT_REJECTED = 'the cited entry does not answer this question as asked';
 const NO_CLAIMS = 'the verifier found no checkable claims';
 const DECLARE_INFERENCES =
   'declare each as an inference with its source, or drop it';
+
+/**
+ * The blind answer's value. On a date question with date-offset math, code
+ * computes the date, as it does for the candidate: the verifier's own date
+ * arithmetic is never trusted. Null when the math does not compute.
+ */
+function blindValue(
+  q: FormQuestion,
+  blind: AnswerCandidate,
+  runDate: string,
+): AnswerValue | null {
+  if (q.type !== 'date' || blind.math?.kind !== 'date-offset') {
+    return blind.value;
+  }
+  try {
+    return addOffset(runDate, blind.math.amount, blind.math.unit);
+  } catch (e) {
+    if (e instanceof MathError) return null;
+    throw e;
+  }
+}
 
 const isEmptyValue = (v: AnswerValue): boolean =>
   Array.isArray(v) ? v.length === 0 : v.trim() === '';
@@ -152,10 +181,9 @@ export async function verifyCandidate(
 
   if (checks.includes('blind')) {
     const blind = toCandidate(await call(blindPrompt(q, ctx), generatorOutput));
-    if (
-      blind.outcome === 'cannot-answer' ||
-      !sameBlindValue(q, blind.value, value)
-    ) {
+    const blindAnswer =
+      blind.outcome === 'answer' ? blindValue(q, blind, ctx.runDate) : null;
+    if (blindAnswer === null || !sameBlindValue(q, blindAnswer, value)) {
       return {
         verdict: 'rejected',
         check: 'blind',

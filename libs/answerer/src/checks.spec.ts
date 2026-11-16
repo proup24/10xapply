@@ -551,6 +551,152 @@ describe('checkCandidate: as-written', () => {
   });
 });
 
+describe('checkCandidate: as-written from one bank field', () => {
+  const phone: Source = { kind: 'field', key: 'phone' };
+  const email: Source = { kind: 'field', key: 'email' };
+  const mobile = q({ label: 'Handynummer', type: 'text' });
+  const full = bank.fields.phone.full;
+  it('passes the field’s exact value, in any language', () => {
+    expect(
+      check(
+        mobile,
+        ans({ value: ` ${full} `, derivation: 'as-written', sources: [phone] }),
+      ),
+    ).toEqual({ ok: true, value: full });
+  });
+  describe('beside a country-code select (the German contact step)', () => {
+    const beside = q({
+      label: 'Handynummer',
+      type: 'text',
+      stepLabels: ['E-Mail-Adresse', 'Phone country code', 'Handynummer'],
+    });
+    const national = bank.fields.phone.number;
+    it('passes the national number', () => {
+      expect(
+        check(
+          beside,
+          ans({ value: national, derivation: 'as-written', sources: [phone] }),
+        ),
+      ).toEqual({ ok: true, value: national });
+    });
+    it('fails the full number with its +code', () => {
+      fails(
+        check(
+          beside,
+          ans({ value: full, derivation: 'as-written', sources: [phone] }),
+        ),
+        'not as written',
+      );
+    });
+    it('without a country-code field, the full number passes and the national one fails', () => {
+      const alone = q({
+        label: 'Handynummer',
+        type: 'text',
+        stepLabels: ['E-Mail-Adresse', 'Handynummer'],
+      });
+      expect(
+        check(
+          alone,
+          ans({ value: full, derivation: 'as-written', sources: [phone] }),
+        ),
+      ).toEqual({ ok: true, value: full });
+      fails(
+        check(
+          alone,
+          ans({ value: national, derivation: 'as-written', sources: [phone] }),
+        ),
+        'not as written',
+      );
+    });
+  });
+  it('fails a value one digit off', () => {
+    const last = full.slice(-1) === '9' ? '8' : '9';
+    fails(
+      check(
+        mobile,
+        ans({
+          value: full.slice(0, -1) + last,
+          derivation: 'as-written',
+          sources: [phone],
+        }),
+      ),
+      'not as written',
+    );
+  });
+  it('fails when a known answer is cited too, or another field', () => {
+    fails(
+      check(
+        mobile,
+        ans({
+          value: full,
+          derivation: 'as-written',
+          sources: [phone, sponsorship],
+        }),
+      ),
+      'not as written',
+    );
+    fails(
+      check(
+        mobile,
+        ans({ value: full, derivation: 'as-written', sources: [phone, email] }),
+      ),
+      'not as written',
+    );
+  });
+  it('fails another field’s value cited as this field', () => {
+    fails(
+      check(
+        mobile,
+        ans({
+          value: bank.fields.email,
+          derivation: 'as-written',
+          sources: [phone],
+        }),
+      ),
+      'not as written',
+    );
+  });
+  it('on a select, passes only the option matching the field', () => {
+    const select = q({
+      label: 'E-Mail-Adresse',
+      type: 'select',
+      options: ['other@example.org', 'SAM@example.com'],
+    });
+    expect(
+      check(
+        select,
+        ans({
+          value: 'sam@example.com',
+          derivation: 'as-written',
+          sources: [email],
+        }),
+      ),
+    ).toEqual({ ok: true, value: 'SAM@example.com' });
+    fails(
+      check(
+        select,
+        ans({
+          value: 'other@example.org',
+          derivation: 'as-written',
+          sources: [email],
+        }),
+      ),
+      'not as written',
+    );
+    fails(
+      check(
+        select,
+        ans({
+          value: 'sam@example.com',
+          derivation: 'as-written',
+          sources: [email, sponsorship],
+        }),
+      ),
+      'not as written',
+    );
+  });
+});
+
 describe('checkCandidate: fitted on text', () => {
   const fitted = (type: string, value: string, sources: Source[]) =>
     check(q({ type }), ans({ value, derivation: 'fitted', sources }));
@@ -975,5 +1121,116 @@ describe('checkCandidate: math', () => {
       }),
     );
     fails(r, 'math does not match');
+  });
+});
+
+describe('checkCandidate: date-offset', () => {
+  const date = q({ label: 'Earliest start date', type: 'date' });
+  const notice: Source = {
+    kind: 'fact',
+    text: 'My notice period is one week.',
+  };
+  const offset = (
+    amount: number,
+    unit: 'day' | 'week' | 'month',
+  ): Answer['math'] => ({ kind: 'date-offset', amount, unit });
+  const start = (value: string, math = offset(1, 'week'), question = date) =>
+    check(
+      question,
+      ans({ value, derivation: 'math', sources: [notice, runDate], math }),
+    );
+
+  it('passes when the value is the run date plus the cited period', () => {
+    expect(start('2026-11-19')).toEqual({ ok: true, value: '2026-11-19' });
+  });
+  it('fails a value that is not the computed date', () => {
+    fails(start('2026-11-20'), 'math does not match');
+  });
+  it('fails an amount not in the cited fact', () => {
+    fails(start('2026-11-26', offset(2, 'week')), 'number not in sources');
+  });
+  it('fails a unit not in the cited fact', () => {
+    fails(start('2026-12-12', offset(1, 'month')), 'math does not match');
+  });
+  it('fails a date-offset on a question that is not a date', () => {
+    fails(start('2026-11-19', offset(1, 'week'), q()), 'math does not match');
+    fails(
+      start('5', offset(1, 'week'), q({ type: 'number' })),
+      'math does not match',
+    );
+  });
+  it('fails other math kinds on a date question', () => {
+    fails(
+      start('2026-11-19', { kind: 'arithmetic', expression: '1 + 1' }),
+      'math does not match',
+    );
+  });
+  it('fails a date value that is not YYYY-MM-DD', () => {
+    fails(start('19/11/2026'), 'not a date');
+    fails(start('2026-02-30'), 'not a date');
+    fails(
+      check(
+        date,
+        ans({ value: 'next week', derivation: 'composed', sources: [notice] }),
+      ),
+      'not a date',
+    );
+  });
+  const dateBank = {
+    ...bank,
+    facts: [
+      ...bank.facts,
+      {
+        text: 'Founded in 2026, team of 11, shipped 19 features.',
+      },
+      { text: 'Available from 2026-11-19.' },
+    ],
+    answers: [
+      ...bank.answers,
+      { id: 'start-date', question: 'Start date', answer: '2026-12-01' },
+    ],
+  } as unknown as AnswerContext['bank'];
+  const checkDate = (c: Answer) =>
+    checkCandidate(date, c, { ...ctx, bank: dateBank });
+
+  it('fails a composed date even when each number is in the sources', () => {
+    fails(
+      checkDate(
+        ans({
+          value: '2026-11-19',
+          derivation: 'composed',
+          sources: [
+            {
+              kind: 'fact',
+              text: 'Founded in 2026, team of 11, shipped 19 features.',
+            },
+          ],
+        }),
+      ),
+      'not as written',
+    );
+  });
+  it('fails a fitted date', () => {
+    fails(
+      checkDate(
+        ans({
+          value: '2026-11-19',
+          derivation: 'fitted',
+          sources: [{ kind: 'fact', text: 'Available from 2026-11-19.' }],
+        }),
+      ),
+      'not as written',
+    );
+  });
+  it('passes an as-written date from the one cited answer', () => {
+    expect(
+      checkDate(
+        ans({
+          value: '2026-12-01',
+          derivation: 'as-written',
+          sources: [{ kind: 'answer', id: 'start-date' }],
+        }),
+      ),
+    ).toEqual({ ok: true, value: '2026-12-01' });
   });
 });

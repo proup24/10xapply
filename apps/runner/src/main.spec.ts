@@ -21,7 +21,7 @@ describe('main answers eval flags', () => {
     const err = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     expect(await main(['answers', 'eval', '--set', 'other'])).toBe(1);
     expect(err.mock.calls.join('\n')).toContain(
-      '--set must be example or private',
+      '--set must be example, private or misses',
     );
   });
 });

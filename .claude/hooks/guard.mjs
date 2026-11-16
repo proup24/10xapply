@@ -5,18 +5,46 @@ const segments = (p) => p.split('/');
 const basename = (t) => t.split('/').at(-1);
 const isSecret = (s) =>
   s === '.env' || (s.startsWith('.env.') && s !== '.env.example');
-const isPrivate = (s) => s === 'private';
 
-const pathHit = (p) => segments(p).some((s) => isSecret(s) || isPrivate(s));
+const pathHit = (p) => segments(p).some(isSecret);
 // Globs can match a secret through a wildcard such as `.env*`.
 const globHit = (p) =>
-  segments(p).some((s) => s.startsWith('.env') && s !== '.env.example') ||
-  segments(p).some(isPrivate);
+  segments(p).some((s) => s.startsWith('.env') && s !== '.env.example');
 
 // Bash expands wildcards itself, so `.env*` must count as a secret too.
 const bashHit = (t) =>
   pathHit(t) ||
   segments(t).some((s) => s.startsWith('.env') && /[*?[{]/.test(s));
+
+// The applied-jobs record in the private folder is the runner's and the
+// author's: Claude may read it but never change it. The runner's temporary
+// copies (`applications.json.tmp`) count too.
+export const PROTECTED_RECORD = 'applications.json';
+// Commands that only read the files they name.
+export const READ_ONLY_TOOLS = [
+  'cat',
+  'head',
+  'tail',
+  'less',
+  'jq',
+  'grep',
+  'rg',
+  'ugrep',
+  'wc',
+  'diff',
+  'ls',
+  'stat',
+  'file',
+  'sha256sum',
+];
+const WRITE_TOOLS = ['Edit', 'Write', 'NotebookEdit'];
+const RECORD_REASON = "applications.json is the author's to change";
+const isRecord = (p) =>
+  basename(p).startsWith(PROTECTED_RECORD) && segments(p).includes('private');
+const blockRecord = () => ({
+  block: true,
+  reason: `Blocked: ${RECORD_REASON}. Claude may read it but never write it (see CLAUDE.md).`,
+});
 
 const PATH_KEYS = ['file_path', 'notebook_path'];
 const CHECKS = {
@@ -32,7 +60,7 @@ const CHECKS = {
 
 const blockPath = (p) => ({
   block: true,
-  reason: `Blocked: ${p} is a secret or private file (see CLAUDE.md).`,
+  reason: `Blocked: ${p} is a secret file (see CLAUDE.md).`,
 });
 
 // Marks a redirection in a segment; the token after it is its target.
@@ -428,7 +456,10 @@ const withoutRedirects = (tokens) =>
   tokens.filter((t, j, all) => t !== REDIRECT && all[j - 1] !== REDIRECT);
 // A path through a folder named after the runner: apps/<name>/…, and also
 // Nx's build output dist/apps/<name>/….
-const runnerPath = (t, name) => t.includes('/') && segments(t).includes(name);
+const runnerPath = (t, name) => {
+  const s = segments(t);
+  return s.some((x, k) => x === 'apps' && s[k + 1] === name);
+};
 const looksLikeFile = (t) => t.includes('/') || /\.[cm]?[jt]sx?$/.test(t);
 
 // True when `--dry-run` reaches the runner: it comes after the launch token
@@ -507,11 +538,34 @@ function nxLaunch(args, ctx, here) {
     : { args, at, subcommand: target, skip: 1 };
 }
 
+// With an inline script (`-e`, `--eval`, `-p`, `--print`) node runs no file:
+// there is a launch only when the script names `apps/<name>`, and the launch
+// token is then the first argument after the script (node's argv[1]).
+const EVAL_FLAGS = ['-e', '--eval', '-p', '--print'];
+
 // The launch when `args` run node, tsx or ts-node, or null. The launch token
 // is the first argument that is a runner path, or, inside the runner's
 // folder, the first non-flag argument. An argument expanded at run time
 // (`$F`) counts when the command names the runner anywhere.
 function fileLaunch(args, ctx, here) {
+  // Node stops reading its own options at the script: an eval flag counts
+  // only before the first non-flag argument.
+  let e = -1;
+  for (let k = 1; k < args.length && args[k].startsWith('-'); k++) {
+    if (EVAL_FLAGS.includes(args[k]) || /^--(eval|print)=/.test(args[k])) {
+      e = k;
+      break;
+    }
+  }
+  if (e > 0) {
+    const joined = args[e].includes('=');
+    const script = joined
+      ? args[e].slice(args[e].indexOf('=') + 1)
+      : args[e + 1];
+    if (!script?.includes(`apps/${ctx.name}`)) return null;
+    const at = joined ? e + 1 : e + 2;
+    return { args, at, subcommand: args[at + 1] };
+  }
   let at = args.findIndex(
     (a, k) =>
       k > 0 && (runnerPath(a, ctx.name) || (ctx.mentioned && a.includes('$'))),
@@ -661,7 +715,57 @@ export function runnerProblem(
   return null;
 }
 
-// Returns the first secret or private token, looking inside nested shells.
+// Converts a shell glob to a regex: `*`, `?` and `[...]`.
+const globRegex = (g) =>
+  new RegExp(
+    `^${g
+      .replace(/[.+^${}()|\\]/g, '\\$&')
+      .replace(/\*/g, '.*')
+      .replace(/\?/g, '.')}$`,
+  );
+// Commands that change the files they name. A bare `private` word only counts
+// as the folder after one of these: elsewhere it is often a plain word
+// (`--set private`).
+const FILE_CHANGERS = ['rm', 'rmdir', 'mv', 'cp', 'rsync', 'find', 'ln'];
+// True when a token names the record: directly, through the private folder
+// itself (`rm -rf private/`), or through a glob inside it (`rm private/*`).
+function namesRecord(t, word) {
+  if (t.includes(PROTECTED_RECORD)) return true;
+  const s = segments(t).filter(Boolean);
+  if (s.at(-1) === 'private' && (t.endsWith('/') || s.length > 1)) return true;
+  if (t === 'private' && FILE_CHANGERS.includes(word)) return true;
+  if (s.at(-2) !== 'private' || !/[*?[]/.test(s.at(-1))) return false;
+  try {
+    return globRegex(s.at(-1)).test(PROTECTED_RECORD);
+  } catch {
+    return true;
+  }
+}
+
+// Returns why the command may change the applied-jobs record, or null. A
+// segment that names it must be a read-only tool, with no in-place flag, and
+// the record must not be a redirect target. Nested shells are checked too.
+function recordWriteProblem(command) {
+  const { segments, unclosed } = parse(command);
+  if (unclosed && command.includes(PROTECTED_RECORD)) return RECORD_REASON;
+  for (const tokens of segments) {
+    const i = commandIndex(tokens);
+    const nested = nestedCommand(tokens, i);
+    const nestedProblem = nested && recordWriteProblem(nested);
+    if (nestedProblem) return nestedProblem;
+    const word = basename(tokens[i] ?? '');
+    const names = (t) => namesRecord(t, word);
+    if (!tokens.some(names)) continue;
+    const readOnly =
+      READ_ONLY_TOOLS.includes(word) &&
+      !tokens.some((t) => t === '-i' || t.startsWith('--in-place')) &&
+      !tokens.some((t, j) => names(t) && tokens[j - 1] === REDIRECT);
+    if (!readOnly) return RECORD_REASON;
+  }
+  return null;
+}
+
+// Returns the first secret token, looking inside nested shells.
 function findBlockedToken(command) {
   const { segments, unclosed } = parse(command);
   if (unclosed) {
@@ -707,9 +811,17 @@ export function evaluate(
         reason: `Runner blocked: ${runnerIssue}. Claude may only start --dry-run runs, and only when the author asks (see CLAUDE.md).`,
       };
     }
+    if (recordWriteProblem(command)) return blockRecord();
     const hit = findBlockedToken(command);
     if (hit) return blockPath(hit);
     return { block: false };
+  }
+
+  if (WRITE_TOOLS.includes(tool_name)) {
+    for (const key of PATH_KEYS) {
+      const value = tool_input[key];
+      if (typeof value === 'string' && isRecord(value)) return blockRecord();
+    }
   }
 
   const checks = [...(CHECKS[tool_name] ?? []), [PATH_KEYS, pathHit]];

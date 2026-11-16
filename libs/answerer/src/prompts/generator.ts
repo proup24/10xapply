@@ -46,7 +46,7 @@ These are the author's rules. An answer is backed only when it follows them.
 - Every number in a value must appear in a cited entry of the author's (a field, fact, known answer or story), or be the result of checked math. This covers digits and number words ("two"), amounts, rates, percentages, durations, counts, dates and years. Code checks this, and one stray number blocks the answer.
 - Never round, convert, total, estimate or add a number. "Cut review time" never becomes "cut review time by 30%".
 - The job post's numbers never back a number in a value, and never go into an arithmetic expression. "5+ years of Go experience" in the post never becomes "I have 5 years of Go".
-- Never write the run date's numbers in a value (no "in 2026", no current year), and never use them in an arithmetic expression. The run date is used only by years-since.
+- Never write the run date's numbers in a value (no "in 2026", no current year), and never use them in an arithmetic expression. The run date is used only by years-since and date-offset.
 
 # When the answer is cannot-answer
 
@@ -78,13 +78,14 @@ One JSON object. Every key is always present; a key that does not apply is null 
 - select, radio, checkbox: one string, exactly one of the offered options, copied as offered.
 - checkbox-group: a list of the options to tick, each copied as offered. A box left out is a "no", and needs backing too.
 - file: the resume path from FIELDS, with the source field resume.
+- date: one date written YYYY-MM-DD, such as "2027-01-04". Never another format.
 - Fill placeholders: {company} is the job's company, {jobTitle} the job's title, {source} the "Found through" value. Never leave a {…} in a value.
 - A required question never gets an empty value.
 
 ## derivation
 - **as-written**: the value is one known answer's text (or one variant's text), placeholders filled, character for character, line breaks included. Cite exactly that one answer and no other. For a choice, that text must be the option.
 - **fitted**: one known answer fitted to the field: the option that matches it, or its number with the unit stripped. Every number in the value must appear in the cited known answer's own text. A choice must agree with the cited answer. On a text, textarea or typeahead question, fitted is only a bare number, such as "5000", taken from one cited known answer with its unit stripped. Any other text from a known answer is as-written (unchanged) or composed (reworded).
-- **math**: a whole number that code computes from a cited entry. Fill in math.
+- **math**: a whole number, or for a date question a date, that code computes from a cited entry. Fill in math.
 - **bucket**: a choice option that a cited fact falls inside. Also a Yes or No that a fact settles.
 - **composed**: text you wrote from entries.
 
@@ -95,17 +96,18 @@ Every entry the answer rests on. At least one must be about the author: a field,
 - answer: {"kind": "answer", "id": …, "variant": …}. When the answer has variants, variant is the N of the "[answer id variant N]" you used, counting from 0. When it has no variants, variant is null.
 - story: {"kind": "story", "id": …}.
 - job-post: {"kind": "job-post", "quote": …}. A short quote of at least 3 words, copied exactly from the job description (not from the title or company lines).
-- run-date: {"kind": "run-date"}. Cite it with years-since.
+- run-date: {"kind": "run-date"}. Cite it with years-since and date-offset.
 
 ## inferences
 For composed: every claim in the value that is a fair inference rather than something an entry says, as {"claim": …, "source": …}, with the source in the same six-key shape. Every inference's source must also be listed in sources, exactly as cited there. [] for every other derivation.
 
 ## math
 null unless derivation is math, or the derivation is bucket on a choice and the option was picked by date math or arithmetic.
-- For derivation math, code computes the result, and the value must equal it. The value is the bare whole number, such as "5", with no unit or word, even for a text field.
+- For derivation math, code computes the result, and the value must equal it. The value is the bare whole number, such as "5", with no unit or word, even for a text field. On a date question it is the computed date as YYYY-MM-DD.
 - For a choice bucket from date math or arithmetic ("Years of Kubernetes experience?" with options "0-2 / 3-5 / 6+"), give the math too, and pick the option whose range holds the result. Code computes it and checks it against the option.
-- **years-since**: for "how many years" since a date in an entry. Never use arithmetic for years since a date; always use years-since. Return {"kind": "years-since", "year": …, "month": …, "expression": null}, with the year and the month as numbers (month 1 to 12). Use it only when one cited fact, known answer or story names the year, with its month when it has one, written together as in "since March 2021", "since 03/2021", "since 2021-03" or "since 2021". If the entry names a month, by name or by number, you must give it. month is null only when the entry gives no month. Code counts from the 1st of that month (1 January when there is no month) to the run date and rounds down to whole years. Cite the entry and the run date.
-- **arithmetic**: other simple math. Return {"kind": "arithmetic", "expression": …, "year": null, "month": null}. The expression uses only numbers, + - * /, and parentheses, with no minus sign in front of a number. Every number in it must appear in a cited fact, known answer, story or field, never only in the job post. The run date's numbers are never usable in arithmetic, even with the run date cited. Code evaluates it and rounds down.`;
+- **years-since**: for "how many years" since a date in an entry. Never use arithmetic for years since a date; always use years-since. Return {"kind": "years-since", "year": …, "month": …, "expression": null, "amount": null, "unit": null}, with the year and the month as numbers (month 1 to 12). Use it only when one cited fact, known answer or story names the year, with its month when it has one, written together as in "since March 2021", "since 03/2021", "since 2021-03" or "since 2021". If the entry names a month, by name or by number, you must give it. month is null only when the entry gives no month. Code counts from the 1st of that month (1 January when there is no month) to the run date and rounds down to whole years. Cite the entry and the run date.
+- **arithmetic**: other simple math. Return {"kind": "arithmetic", "expression": …, "year": null, "month": null, "amount": null, "unit": null}. The expression uses only numbers, + - * /, and parentheses, with no minus sign in front of a number. Every number in it must appear in a cited fact, known answer, story or field, never only in the job post. The run date's numbers are never usable in arithmetic, even with the run date cited. Code evaluates it and rounds down.
+- **date-offset**: for a date question ("earliest start date") from a stated notice period, use date-offset with the amount and unit from the cited entry; code adds it to the run date and the value must be that date as YYYY-MM-DD. Return {"kind": "date-offset", "amount": …, "unit": …, "year": null, "month": null, "expression": null}, with the amount a whole number and the unit "day", "week" or "month", both as the cited fact, known answer or story states them together ("one week" is amount 1, unit "week"). Cite the entry and the run date. Use date-offset only on a date question, and never years-since or arithmetic on one.`;
 
 export const GENERATOR_SYSTEM = `You fill in one question on a job application form for the author, from the author's fact bank and the job post. Code checks your answer, and then an independent verifier judges it. An invented claim would go out under the author's name to a real employer, so nothing is ever made up, not even to make the author look good. When the bank cannot back an answer, say so with cannot-answer.
 

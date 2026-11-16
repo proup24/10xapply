@@ -127,16 +127,54 @@ describe('mapField', () => {
   it('reports no-option without a value in the detail', () => {
     const r = mapField(
       q({
-        label: 'Email address',
+        label: 'Country of residence',
         type: 'select',
-        options: ['other@example.com'],
+        options: ['France', 'Ireland'],
       }),
       bank,
     );
     expect(r).toEqual({
       kind: 'no-option',
-      detail: 'no option matches field email',
+      detail: 'no option matches field country',
     });
+  });
+
+  describe('a select of email addresses, in any language', () => {
+    const emails = (label: string, options: string[]) =>
+      mapField(q({ label, type: 'select', options }), bank);
+    it('picks the bank’s email, ignoring case, whatever the label', () => {
+      expect(emails('E-Mail-Adresse', ['SAM@Example.com'])).toEqual({
+        kind: 'filled',
+        key: 'email',
+        value: 'SAM@Example.com',
+      });
+      expect(
+        emails('Adresse e-mail', ['other@example.org', 'sam@example.com']),
+      ).toEqual({ kind: 'filled', key: 'email', value: 'sam@example.com' });
+    });
+    it('blocks when the addresses are masked or none is the bank’s', () => {
+      const blocked = {
+        kind: 'blocked',
+        reason: 'bank-silent',
+        detail: 'no option matches field email',
+      };
+      expect(emails('E-Mail-Adresse', ['s**@example.com'])).toEqual(blocked);
+      expect(emails('E-Mail-Adresse', ['s*m@example.com', 'x*@y.com'])).toEqual(
+        blocked,
+      );
+      expect(emails('Email address', ['other@example.com'])).toEqual(blocked);
+    });
+    it('leaves a select with any option that is not an address alone', () => {
+      expect(emails('E-Mail-Adresse', ['sam@example.com', 'Andere'])).toEqual({
+        kind: 'none',
+      });
+      expect(emails('E-Mail-Adresse', [])).toEqual({ kind: 'none' });
+    });
+  });
+  it('fills "Location (city)" with the bank’s city', () => {
+    expect(
+      mapField(q({ label: 'Location (city)*', type: 'typeahead' }), bank),
+    ).toEqual({ kind: 'filled', key: 'city', value: 'Leeds' });
   });
   it('returns no-option for phone on a choice type', () => {
     expect(

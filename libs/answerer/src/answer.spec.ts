@@ -105,7 +105,7 @@ const FIT_FEEDBACK = 'the cited entry does not answer this question as asked';
 
 describe('answerQuestion: before any model call', () => {
   it('blocks an unknown type as unsupported-field, with 0 calls', async () => {
-    const { result, requests } = await run(q({ type: 'date' }), []);
+    const { result, requests } = await run(q({ type: 'time' }), []);
     expectBlocked(result, 'unsupported-field', 'unsupported field type');
     expect(result.calls).toEqual([]);
     expect(requests).toHaveLength(0);
@@ -302,6 +302,8 @@ describe('answerQuestion: verify', () => {
           year: null,
           month: null,
           expression: '5000 + 30',
+          amount: null,
+          unit: null,
         },
       });
 
@@ -351,6 +353,51 @@ describe('answerQuestion: verify', () => {
         'verifier-rejected',
         'verifier rejected: blind',
       );
+    });
+  });
+
+  describe('date-offset on a date field', () => {
+    const start = q({ label: 'Earliest start date', type: 'date' });
+    const notice = src({ text: 'My notice period is one week.' });
+    const dateGen =
+      (value: string, amount = 1) =>
+      () =>
+        out({
+          value,
+          derivation: 'math',
+          sources: [notice, src({ kind: 'run-date' })],
+          math: {
+            kind: 'date-offset',
+            amount,
+            unit: 'week',
+            year: null,
+            month: null,
+            expression: null,
+          },
+        });
+
+    it('backs the run date plus the notice period, computing the blind date in code', async () => {
+      // The blind value is wrong, but its math is right: code computes it.
+      const { result, requests } = await run(start, [
+        dateGen('2026-11-19'),
+        dateGen('2026-11-20'),
+      ]);
+      expect(result).toMatchObject({
+        status: 'backed',
+        value: '2026-11-19',
+        derivation: 'math',
+        verification: { verdict: 'confirmed', rounds: 1 },
+      });
+      expect(requests.map((r) => r.role)).toEqual(['answer', 'verify']);
+    });
+
+    it('rejects a blind answer whose math gives another date', async () => {
+      const { result } = await run(
+        start,
+        [dateGen('2026-11-19'), dateGen('2026-11-26', 2)],
+        0,
+      );
+      expectBlocked(result, 'verifier-rejected', 'verifier rejected: blind');
     });
   });
 

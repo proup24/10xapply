@@ -160,6 +160,8 @@ function harness(over: Partial<ApplyCommandDeps> = {}): Harness {
     },
     recordPath: '/nowhere/applications.json',
     openRecord: () => fakeRecord(),
+    // Never the real misses file.
+    writeMisses: () => ({ added: 0, updated: 0 }),
     onSigint: () => () => undefined,
     ...over,
   };
@@ -167,6 +169,99 @@ function harness(over: Partial<ApplyCommandDeps> = {}): Harness {
 }
 
 describe('applyCommand', () => {
+  describe('misses', () => {
+    it('writes misses after the reports', async () => {
+      const runs: [string, ApplyRun][] = [
+        ['reached-review', { ...markedRun(), outcome: 'reached-review' }],
+        ['needs-author', { ...markedRun(), outcome: 'needs-author' }],
+        // markedRun is an error stop.
+        ['error', markedRun()],
+        [
+          'stopped',
+          {
+            ...markedRun(),
+            stop: { kind: 'author', step: 2, detail: 'x', pathPrefix: null },
+          } as ApplyRun,
+        ],
+      ];
+      for (const [outcome, theRun] of runs) {
+        const order: string[] = [];
+        const got: ApplyRun[] = [];
+        const h = harness({
+          runApply: async () => theRun,
+          writeReports: () => {
+            order.push('reports');
+            return { full: '/f.md', redacted: '/r.json' };
+          },
+          writeMisses: (run) => {
+            order.push('misses');
+            got.push(run);
+            return { added: 0, updated: 0 };
+          },
+        });
+        await applyCommand([URL_OK, '--dry-run'], h.deps);
+        expect(order, outcome).toEqual(['reports', 'misses']);
+        expect(got).toEqual([theRun]);
+      }
+    });
+
+    it('a misses write that throws prints one fixed line and keeps the exit code', async () => {
+      for (const [outcome, code] of [
+        ['reached-review', 0],
+        ['stopped', 2],
+      ] as const) {
+        for (const authorMode of [false, true]) {
+          const h = harness({
+            authorMode,
+            runApply: async () => ({ ...markedRun(), outcome }),
+            writeMisses: () => {
+              throw new TypeError('MARKER-MISSES-VALUE');
+            },
+          });
+          expect(await applyCommand([URL_OK, '--dry-run'], h.deps)).toBe(code);
+          const misses = h.lines.filter((l) => l.includes('misses'));
+          expect(misses).toEqual(['misses: not written (TypeError)']);
+          expect(h.lines.join('\n')).not.toContain('MARKER-MISSES-VALUE');
+          expect(h.written).toHaveLength(1);
+        }
+      }
+    });
+
+    it('author mode prints the misses counts only when one is above 0', async () => {
+      const lines = async (
+        authorMode: boolean,
+        counts: { added: number; updated: number },
+      ) => {
+        const h = harness({ authorMode, writeMisses: () => counts });
+        await applyCommand([URL_OK, '--dry-run'], h.deps);
+        return h.lines.filter((l) => l.startsWith('misses:'));
+      };
+      expect(await lines(true, { added: 2, updated: 1 })).toEqual([
+        'misses: 2 new, 1 seen again',
+      ]);
+      expect(await lines(true, { added: 0, updated: 3 })).toEqual([
+        'misses: 0 new, 3 seen again',
+      ]);
+      expect(await lines(true, { added: 0, updated: 0 })).toEqual([]);
+      expect(await lines(false, { added: 2, updated: 1 })).toEqual([]);
+    });
+
+    it('a report write failure skips nothing it would have done before', async () => {
+      const calls: ApplyRun[] = [];
+      const h = harness({
+        writeReports: () => {
+          throw new Error('disk full');
+        },
+        writeMisses: (run) => {
+          calls.push(run);
+          return { added: 0, updated: 0 };
+        },
+      });
+      expect(await applyCommand([URL_OK, '--dry-run'], h.deps)).toBe(2);
+      expect(calls).toHaveLength(1);
+    });
+  });
+
   it('without --dry-run outside author mode exits 2 before connecting', async () => {
     const h = harness();
     expect(await applyCommand([URL_OK], h.deps)).toBe(2);
@@ -603,10 +698,9 @@ describe('adaptApplyPage suggestion', () => {
         list.reverse();
       }
     });
-    const sel = await adaptApplyPage(page, bridge, noWait).suggestion(
-      LIST,
-      'london',
-    );
+    const sel = await adaptApplyPage(page, bridge, noWait).suggestion(LIST, {
+      text: 'london',
+    });
     expect(sel).toBe(`${LIST} [role="option"]:text-is("London")`);
     expect(sel).not.toContain('nth');
   });
@@ -623,10 +717,9 @@ describe('adaptApplyPage suggestion', () => {
         list.reverse(); // nth(1) is now Paris, o1
       }
     });
-    const sel = await adaptApplyPage(page, bridge, noWait).suggestion(
-      LIST,
-      'London',
-    );
+    const sel = await adaptApplyPage(page, bridge, noWait).suggestion(LIST, {
+      text: 'London',
+    });
     // The id read after the reorder is o1 (Paris): rejected for the text.
     expect(sel).toBe(`${LIST} [role="option"]:text-is("London")`);
   });
@@ -636,10 +729,9 @@ describe('adaptApplyPage suggestion', () => {
       { id: 'o1', text: 'Paris' },
       { id: 'o"2', text: 'London' },
     ]);
-    const sel = await adaptApplyPage(page, bridge, noWait).suggestion(
-      LIST,
-      'london',
-    );
+    const sel = await adaptApplyPage(page, bridge, noWait).suggestion(LIST, {
+      text: 'london',
+    });
     expect(sel).toBe(`${LIST} [id="o\\"2"]`);
   });
 
@@ -648,17 +740,29 @@ describe('adaptApplyPage suggestion', () => {
     const { page } = fakePage([{ id: null, text: 'Paris' }]);
     const sel = await adaptApplyPage(page, bridge, async () => {
       waits++;
-    }).suggestion(LIST, 'London');
+    }).suggestion(LIST, { text: 'London' });
     expect(sel).toBeNull();
     expect(waits).toBe(20);
   });
 
+  it('with a country, takes the first option that starts with the city and holds the country', async () => {
+    const { page } = fakePage([
+      { id: 'o1', text: 'Tangier, Morocco Street, Lagos' },
+      { id: 'o2', text: 'Tangier, Tanger-Tetouan-Al Hoceima, Morocco' },
+      { id: 'o3', text: 'Tangier, Morocco' },
+    ]);
+    const sel = await adaptApplyPage(page, bridge, noWait).suggestion(LIST, {
+      text: 'tangier',
+      country: 'morocco',
+    });
+    expect(sel).toBe(`${LIST} [id="o2"]`);
+  });
+
   it('escapes quotes and backslashes in the anchored text', async () => {
     const { page } = fakePage([{ id: null, text: 'A "B" \\ C' }]);
-    const sel = await adaptApplyPage(page, bridge, noWait).suggestion(
-      LIST,
-      'a "b" \\ c',
-    );
+    const sel = await adaptApplyPage(page, bridge, noWait).suggestion(LIST, {
+      text: 'a "b" \\ c',
+    });
     expect(sel).toBe(`${LIST} [role="option"]:text-is("A \\"B\\" \\\\ C")`);
   });
 });

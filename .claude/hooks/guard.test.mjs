@@ -26,10 +26,39 @@ test('secrets via file tools', () => {
 test('private data', () => {
   assert.equal(
     blocked('Read', { file_path: '/home/u/repo/private/cv.md' }),
-    true,
+    false,
   );
-  assert.equal(blocked('Grep', { pattern: 'x', path: 'private' }), true);
-  assert.equal(blocked('Glob', { pattern: 'private/**' }), true);
+  assert.equal(
+    blocked('Read', { file_path: '/repo/private/applications.json' }),
+    false,
+  );
+  assert.equal(blocked('Grep', { pattern: 'x', path: 'private' }), false);
+  assert.equal(blocked('Glob', { pattern: 'private/**' }), false);
+  for (const tool of ['Edit', 'Write', 'NotebookEdit']) {
+    for (const p of [
+      '/repo/private/applications.json',
+      '/repo/private/applications.json.tmp',
+    ]) {
+      assert.equal(
+        blocked(tool, { file_path: p, notebook_path: p }),
+        true,
+        `${tool} ${p}`,
+      );
+    }
+  }
+  assert.equal(
+    blocked('Write', { file_path: '/repo/private/fact-bank.yaml' }),
+    false,
+  );
+  assert.equal(
+    blocked('Edit', { file_path: '/repo/private/fact-bank.yaml' }),
+    false,
+  );
+  // only the record in the private folder is protected
+  assert.equal(
+    blocked('Write', { file_path: '/repo/apps/runner/applications.json' }),
+    false,
+  );
   assert.equal(
     blocked('Read', { file_path: '/repo/apps/private-api/x.ts' }),
     false,
@@ -45,11 +74,52 @@ test('private data', () => {
 
 test('bash: secrets and private', () => {
   assert.equal(blocked('Bash', { command: 'cat .env' }), true);
-  assert.equal(blocked('Bash', { command: 'grep -r token ./private/' }), true);
   assert.equal(blocked('Bash', { command: 'cat --env-file=.env' }), true);
   assert.equal(blocked('Bash', { command: 'cat ".env"' }), true);
   assert.equal(blocked('Bash', { command: 'cat .env.example' }), false);
   assert.equal(blocked('Bash', { command: 'ls apps/private-api' }), false);
+  for (const command of [
+    'grep -r token ./private/',
+    'cat private/applications.json',
+    'jq .jobs private/applications.json',
+    'pnpm nx run runner:answers-eval -- --set private',
+    'cat private/applications.json | wc -l',
+    'ls -la private/',
+    'sed -i s/a/b/ private/fact-bank.yaml',
+    'ls private/*',
+    'cat private/*.json',
+    'rm private/*.yaml',
+    'echo private',
+    'git commit -m "read private"',
+  ]) {
+    assert.equal(blocked('Bash', { command }), false, command);
+  }
+  for (const command of [
+    'echo x > private/applications.json',
+    'cat x > private/applications.json',
+    'cat x >> private/applications.json',
+    'cat a | tee private/applications.json',
+    'sed -i s/a/b/ private/applications.json',
+    'cp x private/applications.json',
+    'mv x private/applications.json',
+    'rm private/applications.json',
+    'bash -c "echo > private/applications.json"',
+    'sh -c "cat x > private/applications.json"',
+    "python -c \"open('private/applications.json','w')\"",
+    'cat private/applications.json --in-place',
+    "echo 'unterminated > private/applications.json",
+    'rm private/*',
+    'rm -rf private/',
+    'rm -rf ./private',
+    'rm -rf apps/../private',
+    'find private -delete',
+    'rm private/app*.json',
+    'mv private/applications.json?* /tmp',
+  ]) {
+    const r = evaluate({ tool_name: 'Bash', tool_input: { command } });
+    assert.equal(r.block, true, command);
+    assert.match(r.reason, /applications\.json is the author's to change/);
+  }
 });
 
 test('bash: git push of a feature branch is allowed', () => {
@@ -138,7 +208,6 @@ test('bash: separators attached to tokens', () => {
   for (const command of [
     'cat .env; ls',
     'cat .env|head',
-    'cat private/x;ls',
     'cat <.env',
     'echo $(cat .env)',
     'echo `cat .env`',
@@ -147,7 +216,8 @@ test('bash: separators attached to tokens', () => {
   }
   assert.equal(blocked('Bash', { command: 'cat .env.example; ls' }), false);
   assert.equal(blocked('Bash', { command: 'bash -c "cat .env"' }), true);
-  assert.equal(blocked('Bash', { command: "sh -c 'ls private/'" }), true);
+  assert.equal(blocked('Bash', { command: 'cat private/x;ls' }), false);
+  assert.equal(blocked('Bash', { command: "sh -c 'ls private/'" }), false);
   assert.equal(blocked('Bash', { command: 'eval cat .env' }), true);
   assert.equal(
     blocked('Bash', { command: 'bash -c "cat .env.example"' }),
@@ -483,4 +553,37 @@ test('runner (real name): no false positives', () => {
   ]) {
     assert.equal(bash(command).block, false, command);
   }
+});
+
+test('bash: runner false positives', () => {
+  for (const command of [
+    'ls apps/runner/src',
+    "for f in run-reports/*.json; do node -e 'console.log(1)' $f; done; ls apps/runner/src",
+    'cat pace-recordings/runner/x.json',
+    'node scripts/x.mjs pace-recordings/runner/a.json',
+  ]) {
+    assert.equal(bash(command).block, false, command);
+  }
+  for (const command of [
+    'node apps/runner/dist/main.js apply https://x',
+    'node dist/apps/runner/main.js apply https://x',
+    'node -e "require(\'./apps/runner/dist/main.js\')" apply x',
+    'node --eval "require(\'./apps/runner/dist/main.js\')" apply x',
+    'node -p "require(\'./apps/runner/dist/main.js\')"',
+    'node --print="require(\'./apps/runner/dist/main.js\')" apply x',
+    // after the script, eval flags are the script's own arguments
+    'node apps/runner/dist/main.js apply https://x -p',
+    'node apps/runner/dist/main.js apply https://x -e',
+    'node apps/runner/dist/main.js apply https://x --eval=1',
+    'node apps/runner/dist/main.js apply https://x --print 1',
+  ]) {
+    const r = bash(command);
+    assert.equal(r.block, true, command);
+    assert.match(r.reason, /Runner blocked/, command);
+  }
+  assert.equal(
+    bash('node -e "require(\'./apps/runner/dist/main.js\')" x apply --dry-run')
+      .block,
+    false,
+  );
 });

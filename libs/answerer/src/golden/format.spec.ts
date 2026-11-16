@@ -240,6 +240,36 @@ cases:
     }
   });
 
+  it('a case may carry its own runDate', () => {
+    const file = loadGolden(
+      write(
+        header +
+          `
+  - id: dated
+    runDate: '2026-12-01'
+    question: { label: A, type: text, required: true }
+    expect: { status: blocked }
+`,
+      ),
+    );
+    expect(file.cases[0]?.runDate).toBe('2026-12-01');
+    const e = thrown(() =>
+      loadGolden(
+        write(
+          header +
+            `
+  - id: bad-date
+    runDate: '1 Dec'
+    question: { label: A, type: text, required: true }
+    expect: { status: blocked }
+`,
+        ),
+      ),
+    );
+    expect(e).toBeInstanceOf(GoldenError);
+    expect(e.message).toContain('case bad-date');
+  });
+
   it('throws on a bad block reason, derivation or runDate', () => {
     for (const text of [
       header +

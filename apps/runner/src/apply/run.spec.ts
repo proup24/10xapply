@@ -242,7 +242,8 @@ function result(q: FormQuestion, r: Reply): AnswerResult {
   };
 }
 
-const BANK = { answers: [] } as unknown as FactBank;
+const FIELDS = { city: 'Leeds', country: 'United Kingdom' };
+const BANK = { answers: [], fields: FIELDS } as unknown as FactBank;
 
 function harness(s: Setup): Harness {
   submitRun = s.submit ?? false;
@@ -406,7 +407,7 @@ function harness(s: Setup): Harness {
     saveAnswer: (entry) => {
       saved.push(entry);
       const id = s.saveId ?? 'saved-answer';
-      bank = { answers: [{ id }] } as unknown as FactBank;
+      bank = { answers: [{ id }], fields: FIELDS } as unknown as FactBank;
       return { ok: true, id };
     },
     io,

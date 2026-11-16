@@ -317,7 +317,14 @@ describe('schemas', () => {
           value: '5',
           derivation: 'math',
           sources: [fact],
-          math: { kind: 'years-since', year: 2021, month: 3, expression: null },
+          math: {
+            kind: 'years-since',
+            year: 2021,
+            month: 3,
+            expression: null,
+            amount: null,
+            unit: null,
+          },
         }),
       ),
     ).toMatchObject({ math: { kind: 'years-since', year: 2021, month: 3 } });
@@ -331,6 +338,8 @@ describe('schemas', () => {
           year: 2021,
           month: null,
           expression: null,
+          amount: null,
+          unit: null,
         },
       }),
     );
@@ -351,6 +360,8 @@ describe('schemas', () => {
             year: null,
             month: null,
             expression: '5000 / 30',
+            amount: null,
+            unit: null,
           },
         }),
       ),
@@ -359,6 +370,30 @@ describe('schemas', () => {
     });
   });
 
+  it('turn date-offset math into a MathSpec', () => {
+    const fact = {
+      ...nullSource,
+      kind: 'fact' as const,
+      text: 'My notice period is one week.',
+    };
+    expect(
+      toCandidate(
+        out({
+          value: '2026-11-19',
+          derivation: 'math',
+          sources: [fact],
+          math: {
+            kind: 'date-offset',
+            amount: 1,
+            unit: 'week',
+            year: null,
+            month: null,
+            expression: null,
+          },
+        }),
+      ),
+    ).toMatchObject({ math: { kind: 'date-offset', amount: 1, unit: 'week' } });
+  });
   it('keep math on a bucket when it is given, and drop it elsewhere', () => {
     const fact = {
       ...nullSource,
@@ -370,6 +405,8 @@ describe('schemas', () => {
       year: 2021,
       month: 3,
       expression: null,
+      amount: null,
+      unit: null,
     };
     expect(
       toCandidate(
@@ -443,6 +480,8 @@ describe('schemas', () => {
           year: null,
           month: null,
           expression: null,
+          amount: null,
+          unit: null,
         },
       }),
     ],
@@ -450,7 +489,42 @@ describe('schemas', () => {
       'arithmetic with no expression',
       out({
         derivation: 'math',
-        math: { kind: 'arithmetic', year: null, month: null, expression: null },
+        math: {
+          kind: 'arithmetic',
+          year: null,
+          month: null,
+          expression: null,
+          amount: null,
+          unit: null,
+        },
+      }),
+    ],
+    [
+      'date-offset with no amount',
+      out({
+        derivation: 'math',
+        math: {
+          kind: 'date-offset',
+          year: null,
+          month: null,
+          expression: null,
+          amount: null,
+          unit: 'week',
+        },
+      }),
+    ],
+    [
+      'date-offset with no unit',
+      out({
+        derivation: 'math',
+        math: {
+          kind: 'date-offset',
+          year: null,
+          month: null,
+          expression: null,
+          amount: 1,
+          unit: null,
+        },
       }),
     ],
   ];

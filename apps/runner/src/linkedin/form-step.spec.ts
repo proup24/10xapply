@@ -54,6 +54,41 @@ const step = (r: StepRead) => {
 const fieldsOf = (r: StepRead): ReadField[] =>
   r.kind === 'none' ? [] : r.fields;
 
+/** A School select with two repeated texts, a Degree and a Field of study. */
+const EDUCATION = [
+  [
+    's',
+    'School',
+    [
+      'Acme College',
+      'Lincoln University',
+      'University of New England',
+      'Lincoln University',
+      'Zed Institute',
+      'University of New England',
+    ],
+  ],
+  [
+    'd',
+    'Degree',
+    ["Bachelor's Degree", "Master's Degree", 'Doctor of Philosophy'],
+  ],
+  [
+    'f',
+    'Field of study',
+    ['Computer Science', 'Software Engineering', 'Mathematics'],
+  ],
+]
+  .map(
+    ([id, q, opts]) =>
+      `<div componentkey="easyApplyFieldFocus_${id as string}"><label for="${id as string}"><div>${q as string}</div></label><select id="${id as string}"><option value="" disabled>Select an option</option>` +
+      (opts as string[])
+        .map((o, i) => `<option value="v${i}">${o}</option>`)
+        .join('') +
+      '</select></div>',
+  )
+  .join('');
+
 describe('fixtures', () => {
   it('lists every fixture file', () => {
     const files = readdirSync(dir).filter((f) => f.endsWith('.html'));
@@ -146,6 +181,32 @@ describe('readStep on the fixtures', () => {
       country?.question.options?.length,
     );
     expect(r.next?.label).toBe('next');
+  });
+
+  it('reads the optional "Location (city)" typeahead (step-contact-city)', () => {
+    const r = step(readStep(load('step-contact-city.html')));
+    expect(r.unknown).toEqual([]);
+    const city = r.fields.filter((f) => f.question.type === 'typeahead');
+    expect(city.map((f) => f.question)).toEqual([
+      { label: 'Location (city)', type: 'typeahead', required: false },
+    ]);
+    expect(city[0]?.key).toMatch(/^easyApplyFieldFocus_.*::UNKNOWN::/);
+    // Captured before typing: no suggestion list yet.
+    expect(city[0]?.suggestions).toBeUndefined();
+  });
+
+  it('reads the German contact step (step-contact-de)', () => {
+    const r = step(readStep(load('step-contact-de.html')));
+    expect(r.unknown).toEqual([]);
+    const byLabel = new Map(r.fields.map((f) => [f.question.label, f]));
+    expect(byLabel.get('E-Mail-Adresse')?.question).toMatchObject({
+      type: 'select',
+      required: true,
+    });
+    expect(byLabel.get('Handynummer')?.question).toMatchObject({
+      type: 'text',
+      required: true,
+    });
   });
 
   it('reads the question step: select, radios and text', () => {
@@ -289,18 +350,154 @@ describe('readStep on the fixtures', () => {
     );
   });
 
-  it.each(['review.html', 'review-save-prompt.html', 'review-follow.html'])(
-    '%s has no fields (the Follow checkbox is not a question)',
-    (file) => {
-      expect(readStep(load(file))).toEqual({
-        kind: 'review',
-        fields: [],
-        unknown: [],
-        submit: expect.any(String),
-        follow: expect.any(Object),
-      });
-    },
-  );
+  it('step-checkbox-groups.html: three optional checkbox groups, each question a <p>', () => {
+    const doc = load('step-checkbox-groups.html');
+    const r = step(readStep(doc));
+    expect(r.unknown).toEqual([]);
+    const groups = r.fields.filter((f) => f.question.type === 'checkbox-group');
+    expect(groups.map((g) => [g.question.label, g.question.required])).toEqual([
+      ['How would you describe your gender identity?', false],
+      ['How would you describe your racial/ethnic background?', false],
+      ['How would you describe your sexual orientation?', false],
+    ]);
+    const [gender] = groups;
+    expect(gender?.question.options).toEqual([
+      'Man',
+      'Non-binary',
+      'Woman',
+      'I prefer to self-describe',
+      "I don't wish to answer",
+    ]);
+    expect(gender?.key).toBe(
+      'easyApplyFieldFocus_ea_validation_p5_0_38419389946',
+    );
+    expect(gender?.optionSelectors).toEqual([
+      '#_r_8f_',
+      '#_r_8h_',
+      '#_r_8j_',
+      '#_r_8l_',
+      '#_r_8n_',
+    ]);
+    expect(gender?.optionPressSelectors).toEqual(
+      ['_r_8f_', '_r_8h_', '_r_8j_', '_r_8l_', '_r_8n_'].map(
+        (id) => `label[for="${id}"]`,
+      ),
+    );
+    // No shared aria-label: the boxes by their question's wrapper key.
+    const W =
+      'div[componentkey="easyApplyFieldFocus_ea_validation_p5_0_38419389946"] input[type="checkbox"]';
+    expect(gender?.stableGroup).toEqual({
+      selector: W,
+      count: 5,
+      ids: ['_r_8f_', '_r_8h_', '_r_8j_', '_r_8l_', '_r_8n_'],
+    });
+    for (const g of groups) {
+      expect(g.stableGroup).toBeDefined();
+      const sel = g.stableGroup?.selector ?? 'x';
+      expect(doc.querySelectorAll(sel)).toHaveLength(
+        g.question.options?.length ?? -1,
+      );
+      expect(g.question.options).not.toContain('');
+    }
+  });
+
+  it('step-consents.html: each single consent box is a one-option checkbox-group', () => {
+    const r = step(readStep(load('step-consents.html')));
+    expect(r.unknown).toEqual([]);
+    expect(
+      r.fields.map((f) => [
+        f.question.type,
+        f.question.label.slice(0, 40),
+        f.question.required,
+        f.question.options,
+        f.stableGroup?.count,
+      ]),
+    ).toEqual([
+      [
+        'checkbox-group',
+        'You declare that you have read and under',
+        true,
+        ['I consent'],
+        1,
+      ],
+      [
+        'checkbox-group',
+        'You declare that you have read and under',
+        false,
+        ['I consent'],
+        1,
+      ],
+    ]);
+    // The `*` is taken off the question.
+    expect(r.fields[0]?.question.label).toMatch(/of Playtech\.$/);
+    expect(r.next?.label).toBe('review');
+  });
+
+  it('step-eeo-disability.html: the Disability radio group reads its question', () => {
+    const doc = load('step-eeo-disability.html');
+    const r = step(readStep(doc));
+    expect(r.unknown).toEqual([]);
+    expect(r.fields.map((f) => [f.question.type, f.question.label])).toEqual([
+      ['radio', 'Race/Ethnicity'],
+      ['radio', 'Gender'],
+      ['radio', 'Veteran status'],
+      ['radio', 'Disability'],
+    ]);
+    const disability = r.fields[3];
+    expect(disability?.question.required).toBe(true);
+    expect(disability?.question.options).toHaveLength(3);
+    expect(disability?.question.options?.[0]).toBe(
+      'Yes, I have a disability, or have had one in the past',
+    );
+    expect(disability?.question.options).not.toContain('Disability');
+    expect(disability?.stableGroup?.selector).toBe(
+      'div[componentkey="easyApplyFieldFocus_ea_validation_p3_0_38419389682"] input[type="radio"]',
+    );
+    expect(
+      doc.querySelectorAll(disability?.stableGroup?.selector ?? 'x'),
+    ).toHaveLength(3);
+  });
+
+  it('an education step: School is read with its repeated texts recorded, beside Degree and Field of study', () => {
+    // The shape of job J's education step (its School list had 2,467
+    // options, two texts repeated), kept small.
+    const r = step(readStep(form(EDUCATION)));
+    expect(r.unknown).toEqual([]);
+    expect(
+      r.fields.map((f) => [
+        f.question.label,
+        f.question.type,
+        f.question.options?.length,
+        f.repeatedOptions,
+      ]),
+    ).toEqual([
+      [
+        'School',
+        'select',
+        6,
+        ['Lincoln University', 'University of New England'],
+      ],
+      ['Degree', 'select', 3, undefined],
+      ['Field of study', 'select', 3, undefined],
+    ]);
+    // The placeholder is left out, so page indexes start at 1.
+    expect(r.fields[0]?.pageIndexes).toEqual([1, 2, 3, 4, 5, 6]);
+  });
+
+  it.each([
+    'review.html',
+    'review-save-prompt.html',
+    'review-follow.html',
+    'review-profile.html',
+  ])('%s has no fields (the Follow checkbox is not a question)', (file) => {
+    expect(readStep(load(file))).toEqual({
+      kind: 'review',
+      fields: [],
+      unknown: [],
+      submit: expect.any(String),
+      follow: expect.any(Object),
+    });
+  });
 });
 
 const form = (
@@ -458,14 +655,174 @@ describe('readStep type mapping', () => {
       'checkbox',
       '<fieldset id="fs"><legend>Stacks</legend><input id="a" type="checkbox"><label for="a">Node</label><input id="b" type="checkbox"><label for="b">NODE</label></fieldset>',
     ],
-    [
-      'select',
-      '<label for="s">Pick</label><select id="s"><option value="">Select an option</option><option value="a">Yes</option><option value="b">yes</option></select>',
-    ],
   ])('sends a %s field with repeated option texts to unknown', (_, html) => {
     const r = step(readStep(form(html)));
     expect(r.fields).toEqual([]);
     expect(r.unknown).toHaveLength(1);
+  });
+
+  it('reads a select with repeated option texts, and records them', () => {
+    const f = only(
+      '<label for="s">Pick</label><select id="s"><option value="">Select an option</option><option value="a">Yes</option><option value="b">yes </option><option value="c">No</option></select>',
+    );
+    expect(f.question.options).toEqual(['Yes', 'yes', 'No']);
+    expect(f.pageIndexes).toEqual([1, 2, 3]);
+    // Recorded once, in the page's first spelling.
+    expect(f.repeatedOptions).toEqual(['Yes']);
+  });
+
+  // LinkedIn's checkbox question: a `<p>` in the field wrapper above a
+  // fieldset with no legend; boxes with no aria-label or name.
+  const boxGroup = (q: string, opts: string[], key = 'q1', more = '') =>
+    `<div componentkey="easyApplyFieldFocus_${key}"><p>${q}</p><fieldset aria-describedby="error-message-${key}"><div>` +
+    opts
+      .map(
+        (o, i) =>
+          `<div componentkey="auto-component-${key}-${i}"><div componentkey="auto-component-${key}-${i}"><div><input id="${key}-b${i}" tabindex="0" type="checkbox"><label for="${key}-b${i}"></label></div><p>${o}</p></div></div>`,
+      )
+      .join('') +
+    `</div></fieldset>${more}</div>`;
+
+  it('a checkbox group whose question is a <p> above the fieldset', () => {
+    const f = only(boxGroup('Which stacks?*', ['Node', 'Go']));
+    expect(f.question).toEqual({
+      label: 'Which stacks?',
+      type: 'checkbox-group',
+      required: true,
+      options: ['Node', 'Go'],
+    });
+    expect(f.key).toBe('easyApplyFieldFocus_q1');
+    expect(f.selector).toBe('div[componentkey="easyApplyFieldFocus_q1"]');
+    expect(f.optionSelectors).toEqual(['#q1-b0', '#q1-b1']);
+    expect(f.optionPressSelectors).toEqual([
+      'label[for="q1-b0"]',
+      'label[for="q1-b1"]',
+    ]);
+    expect(f.stableGroup).toEqual({
+      selector:
+        'div[componentkey="easyApplyFieldFocus_q1"] input[type="checkbox"]',
+      count: 2,
+      ids: ['q1-b0', 'q1-b1'],
+    });
+    expect(
+      only(boxGroup('Which stacks?', ['Node', 'Go'])).question.required,
+    ).toBe(false);
+  });
+
+  it('a single consent box under a <p> question is a one-option checkbox-group', () => {
+    const f = only(boxGroup('You agree to the terms.*', ['I consent']));
+    expect(f.question).toEqual({
+      label: 'You agree to the terms.',
+      type: 'checkbox-group',
+      required: true,
+      options: ['I consent'],
+    });
+    expect(f.optionPressSelectors).toEqual(['label[for="q1-b0"]']);
+    expect(f.stableGroup?.count).toBe(1);
+  });
+
+  it('two checkbox groups side by side each get their own question and identity', () => {
+    const r = step(
+      readStep(
+        form(boxGroup('A?', ['x', 'y'], 'qa') + boxGroup('B?', ['z'], 'qb')),
+      ),
+    );
+    expect(r.unknown).toEqual([]);
+    expect(
+      r.fields.map((f) => [f.question.label, f.stableGroup?.selector]),
+    ).toEqual([
+      [
+        'A?',
+        'div[componentkey="easyApplyFieldFocus_qa"] input[type="checkbox"]',
+      ],
+      [
+        'B?',
+        'div[componentkey="easyApplyFieldFocus_qb"] input[type="checkbox"]',
+      ],
+    ]);
+  });
+
+  it('a <p> question is not taken when the wrapper holds another control', () => {
+    const r = step(
+      readStep(
+        form(
+          boxGroup(
+            'Which?',
+            ['Node', 'Go'],
+            'q1',
+            '<input id="extra" type="text">',
+          ),
+        ),
+      ),
+    );
+    expect(
+      r.fields.filter((f) => f.question.type === 'checkbox-group'),
+    ).toEqual([]);
+    expect(r.unknown.length).toBeGreaterThan(0);
+  });
+
+  it('a <p>-question group with no identity a re-render keeps is unknown', () => {
+    // The wrapper key is not unique on the page, and the boxes share no
+    // aria-label: a press could not be tied to its box after a re-render.
+    const r = step(
+      readStep(
+        form(
+          boxGroup('A?', ['x', 'y'], 'dup') +
+            '<div componentkey="easyApplyFieldFocus_dup"></div>',
+        ),
+      ),
+    );
+    expect(r.fields).toEqual([]);
+    expect(r.unknown).toHaveLength(1);
+    expect(r.unknown[0]?.inputType).toBe('checkbox');
+  });
+
+  it('a Disability-style radio group with no identity a re-render keeps is unknown', () => {
+    const r = step(
+      readStep(
+        form(
+          disability(null, ['Disability', 'Disability']) +
+            '<div componentkey="easyApplyFieldFocus_dis"></div>',
+        ),
+      ),
+    );
+    expect(r.fields).toEqual([]);
+    expect(r.unknown).toHaveLength(1);
+  });
+
+  // LinkedIn's Disability question: radios with no aria-label, each named by
+  // aria-labelledby to its own heading reading the same.
+  const disability = (p: string | null, headings: string[]) =>
+    `<div componentkey="easyApplyFieldFocus_dis">${p === null ? '' : `<p>${p}</p>`}<div><p>Long notice</p></div><fieldset role="radiogroup"><div>` +
+    headings
+      .map(
+        (h, i) =>
+          `<div><div id="h${i}"><strong>${h}</strong></div><div><div><input id="d${i}" aria-labelledby="h${i}" type="radio" name="radio-group-d"><label for="d${i}"></label></div><div><p>Option ${i}</p></div></div></div>`,
+      )
+      .join('') +
+    '</div></fieldset></div>';
+
+  it('a radio group labelled by aria-labelledby headings takes the <p> question above it', () => {
+    const f = only(
+      disability('<strong>Disability</strong>', ['Disability', 'Disability']),
+    );
+    expect(f.question).toEqual({
+      label: 'Disability',
+      type: 'radio',
+      required: true,
+      options: ['Option 0', 'Option 1'],
+    });
+    expect(f.stableGroup?.selector).toBe(
+      'div[componentkey="easyApplyFieldFocus_dis"] input[type="radio"]',
+    );
+  });
+
+  it('without a <p> question, the shared heading names the radio group', () => {
+    const f = only(disability(null, ['Disability', 'Disability']));
+    expect(f.question.label).toBe('Disability');
+    const differ = step(readStep(form(disability(null, ['A', 'B']))));
+    expect(differ.fields).toEqual([]);
+    expect(differ.unknown).toHaveLength(1);
   });
 
   it('a fieldset of several checkboxes is checkbox-group', () => {
@@ -646,6 +1003,38 @@ describe('readStep labels', () => {
       ['B', true],
       ['C', true],
     ]);
+  });
+
+  const cityBox = (p: string, more = '') =>
+    `<div componentkey="easyApplyFieldFocus_ea.q::1::UNKNOWN::value.validation"><p>${p}</p><div role="status" aria-live="polite" aria-atomic="true"></div><div data-expanded="false"><div><input id="_r_1u_" data-testid="typeahead-input" autocomplete="off" placeholder="xxxxx" aria-autocomplete="list" value="">${more}</div></div></div>`;
+
+  it('reads a typeahead’s label from the <p> in its field wrapper', () => {
+    const f = only(cityBox('Location (city)*'));
+    expect(f.question).toEqual({
+      label: 'Location (city)',
+      type: 'typeahead',
+      required: true,
+    });
+    expect(f.selector).toBe('#_r_1u_');
+    expect(f.key).toBe(
+      'easyApplyFieldFocus_ea.q::1::UNKNOWN::value.validation',
+    );
+    expect(only(cityBox('Location (city)')).question.required).toBe(false);
+  });
+
+  it('takes no <p> label when the wrapper holds another control, or for plain text', () => {
+    const two = step(
+      readStep(form(cityBox('Location (city)', '<input id="other">'))),
+    );
+    expect(two.unknown).toHaveLength(2);
+    const plain = step(
+      readStep(
+        form(
+          '<div componentkey="easyApplyFieldFocus_x"><p>Location (city)</p><input id="t" type="text"></div>',
+        ),
+      ),
+    );
+    expect(plain.unknown).toHaveLength(1);
   });
 
   it('reads help text from aria-describedby, without the counter', () => {

@@ -23,6 +23,7 @@ import {
 import {
   bankNameSecrets,
   bankSecrets,
+  leakCheck,
   scrubSnapshot,
 } from '../snapshot/scrub.js';
 import {
@@ -174,15 +175,20 @@ function listHtml(root: string, rel = ''): string[] {
   return out.sort();
 }
 
-/** Scrubs raw files with no scrubbed twin. Prints names and counts, never text. */
+/**
+ * Scrubs raw files with no scrubbed twin, then runs the leak check on every
+ * scrubbed file. Prints names, kinds and counts, never text. Exits 1 on any
+ * leak.
+ */
 export async function snapshotScrubCommand(
   deps: SnapshotDeps = defaultDeps(),
 ): Promise<number> {
   const { io } = deps;
+  let bank: FactBank;
   let secrets: string[];
   let nameSecrets: string[];
   try {
-    const bank = deps.loadBank();
+    bank = deps.loadBank();
     secrets = bankSecrets(bank);
     nameSecrets = bankNameSecrets(bank);
   } catch (e) {
@@ -209,5 +215,18 @@ export async function snapshotScrubCommand(
     );
   }
   io.print(`scrubbed ${todo.length} file(s)`);
-  return 0;
+  let leaks = 0;
+  for (const rel of listHtml(deps.scrubbedDir)) {
+    const found = leakCheck(
+      readFileSync(join(deps.scrubbedDir, rel), 'utf8'),
+      bank,
+    );
+    if (found.length === 0) continue;
+    leaks += found.reduce((n, l) => n + l.count, 0);
+    io.print(
+      `${rel}: leak ${found.map((l) => `${l.kind} ${l.count}`).join(', ')}`,
+    );
+  }
+  io.print(`leaks: ${leaks}`);
+  return leaks > 0 ? 1 : 0;
 }

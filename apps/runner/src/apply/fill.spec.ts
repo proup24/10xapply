@@ -2,9 +2,12 @@ import { describe, expect, it } from 'vitest';
 import type { Locator } from 'patchright-core';
 import type { Pace } from '../pace/pace.js';
 import type { ReadField } from '../linkedin/types.js';
+import { parsePage } from '../linkedin/dom.js';
+import { readStep } from '../linkedin/form-step.js';
 import {
   ReadMismatchError,
   fillField,
+  suggestionMatches,
   type FillPage,
   type Resume,
 } from './fill.js';
@@ -38,6 +41,10 @@ function fakePace(
       // A label[for] press checks its input.
       const box = s.pressFor?.[sel] ?? sel;
       s.checked = { ...s.checked, [box]: !(s.checked?.[box] ?? false) };
+      const other = s.alsoToggles?.[sel];
+      if (other !== undefined) {
+        s.checked = { ...s.checked, [other]: !(s.checked?.[other] ?? false) };
+      }
     },
     type: async (f, text, o) => {
       w(o);
@@ -81,6 +88,8 @@ interface PageState {
   suggestions?: Record<string, Record<string, string>>;
   /** Selectors a click doesn't change. */
   inert?: string[];
+  /** A press on this selector also toggles that one (a stray tick). */
+  alsoToggles?: Record<string, string>;
   /** A press target (a label) -> the input whose state it changes. */
   pressFor?: Record<string, string>;
   /** Selectors typing doesn't change. */
@@ -123,9 +132,12 @@ function fakePage(s: PageState): FillPage {
     value: async (sel) => (gone(sel), s.values?.[sel] ?? ''),
     checked: async (sel) => (gone(sel), s.checked?.[sel] ?? false),
     selectedText: async (sel) => (gone(sel), s.selected?.[sel] ?? null),
-    suggestion: async (list, text) => (
+    // The first option, in list order, that the pick rule accepts.
+    suggestion: async (list, pick) => (
       gone(list),
-      s.suggestions?.[list]?.[text] ?? null
+      Object.entries(s.suggestions?.[list] ?? {}).find(([t]) =>
+        suggestionMatches(t, pick),
+      )?.[1] ?? null
     ),
     idAt: async (sel, i, count) => {
       gone(sel);
@@ -180,12 +192,14 @@ async function run(
   f: ReadField,
   value: string | string[],
   state: PageState = {},
+  place?: { city: string; country: string },
 ) {
   const calls: string[] = [];
   const result = await fillField(f, value, {
     pace: fakePace(calls, state),
     page: fakePage(state),
     resume,
+    ...(place ? { place } : {}),
   });
   return { calls, result };
 }
@@ -215,6 +229,12 @@ describe('fillField', () => {
 
   it('refuses an untypeable answer before any pace call', async () => {
     const { calls, result } = await run(field('text'), 'caf\u00e9');
+    expect(calls).toEqual([]);
+    expect(result).toEqual({ ok: false, reason: 'not-typeable' });
+  });
+
+  it('a date field is not-typeable, before any pace call', async () => {
+    const { calls, result } = await run(field('date'), '2026-11-19');
     expect(calls).toEqual([]);
     expect(result).toEqual({ ok: false, reason: 'not-typeable' });
   });
@@ -354,6 +374,62 @@ describe('fillField', () => {
     });
     expect(calls).toEqual(['clear #f', 'type #f 555 0100']);
     expect(result).toEqual({ ok: true, changedFromLinkedIn: true });
+  });
+
+  it('never picks a repeated select option: refused before anything is done', async () => {
+    const f = field('select', {
+      options: ['Lincoln University', 'Acme College', 'Lincoln University'],
+      pageIndexes: [1, 2, 3],
+      repeatedOptions: ['Lincoln University'],
+    });
+    for (const answer of ['Lincoln University', ' lincoln university ']) {
+      const { calls, result } = await run(f, answer, {
+        selected: { '#f': 'Lincoln University' },
+      });
+      expect(calls).toEqual([]);
+      expect(result).toEqual({ ok: false, reason: 'no-option' });
+    }
+    // An option that doesn't repeat is still picked.
+    const ok = await run(f, 'Acme College', { selected: { '#f': null } });
+    expect(ok.calls).toEqual(['pick #f 2']);
+  });
+
+  it('on a read education step: refuses a repeated School, still picks a Degree', async () => {
+    const select = (id: string, q: string, opts: string[]) =>
+      `<div componentkey="easyApplyFieldFocus_${id}"><label for="${id}"><div>${q}</div></label><select id="${id}"><option value="" disabled>Select an option</option>` +
+      opts.map((o, i) => `<option value="v${i}">${o}</option>`).join('') +
+      '</select></div>';
+    const r = readStep(
+      parsePage(
+        '<body><dialog><header id="dialog-header"><h2>Apply to Acme</h2></header><div data-testid="dialog-content">' +
+          select('s', 'School', [
+            'Acme College',
+            'Lincoln University',
+            'Zed Institute',
+            'Lincoln University',
+          ]) +
+          select('d', 'Degree', ["Bachelor's Degree", "Master's Degree"]) +
+          select('f', 'Field of study', ['Computer Science', 'Mathematics']) +
+          '</div><footer><button><span><span>Next</span></span></button></footer></dialog></body>',
+      ),
+    );
+    if (r.kind !== 'step') throw new Error('not a step');
+    expect(r.unknown).toEqual([]);
+    const [school, degree] = r.fields;
+    if (!school || !degree) throw new Error('fields missing');
+    const refused = await run(school, 'Lincoln University', {
+      selected: { [school.selector]: null },
+    });
+    expect(refused.calls).toEqual([]);
+    expect(refused.result).toEqual({ ok: false, reason: 'no-option' });
+    const other = await run(school, 'Zed Institute', {
+      selected: { [school.selector]: null },
+    });
+    expect(other.calls).toEqual([`pick ${school.selector} 3`]);
+    const picked = await run(degree, "Master's Degree", {
+      selected: { [degree.selector]: null },
+    });
+    expect(picked.calls).toEqual([`pick ${degree.selector} 2`]);
   });
 
   it('picks a select option by its index', async () => {
@@ -543,6 +619,64 @@ describe('fillField', () => {
     expect(result).toEqual({ ok: false, reason: 'no-option' });
   });
 
+  it('reads back every box of a group: a press that ticks another box too → unverified', async () => {
+    const f = field('checkbox-group', {
+      options: ['A', 'B', 'C'],
+      optionSelectors: ['#a', '#b', '#c'],
+    });
+    const state: PageState = { alsoToggles: { '#a': '#c' } };
+    const { calls, result } = await run(f, ['A'], state);
+    expect(calls).toEqual(['click #a']);
+    expect(result).toEqual({ ok: false, reason: 'unverified' });
+  });
+
+  it.each([[[] as string[]], ['']])(
+    'an empty answer on an optional group leaves every box unticked (%j)',
+    async (value) => {
+      const f = field('checkbox-group', {
+        options: ['A', 'B'],
+        optionSelectors: ['#a', '#b'],
+      });
+      f.question.required = false;
+      const none = await run(f, value);
+      expect(none.calls).toEqual(['glance #f']);
+      expect(none.result).toEqual({ ok: true, changedFromLinkedIn: false });
+      const state: PageState = { checked: { '#b': true } };
+      const ticked = await run(f, value, state);
+      expect(ticked.calls).toEqual(['click #b']);
+      expect(state.checked).toEqual({ '#b': false });
+      expect(ticked.result).toEqual({ ok: true, changedFromLinkedIn: true });
+    },
+  );
+
+  it('an empty answer on a required group is refused before anything is done', async () => {
+    const f = field('checkbox-group', {
+      options: ['I consent'],
+      optionSelectors: ['#a'],
+    });
+    const { calls, result } = await run(f, []);
+    expect(calls).toEqual([]);
+    expect(result).toEqual({ ok: false, reason: 'no-option' });
+  });
+
+  it('ticks a one-box consent group through its wrapper identity after a re-render', async () => {
+    const W =
+      'div[componentkey="easyApplyFieldFocus_q"] input[type="checkbox"]';
+    const f = field('checkbox-group', {
+      options: ['I consent'],
+      optionSelectors: ['#_r_53_'],
+      optionPressSelectors: ['label[for="_r_53_"]'],
+      stableGroup: { selector: W, count: 1, ids: ['_r_53_'] },
+    });
+    const { calls, result } = await run(f, ['I consent'], {
+      counts: { [W]: 1 },
+      ids: { [W]: ['_r_53_'] },
+      pressFor: { 'label[for="_r_53_"]': `${W}@0` },
+    });
+    expect(calls).toEqual(['click label[for="_r_53_"]']);
+    expect(result).toEqual({ ok: true, changedFromLinkedIn: false });
+  });
+
   it('ticks a checkbox for Yes', async () => {
     const { calls, result } = await run(field('checkbox'), 'Yes');
     expect(calls).toEqual(['click #f']);
@@ -642,6 +776,94 @@ describe('fillField', () => {
     const second = await run(f, 'London', state);
     expect(second.calls).toEqual(['type #f London', 'click #opt-london']);
     expect(second.result).toEqual({ ok: true, changedFromLinkedIn: false });
+  });
+
+  describe('the city typeahead', () => {
+    const place = { city: 'Tangier', country: 'Morocco' };
+    const f = field('typeahead', { suggestions: '#list' });
+    it('picks the suggestion that starts with the city and holds the country', async () => {
+      const { calls, result } = await run(
+        f,
+        'Tangier',
+        {
+          suggestions: {
+            '#list': {
+              'Tangier, Morocco Street, Lagos': '#opt-lagos',
+              'Tangier, Tanger-Tetouan-Al Hoceima, Morocco': '#opt-tangier',
+            },
+          },
+        },
+        place,
+      );
+      expect(calls).toEqual(['type #f Tangier', 'click #opt-tangier']);
+      expect(result).toEqual({ ok: true, changedFromLinkedIn: false });
+    });
+    it('ignores case and picks the first of several matches', async () => {
+      const { calls } = await run(
+        f,
+        'Tangier',
+        {
+          suggestions: {
+            '#list': {
+              'TANGIER, MOROCCO': '#opt-1',
+              'Tangier, Tanger-Tetouan-Al Hoceima, Morocco': '#opt-2',
+            },
+          },
+        },
+        place,
+      );
+      expect(calls).toEqual(['type #f Tangier', 'click #opt-1']);
+    });
+    it('stops when no suggestion matches, and clears the field', async () => {
+      const state: PageState = {
+        suggestions: {
+          '#list': {
+            'Tangier, Morocco Street, Lagos': '#opt-lagos',
+            'Old Tangier, Morocco': '#opt-old',
+          },
+        },
+      };
+      const { calls, result } = await run(f, 'Tangier', state, place);
+      expect(calls).toEqual(['type #f Tangier', 'clear #f']);
+      expect(result).toEqual({ ok: false, reason: 'no-suggestion' });
+      expect(state.values?.['#f']).toBe('');
+    });
+    it('keeps the exact-text rule for any other typeahead answer', async () => {
+      const { calls, result } = await run(
+        f,
+        'Rabat',
+        { suggestions: { '#list': { 'Rabat, Morocco': '#opt-rabat' } } },
+        place,
+      );
+      expect(calls).toEqual(['type #f Rabat', 'clear #f']);
+      expect(result).toEqual({ ok: false, reason: 'no-suggestion' });
+    });
+  });
+
+  describe('suggestionMatches', () => {
+    it('without a country, needs the same text (spaces and case aside)', () => {
+      expect(suggestionMatches(' london ', { text: 'London' })).toBe(true);
+      expect(suggestionMatches('London, UK', { text: 'London' })).toBe(false);
+    });
+    it('with a country, needs the city first and the country anywhere', () => {
+      const pick = { text: 'Tangier', country: 'Morocco' };
+      expect(suggestionMatches('tangier,  morocco', pick)).toBe(true);
+      expect(suggestionMatches('Tangier, Spain', pick)).toBe(false);
+      expect(suggestionMatches('Morocco, Tangier', pick)).toBe(false);
+      expect(suggestionMatches('Tangier, Morocco Street, Lagos', pick)).toBe(
+        false,
+      );
+      expect(suggestionMatches('Tangiers, Morocco', pick)).toBe(false);
+      expect(
+        suggestionMatches(
+          'Tangier Med, Tanger-Tetouan-Al Hoceima, Morocco',
+          pick,
+        ),
+      ).toBe(false);
+      expect(
+        suggestionMatches('Tangier, Tanger-Tetouan-Al Hoceima, Morocco', pick),
+      ).toBe(true);
+    });
   });
 
   it('never glances at a typeahead holding the answer’s text', async () => {

@@ -36,7 +36,8 @@ Decision marks: _(user)_ means the user decided it; _(my call)_ means Claude pro
 - **Redis waits until Phase 3** _(my call)_. In Phase 2 a single local runner reads approved jobs from Postgres. Redis queues arrive with hosted workers, when several accounts run on our servers.
 - **Mirror 10xjobs wherever it already decided** _(user, from the original brief)_. That covers the Claude harness, CI, the Prisma contract as the only schema source (RLS included), the Supabase CLI locally and Supabase Cloud hosted, Next.js on Vercel, NestJS on a Hetzner server with Docker Compose and Caddy, deploys on merge, and LLM calls through `claude -p` on the author's subscription _(user)_, with the model per role set in configuration. Paths to copy from are named in each slice.
 - **Who may run things against the real LinkedIn account, widening over time** _(user wants Claude to run everything eventually; the stages are my call)_. The risk to the account comes from how often and how fast the account is used. Who starts a run matters less. So Claude's access widens as the runner's own limits are built:
-  - **Phases 0–1:** Claude may run `--dry-run` only, against at most a small number of jobs a day, and only when the author asked for it in that session. Real submits are run by the author. Run reports go under `private/` but also have a redacted copy (no personal facts, no cookies) in a git-ignored, Claude-readable folder so Claude can debug from them. Saved page snapshots are committed as test fixtures only after being scrubbed of personal data.
+  - **Phases 0–1:** Claude may run `--dry-run` only, against at most a small number of jobs a day, and only when the author asked for it in that session. Real submits are run by the author. Run reports go under `private/` but also have a redacted copy (no personal facts, no cookies) in a git-ignored folder, the copy meant for anything shared. From slice 07b Claude may also read the full reports under `private/runs/` to debug. Saved page snapshots are committed as test fixtures only after being scrubbed of personal data.
+  - **From slice 07b:** Claude may read everything under `private/` and edit the fact bank and the other files there, but not `applications.json`, which it may only read. The limits on runs stay as they are until slice 14.
   - **From slice 14:** once the runner itself enforces pacing, the daily cap and the safety stops, Claude may start the runner, real submits included, because every run goes through those limits whoever started it.
   - Slice 01's guard enforces the first stage. Slice 14 relaxes it.
 - **Author's everyday Chrome first, a dedicated profile before servers** _(user)_. Through Phases 1 and 2 the runner uses the author's normal Windows Chrome and the LinkedIn sign-in it already has. The switch to a dedicated profile comes with the move to servers in Phase 3. Slice 03 settled two things (see [its spec](../superpowers/specs/2026-11-11-local-browser-and-session-design.md)):
@@ -87,8 +88,12 @@ The author gives the runner one LinkedIn job URL. A real Chrome window on the au
 | 06  | Walk the form without submitting              | 03, 03b, 05 |
 | 07  | Submit, and never twice                       | 06, 05b     |
 | 07b | Fill more of the form                         | 07          |
+| 07c | Rebuild the generator and verifier            | 07b         |
+| 07d | Automation checks go to the author            | 07b         |
+| 07e | A resume for each kind of role                | 07b         |
+| 07f | The bank, reviewed                            | 07b         |
 
-03→03b and 04→05 are independent; 05b follows 06, and 05c follows 05b.
+03→03b and 04→05 are independent; 05b follows 06, 05c follows 05b, and 07c, 07d, 07e and 07f each follow 07b; 07c and 07f can run side by side.
 
 ### 03 Local browser and the LinkedIn session
 
@@ -170,12 +175,54 @@ The author gives the runner one LinkedIn job URL. A real Chrome window on the au
 ### 07b Fill more of the form
 
 - **Scope:** fewer runs that stop or ask at the terminal, before Phase 2 makes every stop a stalled job. It gathers the follow-ups that slices 06 and 07 left out:
-  - Questions the bank should already answer but that still went to the terminal in slice 07's real submit _(user)_.
   - Date fields and multi-select fields _(user)_.
   - The three hard-question jobs the author saved for this slice (4488500594, 4490505838, 4490356080) _(user)_.
-  - The other slice 06 gaps: the email dropdown, the step-1 text box the runner can't read, and Yes/No questions the bank says nothing about.
+  - From the walkthrough: all four of those jobs that were snapshotted should end `disqualified` under the author's rules, so they serve as fixtures. The live dry runs use saved jobs the author is eligible for.
+  - The other slice 06 gaps: the email dropdown and the step-1 text box the runner can't read.
+- **Left open when 07b closed** (2026-11-16) _(user: no eligible saved jobs yet, come back to it)_:
+  - Reading and filling date fields in the runner (the plan's Task 8). The answerer side is built; no snapshot has had a date field.
+  - Filling the city typeahead live, and recording a lasting option id. It needs a snapshot with the suggestion list open. Until then a required city box stops the run and an optional one is left blank.
+  - The live dry runs (the plan's Task 11): every job in the set reaches the review page, one live date field and one live multi-select are filled and read back. It needs saved jobs the author is eligible for.
+  - These are picked up when the author has such jobs, before slice 14.
 - **Locked:** the slice 05 and 06 rules still hold. An answer the bank can't back is asked or stops the run, never guessed.
-- **Spec answers:** why the bank misses happen (the answerer, the bank's wording, or how questions are read) and how they are fixed; which field types are added and how each is read and filled; whether this is one slice or splits into 07b and 07c.
+- **Spec:** [slice 07b spec](../superpowers/specs/2026-11-14-fill-more-of-the-form-design.md).
+- **Spec answers:** settled in the spec.
+
+### 07c Rebuild the generator and verifier
+
+- **Scope** _(user)_: the answerer gives up too easily and leans on the bank's exact wording, so the generator and the verifier are rebuilt to reason from meaning.
+  - The generator answers from any clue in the bank. It stops the run and asks only when the bank holds no clue at all.
+  - The verifier and the code checks judge meaning, not wording, for every kind of question.
+  - The fix lives in how they reason, with as little special wording as possible in the prompts or the bank _(user)_.
+  - It starts from `answers-eval --set misses`, the misses that slice 07b records, and covers experience questions, salary and Yes/No questions.
+- **Eval cases it must pass** (from the 07b walkthrough) _(user)_:
+  - A plain-text "target salary" field gets the single expected figure. A range is given only when a dropdown offers ranges.
+  - "Open to occasional travel" picks the lowest travel percentage on offer.
+  - "I have no disability" backs "No, I do not have a disability and have not had one in the past".
+  - Gender and transgender questions are answered from the bank's identity facts.
+  - "Not a veteran" answers every veteran or armed-forces question.
+  - A salary asked "in local currency" (or in any currency the bank doesn't hold) is converted from the bank's figure at an approximate rate the model knows, and the answer names the currency. The prompt's "never convert currency" rule goes, and the code checks accept the converted figure _(user: "regardless of accuracy … rate is just an approximation")_. Converting between periods (monthly and yearly) is unchanged.
+  - A long or oddly worded question matches a short known answer by meaning, as the AI-tools-in-interviews pledge already does.
+- **Locked:** the slice 05 rules still hold. An answer with no clue in the bank is asked or stops the run, never invented. Automation checks are slice 07d's, not this slice's.
+- **Spec answers:** why each miss happens (the answerer, the bank's wording, or how questions are read), how the generator and verifier change, and which eval sets prove it (example, private and misses).
+
+### 07d Automation checks go to the author
+
+- **Scope** _(user)_: the answerer recognises questions that exist to catch automated applications, such as "To help us prevent automated job applications, solve for X: 1 + X = 3", "Are you a human?", or a puzzle unrelated to the job or the applicant. It blocks them with a new reason, `automation-check`, instead of `bank-silent`. The author answers them: at the terminal in their own runs. A run Claude starts ends `needs-author`. Slice 14's unattended runner holds the job for the author. Misses with this reason are left out of 07c's work, since the bank is not meant to answer them.
+- **Locked:** the runner never answers an automation check on its own, whatever the bank holds.
+- **Spec answers:** how a check is spotted (a code pattern for the obvious wordings, a model classification for paraphrases), golden cases for both kinds, and the wording the author sees at the terminal.
+
+### 07e A resume for each kind of role
+
+- **Scope** _(user)_: the author clears the resumes already uploaded to LinkedIn and uploads one per kind of role (for example Frontend, Fullstack, Backend, AI). The bank lists each resume with the roles it fits. On the resume step, the model picks the resume that fits the job, either one LinkedIn already lists or one to upload. Until then the runner uses the bank's one default resume.
+- **Locked:** the resume step fills only a resume from the bank. When none clearly fits, the run asks the author instead of picking one.
+- **Spec answers:** how the bank describes each resume, how the job is matched to one (title, description), how a resume LinkedIn lists is matched to a bank file, and eval cases for the choice.
+
+### 07f The bank, reviewed
+
+- **Scope** _(user)_: the author and Claude go through the fact bank once, turning narrow, form-shaped answers into plain facts about the author (for example "I am not a protected veteran" becomes "I am not a veteran and have never served"). They also fill the gaps the walkthroughs found: bachelor's degree details, passport validity, the full address, and any identity details the author chooses to give. Mostly the author's input, little code.
+- **Locked:** only facts the author gives or confirms go in. Claude runs `facts-check` after each edit.
+- **Spec answers:** which entries change and why, and which misses each change is expected to clear.
 
 ## Phase 2: Steady stream for the author
 
@@ -183,20 +230,28 @@ The author gives the runner one LinkedIn job URL. A real Chrome window on the au
 
 **Exit criteria:** a job 10xjobs matches for the author shows up in the web app; approving it leads to a submitted Easy Apply application by the runner without any terminal command; a blocking question can be answered in the web app and the run then goes ahead; the same job sent twice by webhook, or approved twice, is applied to at most once; matches for an email with no account are held and show up when that person signs up; one user can never read another user's data, and tests prove it.
 
-| #   | Slice                             | Depends on |
-| --- | --------------------------------- | ---------- |
-| 08  | Supabase and the database         | 02         |
-| 09  | Web app and invite-only sign-in   | 08         |
-| 10  | Facts in the database             | 09, 04     |
-| 11  | Hosted API                        | 08         |
-| 12  | Webhook intake                    | 11         |
-| 13  | Approve or skip matches           | 09, 12     |
-| 14  | The runner takes approved jobs    | 07, 10, 13 |
-| 15  | Blocking questions in the web app | 14         |
-| 16  | Launch check                      | 08–15      |
-| 17  | Tailored resumes                  | 16         |
+| #   | Slice                             | Depends on       |
+| --- | --------------------------------- | ---------------- |
+| 08  | Supabase and the database         | 02               |
+| 09  | Web app and invite-only sign-in   | 08               |
+| 10  | Facts in the database             | 09, 04           |
+| 11  | Hosted API                        | 08               |
+| 12  | Webhook intake                    | 11               |
+| 13  | Approve or skip matches           | 09, 12           |
+| 14  | The runner takes approved jobs    | 07c, 07d, 10, 13 |
+| 15  | Blocking questions in the web app | 14               |
+| 16  | Launch check                      | 08–15            |
+| 17  | Tailored resumes                  | 16               |
 
 10 and 11–12 are independent and can be built in either order.
+
+**Build order after 07b** _(user, 2026-11-16)_: 08, 11 and 12 come next, ahead of 07c to 07f. Real matches from 10xjobs then give the author jobs they are eligible for, which 07b's open items and 07c's misses need. Intake stays on the NestJS API (slice 11), as locked under "Mirror 10xjobs", not on Supabase edge functions _(user)_. Until 12 lands, the author picks a few eligible 10xjobs matches by hand for 07b's dry runs. The order is then:
+
+1. 08 Supabase and the database
+2. 11 Hosted API
+3. 12 Webhook intake, with the small sending PR in 10xjobs. Until 13, matches are read in the Supabase dashboard.
+4. 07c and 07f side by side, then 07d and 07e
+5. 09, 10, 13, 14 and on, as in the table
 
 ### 08 Supabase and the database
 

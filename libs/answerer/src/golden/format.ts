@@ -68,6 +68,8 @@ export interface GoldenCase {
   question: FormQuestion;
   /** A key of `jobs`; 'default' when not given. */
   job?: string;
+  /** YYYY-MM-DD. Overrides the file's runDate for this case. */
+  runDate?: string;
   expect: Expect;
 }
 
@@ -81,6 +83,8 @@ export interface GoldenFile {
 }
 
 const id = z.string().min(1);
+
+const runDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'must be YYYY-MM-DD');
 
 const expectSource = z.union([
   z.strictObject({ fact: z.number().int().min(0) }),
@@ -149,12 +153,13 @@ const caseSchema = z.strictObject({
   id,
   question: questionSchema,
   job: id.optional(),
+  runDate: runDate.optional(),
   expect: expectSchema,
 });
 
 export const goldenFileSchema = z.strictObject({
   bank: z.string().min(1).optional(),
-  runDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'must be YYYY-MM-DD'),
+  runDate,
   jobs: z.record(z.string(), jobSchema),
   cases: z.array(caseSchema),
 });

@@ -151,6 +151,7 @@ describe('golden/example.yaml', () => {
       'checkbox',
       'file',
       'typeahead',
+      'date',
     ] as const) {
       expect(types.has(t), t).toBe(true);
     }
@@ -181,8 +182,8 @@ describe('golden/example.yaml', () => {
       expect(score.problems, c.id).toEqual([]);
       scored.push(c.id);
     }
-    // 14 filled fields, the empty website, the email over maxLength, the
-    // cover letter and the date field.
-    expect(scored).toHaveLength(18);
+    // 16 filled fields, the empty website, the email over maxLength, the
+    // cover letter and the unsupported field type.
+    expect(scored).toHaveLength(20);
   });
 });

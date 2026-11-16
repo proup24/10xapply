@@ -1,12 +1,17 @@
 import {
+  addOffset,
   evaluate,
   expressionNumbers,
+  hasAmount,
   MathError,
   MONTHS,
   numbersIn,
   optionContains,
+  parseDate,
+  statesOffset,
   yearsSince,
 } from './math.js';
+import { fieldValueFor } from './fields.js';
 import { matchOption, sourceText } from './sources.js';
 import {
   CHOICE_TYPES,
@@ -103,6 +108,8 @@ function checkMath(
 ): CheckResult | { result: number } {
   const spec = c.math;
   if (!spec) return fail('math missing');
+  // A date offset gives a date, so it only answers a date question.
+  if (spec.kind === 'date-offset') return fail('math does not match');
   try {
     let result: number;
     if (spec.kind === 'years-since') {
@@ -141,10 +148,60 @@ function checkMath(
   }
 }
 
+/**
+ * A date question's math: the run date plus an amount and unit that one cited
+ * entry of the author's states together ("one week"). The value must be the
+ * computed date.
+ */
+function checkDateOffset(
+  c: AnswerCandidate,
+  authorTexts: string[],
+  runDate: string,
+  value: string,
+): CheckResult {
+  const spec = c.math;
+  if (!spec) return fail('math missing');
+  if (spec.kind !== 'date-offset') return fail('math does not match');
+  if (!authorTexts.some((t) => hasAmount(t, spec.amount))) {
+    return fail('number not in sources');
+  }
+  if (!authorTexts.some((t) => statesOffset(t, spec.amount, spec.unit))) {
+    return fail('math does not match');
+  }
+  try {
+    if (value !== addOffset(runDate, spec.amount, spec.unit)) {
+      return fail('math does not match');
+    }
+  } catch (e) {
+    if (e instanceof MathError) return fail('math does not match');
+    throw e;
+  }
+  return { ok: true, value };
+}
+
+/**
+ * The bank value when the candidate's only source is one bank field, else
+ * null. An as-written answer from that field is the field's value exactly,
+ * whatever language the label is in.
+ */
+function onlyFieldText(
+  q: FormQuestion,
+  c: AnswerCandidate,
+  ctx: AnswerContext,
+): string | null {
+  const [only] = c.sources;
+  if (c.sources.length !== 1 || only?.kind !== 'field') return null;
+  // The same value the code mapping fills (the national number beside a
+  // country-code field).
+  const text = fieldValueFor(only.key, q, ctx.bank);
+  return text === undefined || text.trim() === '' ? null : text.trim();
+}
+
 function checkChoice(
   q: FormQuestion,
   c: AnswerCandidate,
   answerTexts: string[],
+  fieldText: string | null,
   math: () => CheckResult | { result: number },
 ): CheckResult {
   const computed = c.math ? math() : null;
@@ -173,7 +230,11 @@ function checkChoice(
   const option = matchOption(value, options);
   if (option === null) return fail('option not offered');
   // The value may not contradict the cited answer.
-  if (c.derivation === 'as-written') {
+  if (c.derivation === 'as-written' && fieldText !== null) {
+    if (matchOption(fieldText, options) !== option) {
+      return fail('not as written');
+    }
+  } else if (c.derivation === 'as-written') {
     if (answerTexts.length !== 1) return fail('not as written');
     if (matchOption(answerTexts[0], options) !== option) {
       return fail('not as written');
@@ -205,7 +266,8 @@ export function checkCandidate(
   const isText = (TEXT_TYPES as readonly string[]).includes(q.type);
   const isNumber = q.type === 'number';
   const isFile = q.type === 'file';
-  if (!isChoice && !isText && !isNumber && !isFile)
+  const isDate = q.type === 'date';
+  if (!isChoice && !isText && !isNumber && !isFile && !isDate)
     return fail('wrong value shape');
 
   const wantsArray = q.type === 'checkbox-group';
@@ -260,7 +322,8 @@ export function checkCandidate(
     c.sources.flatMap((s, i) => (isAuthorSource(s) ? numbersIn(texts[i]) : [])),
   );
   const math = () => checkMath(c, authorTexts, authorNumbers, ctx.runDate);
-  if (isChoice) return checkChoice(q, c, answerTexts, math);
+  const fieldText = onlyFieldText(q, c, ctx);
+  if (isChoice) return checkChoice(q, c, answerTexts, fieldText, math);
 
   // Text and number values.
   const raw = c.value as string;
@@ -271,8 +334,17 @@ export function checkCandidate(
   if (q.maxLength !== undefined && value.length > q.maxLength)
     return fail('too long');
   if (isNumber && !NUMBER_ONLY.test(value)) return fail('not a number');
+  // A date's canonical value is YYYY-MM-DD; the runner formats it for the field.
+  if (isDate && parseDate(value) === null) return fail('not a date');
+  if (isDate && c.derivation === 'math') {
+    return checkDateOffset(c, authorTexts, ctx.runDate, value);
+  }
+  // A date is backed only by the bank (as written) or by math, never composed.
+  if (isDate && c.derivation !== 'as-written') return fail('not as written');
 
-  if (c.derivation === 'as-written') {
+  if (c.derivation === 'as-written' && fieldText !== null) {
+    if (value !== fieldText) return fail('not as written');
+  } else if (c.derivation === 'as-written') {
     const answers = c.sources.filter((s: Source) => s.kind === 'answer');
     if (answers.length !== 1) return fail('not as written');
     const expected = sourceText(answers[0], ctx);

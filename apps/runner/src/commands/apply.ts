@@ -28,7 +28,19 @@ import {
   RecordError,
   type RecordStore,
 } from '../apply/record.js';
-import { ReadMismatchError, type Resume } from '../apply/fill.js';
+import {
+  ReadMismatchError,
+  suggestionMatches,
+  type Resume,
+  type SuggestionPick,
+} from '../apply/fill.js';
+import {
+  DEFAULT_MISSES_PATH,
+  loadMisses,
+  mergeMisses,
+  missesFromRun,
+  saveMisses,
+} from '../apply/misses.js';
 import {
   closingLine,
   formatRedactedSummary,
@@ -97,6 +109,8 @@ export interface ApplyCommandDeps {
     run: ApplyRun,
     bank: FactBank,
   ) => { full: string; redacted: string };
+  /** Merges the run's misses into the misses file; the counts are of fresh misses. */
+  writeMisses: (run: ApplyRun) => { added: number; updated: number };
   /** Adds a SIGINT listener; returns its removal. */
   onSigint: (fn: () => void) => () => void;
   /** A second Ctrl+C. */
@@ -127,6 +141,7 @@ function defaultDeps(): ApplyCommandDeps {
     caller: () => createClaudeCliCaller(),
     runApply,
     writeReports: (run, bank) => writeApplyReports(run, bank),
+    writeMisses: (run) => writeMisses(DEFAULT_MISSES_PATH, run),
     onSigint: (fn) => {
       process.on('SIGINT', fn);
       return () => void process.off('SIGINT', fn);
@@ -134,6 +149,24 @@ function defaultDeps(): ApplyCommandDeps {
     exit: (code) => process.exit(code),
     now: () => new Date(),
   };
+}
+
+/**
+ * Adds a run's misses to the misses file at `path`. A fresh miss whose id
+ * wasn't in the file is added; any other is an update of one seen before.
+ */
+export function writeMisses(
+  path: string,
+  run: ApplyRun,
+): { added: number; updated: number } {
+  const fresh = missesFromRun(run);
+  if (fresh.length === 0) return { added: 0, updated: 0 };
+  const file = loadMisses(path);
+  const before = new Set(file.misses.map((m) => m.id));
+  const ids = new Set(fresh.map((m) => m.id));
+  const added = [...ids].filter((id) => !before.has(id)).length;
+  saveMisses(path, mergeMisses(file, run, fresh));
+  return { added, updated: ids.size - added };
 }
 
 /** The local date as YYYY-MM-DD. */
@@ -167,19 +200,23 @@ export function adaptApplyPage(
    */
   const matchingOption = async (
     list: string,
-    want: string,
+    pick: SuggestionPick,
   ): Promise<string | null> => {
     const options = optionsOf(list);
     const n = await options.count();
     for (let k = 0; k < n; k++) {
       const text = await textAt(options.nth(k));
-      if (text.toLowerCase() !== want) continue;
+      if (!suggestionMatches(text, pick)) continue;
       const id = await options
         .nth(k)
         .getAttribute('id', { timeout: READ_TIMEOUT_MS });
       if (id) {
         const byId = `${list} [id=${quoted(id)}]`;
-        if ((await textAt(page.locator(byId))).toLowerCase() === want) {
+        // The element the id names must still read the same option.
+        if (
+          (await textAt(page.locator(byId))).toLowerCase() ===
+          text.toLowerCase()
+        ) {
           return byId;
         }
       }
@@ -235,11 +272,10 @@ export function adaptApplyPage(
         .textContent({ timeout: FILL_READ_TIMEOUT_MS });
       return text === null ? null : clean(text);
     },
-    suggestion: async (list, text) => {
-      const want = clean(text).toLowerCase();
+    suggestion: async (list, pick) => {
       const tries = Math.ceil(SUGGESTION_WAIT_MS / SUGGESTION_POLL_MS);
       for (let i = 0; i <= tries; i++) {
-        const found = await matchingOption(list, want);
+        const found = await matchingOption(list, pick);
         if (found !== null) return found;
         if (i < tries) await wait(SUGGESTION_POLL_MS);
       }
@@ -255,6 +291,21 @@ export function adaptApplyPage(
 function failed(d: ApplyCommandDeps, line: string, e: unknown): void {
   d.out(line);
   if (d.authorMode && e instanceof Error) d.out(`  ${e.message}`);
+}
+
+/**
+ * Writes the run's misses. A failure prints one fixed line (the error's
+ * name only, never its message) and changes nothing else.
+ */
+function recordMisses(d: ApplyCommandDeps, run: ApplyRun): void {
+  try {
+    const { added, updated } = d.writeMisses(run);
+    if (d.authorMode && added + updated > 0) {
+      d.out(`misses: ${added} new, ${updated} seen again`);
+    }
+  } catch (e) {
+    d.out(`misses: not written (${e instanceof Error ? e.name : 'error'})`);
+  }
 }
 
 function unavailableRun(jobId: string, startedAt: Date, why: string): ApplyRun {
@@ -423,6 +474,7 @@ export async function applyCommand(
     paths = d.writeReports(run, bank);
   } catch (e) {
     failed(d, REPORTS_FAILED, e);
+    recordMisses(d, run);
     return 2;
   }
   if (d.authorMode) {
@@ -433,6 +485,7 @@ export async function applyCommand(
     d.out(formatRedactedSummary(redactApplyRun(run, bank)).trimEnd());
     d.out(`report: ${paths.redacted}`);
   }
+  recordMisses(d, run);
   d.out(closingLine(run));
   return run.outcome === 'reached-review' || run.outcome === 'submitted'
     ? 0
