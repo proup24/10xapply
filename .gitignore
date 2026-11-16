@@ -56,3 +56,6 @@ vitest.config.*.timestamp*
 apps/bridge-extension/src/config.js
 pace-recordings/
 snapshots/
+
+# Local Supabase JWT signing key (credential)
+supabase/signing_keys.json

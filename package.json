@@ -10,7 +10,10 @@
     "typecheck": "nx run-many -t typecheck",
     "format": "nx format:write",
     "format:check": "nx format:check",
-    "test:scripts": "node --test \"scripts/*.test.mjs\""
+    "test:scripts": "node --test \"scripts/*.test.mjs\"",
+    "db:start": "scripts/ensure-signing-key.sh && supabase start",
+    "db:stop": "supabase stop",
+    "db:status": "supabase status"
   },
   "private": true,
   "dependencies": {},
@@ -30,6 +33,7 @@
     "jsonc-eslint-parser": "^2.1.0",
     "nx": "24.0.2",
     "prettier": "^3.8.1",
+    "supabase": "3.0.0-next.27",
     "tslib": "^2.3.0",
     "typescript": "~6.0.3",
     "typescript-eslint": "^8.58.0",
