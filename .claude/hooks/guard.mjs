@@ -80,6 +80,8 @@ function parse(command) {
   let token = '';
   let quote = null;
   let tick = false;
+  // True when a `$'…'` span never closes.
+  let open = false;
   const endToken = () => {
     if (token) segments.at(-1).push(token.replace(/^\.\//, ''));
     token = '';
@@ -101,11 +103,19 @@ function parse(command) {
       (command[i + 1] === '"' || command[i + 1] === "'")
     ) {
       // `$'…'` and `$"…"` quote like '…' and "…": drop the `$`, as bash
-      // does. A `$'…'` with a backslash escape (`\x73`) keeps its `$`, so it
-      // reads as an expansion and fails closed.
-      const end = command.indexOf("'", i + 2);
-      const span = command.slice(i + 2, end < 0 ? command.length : end);
-      if (command[i + 1] === "'" && span.includes('\\')) token += '$';
+      // does. Inside `$'…'` a backslash escapes the next character, so `\'`
+      // does not end it. A span with a backslash escape (`\x73`) keeps its
+      // `$`, so it reads as an expansion and fails closed.
+      if (command[i + 1] === "'") {
+        let j = i + 2;
+        while (j < command.length && command[j] !== "'") {
+          j += command[j] === '\\' ? 2 : 1;
+        }
+        if (j >= command.length) open = true;
+        const span = command.slice(i + 2, j);
+        token += (span.includes('\\') ? '$' : '') + span;
+        i = j;
+      }
     } else if (ch === '"' || ch === "'") {
       quote = ch;
     } else if (ch === '#' && !token) {
@@ -151,10 +161,22 @@ function parse(command) {
     }
   }
   endToken();
-  return { segments, unclosed: quote !== null };
+  return { segments, unclosed: quote !== null || open };
 }
 
-const WRAPPERS = ['sudo', 'env', 'time', 'command', 'nice', 'exec', 'xargs'];
+const WRAPPERS = [
+  'sudo',
+  'env',
+  'time',
+  'command',
+  'builtin',
+  'nice',
+  'exec',
+  'xargs',
+  'nohup',
+];
+// stdbuf flags that take a value when it is not joined (`-o 0`, `--output 0`).
+const STDBUF_VALUE_FLAG = /^(-[ioe]|--(input|output|error))$/;
 // Shell keywords and wrappers that precede the real command word.
 const KEYWORDS = [
   'then',
@@ -170,20 +192,27 @@ const KEYWORDS = [
 const SHELLS = ['bash', 'sh', 'zsh'];
 
 // Index of the command word, after grouping, VAR=value and wrapper commands.
+// A wrapper counts by its last path segment (`/usr/bin/env`).
 function commandIndex(tokens) {
   let i = 0;
   for (;;) {
     const t = tokens[i];
-    if (KEYWORDS.includes(t) || t === 'nohup' || /^\w+=/.test(t ?? '')) i++;
-    else if (t === 'timeout') {
+    const w = basename(t ?? '');
+    if (KEYWORDS.includes(t) || /^\w+=/.test(t ?? '')) i++;
+    else if (w === 'timeout') {
       i++;
       while (tokens[i]?.startsWith('-')) {
         i += tokens[i] === '-k' || tokens[i] === '-s' ? 2 : 1;
       }
       i++; // the duration
-    } else if (WRAPPERS.includes(t)) {
+    } else if (w === 'stdbuf') {
       i++;
-      // wrapper flags; `-n` (nice) and `-u` (env) take a value
+      while (tokens[i]?.startsWith('-')) {
+        i += STDBUF_VALUE_FLAG.test(tokens[i]) ? 2 : 1;
+      }
+    } else if (WRAPPERS.includes(w)) {
+      i++;
+      // wrapper flags (`--` too); `-n` (nice) and `-u` (env) take a value
       while (tokens[i]?.startsWith('-') || /^\w+=/.test(tokens[i] ?? '')) {
         i += tokens[i] === '-n' || tokens[i] === '-u' ? 2 : 1;
       }
@@ -900,7 +929,14 @@ function substitutions(command) {
   for (let i = 0; i < command.length; i++) {
     const ch = command[i];
     if (ch === '\\') i++;
-    else if (ch === "'" && !dquote) {
+    else if (ch === '$' && command[i + 1] === "'" && !dquote) {
+      // `$'…'`: a backslash escapes the next character, a quote included.
+      let j = i + 2;
+      while (j < command.length && command[j] !== "'") {
+        j += command[j] === '\\' ? 2 : 1;
+      }
+      i = j;
+    } else if (ch === "'" && !dquote) {
       const j = command.indexOf("'", i + 1);
       i = j < 0 ? command.length : j;
     } else if (ch === '"') dquote = !dquote;
@@ -1020,6 +1056,25 @@ const cdInsideRepo = (v) =>
   v !== undefined &&
   (insideRepo(v) || (!isAbsolute(v) && !/\.\.|~|\$|^-/.test(v)));
 
+// A CDPATH assignment or export makes a relative cd land anywhere, and an
+// npm_config_* variable can move a package manager's folder.
+const MOVES_DIR = /^(CDPATH(\+?=|$)|(npm|pnpm|yarn)_config_\w+\+?=)/i;
+
+// The values of a package manager's directory flags in a segment: `-C`,
+// `--dir`, `--prefix` and `--cwd`, joined or separate. A missing value is
+// undefined, which is not inside the repo.
+const DIR_FLAGS = ['-C', '--dir', '--prefix', '--cwd'];
+function dirFlagValues(tokens) {
+  const dirs = [];
+  tokens.forEach((t, k) => {
+    if (DIR_FLAGS.includes(t)) dirs.push(tokens[k + 1]);
+    else if (/^--(dir|prefix|cwd)=/.test(t)) {
+      dirs.push(t.slice(t.indexOf('=') + 1));
+    } else if (/^-C./.test(t)) dirs.push(t.slice(2).replace(/^=/, ''));
+  });
+  return dirs;
+}
+
 // The `env -C <dir>` and `env --chdir[=]<dir>` values in a segment.
 function envChdirs(tokens) {
   const dirs = [];
@@ -1098,19 +1153,25 @@ function commitMessages(tokens, i) {
   return skip;
 }
 
+// Problems with a command word of any program, not only the CLI: evaluate
+// gives them a neutral reason.
+const WORD_SUBSTITUTED = 'a command run from a substitution cannot be checked';
+const WORD_EXPANDED = 'a command word built by expansion cannot be checked';
+// Shell syntax that stands as a command word: `[ -f x ]`, `[[ … ]]` and the
+// two ends of a `{ …; }` group.
+const SYNTAX_WORDS = ['[', '[[', '{', '}'];
+
 // Why a word bash runs is refused, or null: it must not be built by
 // expansion. A lone `$` or backtick token is a substitution in that place;
 // only a committed repo script may run there.
 function launchWordProblem(word, next) {
-  if (word === undefined) return null;
+  if (word === undefined || SYNTAX_WORDS.includes(word)) return null;
   if (word === '$' || word === '`') {
     return next?.length === 1 && REPO_SCRIPT.test(next[0])
       ? null
-      : 'a command run from a substitution cannot be checked';
+      : WORD_SUBSTITUTED;
   }
-  return EXPANSION.test(word)
-    ? 'a command word built by expansion cannot be checked'
-    : null;
+  return EXPANSION.test(word) ? WORD_EXPANDED : null;
 }
 
 // Returns why a Supabase CLI call in the command is refused, or null.
@@ -1129,6 +1190,7 @@ export function supabaseCliProblem(command, away = false) {
   }
   // An exported variable reaches every later segment.
   const env = parts.flat().map(supabaseEnv).find(Boolean);
+  if (parts.flat().some((t) => MOVES_DIR.test(t))) away = true;
   for (const [n, tokens] of parts.entries()) {
     const i = commandIndex(tokens);
     const args = withoutRedirects(tokens.slice(i));
@@ -1147,12 +1209,25 @@ export function supabaseCliProblem(command, away = false) {
     ) {
       return 'a shell reading a supabase command from input cannot be checked';
     }
-    if (args[0] === 'cd' || args[0] === 'pushd') {
-      const target = args.slice(1).find((a) => !a.startsWith('-'));
-      if (!cdInsideRepo(target)) away = true;
+    if (['cd', 'pushd', 'popd'].includes(args[0])) {
+      const rest = args.slice(1);
+      const target = rest.find((a) => !a.startsWith('-'));
+      // popd, and a `+N` or `-N` entry of the directory stack, land on a
+      // folder the command does not name.
+      if (
+        args[0] === 'popd' ||
+        rest.some((a) => /^[+-]\d+$/.test(a)) ||
+        !cdInsideRepo(target)
+      ) {
+        away = true;
+      }
       continue;
     }
-    const segmentAway = away || envChdirs(tokens).some((d) => !cdInsideRepo(d));
+    const segmentAway =
+      away ||
+      [...envChdirs(tokens), ...dirFlagValues(tokens)].some(
+        (d) => !cdInsideRepo(d),
+      );
     const readOnly = readOnlySegment(tokens, {
       strict: false,
       extra: READ_ONLY_TOOLS,
@@ -1210,7 +1285,9 @@ export function supabaseCliProblem(command, away = false) {
     if (tokens.includes('xargs')) {
       return 'a supabase call through xargs cannot be checked';
     }
-    if (segmentAway) return 'a cd, pushd or env -C out of the repo comes first';
+    if (segmentAway) {
+      return 'a cd, pushd, popd, CDPATH or directory flag out of the repo comes first';
+    }
     if (env) return `${env} points the CLI away from the local stack`;
   }
   return null;
@@ -1580,6 +1657,12 @@ export function evaluate(
       };
     }
     const cliIssue = supabaseCliProblem(command);
+    if (cliIssue === WORD_EXPANDED || cliIssue === WORD_SUBSTITUTED) {
+      return {
+        block: true,
+        reason: `Command blocked: ${cliIssue} (see CLAUDE.md).`,
+      };
+    }
     if (cliIssue) {
       return {
         block: true,

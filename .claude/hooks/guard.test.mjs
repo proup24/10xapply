@@ -198,6 +198,10 @@ test('bash: unsafe git push forms stay blocked', () => {
     'echo main | xargs git push origin feat/x',
     'bash -c "git push origin main"',
     'git push origin main 2>&1 | tail -3',
+    // an escaped quote inside $'…' does not end it
+    "git commit -m $'\\'' ; git push -f origin main #'",
+    // a wrapper named by its path
+    '/usr/bin/env git push -f origin main',
     'git push origin feat/x 2>&1 main',
   ]) {
     assert.equal(blocked('Bash', { command }), true, command);
@@ -1502,6 +1506,163 @@ test('supabase cli review 3.D: git commit messages are prose', () => {
     'git push origin main -m "supabase"',
   ])
     assert.equal(blocked('Bash', { command: c }), true, c);
+});
+
+test('review 4.1: test brackets and brace groups are plain command words', () => {
+  for (const c of [
+    '[ -f supabase/config.toml ] && echo ok',
+    '[[ -n "$X" ]] && echo ok',
+    'if [ -d libs ]; then echo y; fi',
+    '{ echo a; echo b; } > /tmp/x',
+    '[ -x node_modules/.bin/tsc ] || pnpm install',
+    'while [ $i -lt 3 ]; do echo x; done',
+  ])
+    assert.equal(blocked('Bash', { command: c }), false, c);
+  for (const c of [
+    'x=supa; ${x}base link',
+    '[ -f x ] && supabase link',
+    '[ -f x ] && s*e link',
+    '{ supabase link; }',
+    '{ s*e link; }',
+    '[x link',
+    '{a,b} link',
+  ])
+    assert.equal(blocked('Bash', { command: c }), true, c);
+  for (const c of ['x=supa; ${x}base link', '$HOME/bin/x', '$(which node) x']) {
+    const { reason } = evaluate({
+      tool_name: 'Bash',
+      tool_input: { command: c },
+    });
+    assert.match(
+      reason,
+      /^Command blocked: .+ cannot be checked \(see CLAUDE\.md\)\.$/,
+      c,
+    );
+    assert.doesNotMatch(reason, /Supabase/, c);
+  }
+  assert.equal(
+    evaluate({ tool_name: 'Bash', tool_input: { command: '${X} link' } })
+      .reason,
+    'Command blocked: a command word built by expansion cannot be checked (see CLAUDE.md).',
+  );
+});
+
+test("review 4.2: an escaped quote does not end $'…'", () => {
+  for (const c of [
+    "git commit -m $'\\'' ; supabase link #'",
+    "git commit -m $'\\'' ; git push -f origin main #'",
+    "grep $'\\'' f; supabase link #'",
+    "echo $'a\\\\\\'' ; supabase link #'",
+    "echo $'\\' ; supabase link",
+    "$'\\x73upabase' link",
+  ])
+    assert.equal(blocked('Bash', { command: c }), true, c);
+  for (const c of [
+    "printf '%s\\n' $'it\\'s'",
+    "printf '%s\\n' $'a\\tb'",
+    "$'supabase' start",
+    "echo $'a' && pnpm db:test",
+    "grep $'\\'' f; supabase status #'",
+  ])
+    assert.equal(blocked('Bash', { command: c }), false, c);
+});
+
+test('review 4.3: nohup --, stdbuf and wrappers named by a path', () => {
+  for (const c of [
+    'nohup -- s*e link',
+    'nohup -- ${X} link',
+    'nohup -- node_modules/.bin/supabas? link',
+    'stdbuf -o0 s*e link',
+    'stdbuf -o0 supabase link',
+    'stdbuf -o 0 s*e link',
+    'stdbuf --output=0 -e L -i0 s*e link',
+    'stdbuf --output 0 s*e link',
+    '/usr/bin/nohup s*e link',
+    '/usr/bin/env s*e link',
+    '/usr/bin/stdbuf -oL ${X} link',
+    'nohup stdbuf -o0 nohup -- s*e link',
+  ])
+    assert.equal(blocked('Bash', { command: c }), true, c);
+  for (const c of [
+    'nohup -- pnpm db:test',
+    'stdbuf -o0 pnpm exec supabase status -o env',
+    'stdbuf -oL -eL pnpm db:reset',
+    'nohup supabase start',
+  ])
+    assert.equal(blocked('Bash', { command: c }), false, c);
+});
+
+test('review 4.4: CDPATH, pushd +N and popd leave the repo', () => {
+  for (const c of [
+    'export CDPATH=/home/lab/apps; cd 10xjobs && supabase stop',
+    'CDPATH=/home/lab/apps cd 10xjobs && supabase stop',
+    'pushd +1 && supabase stop',
+    'pushd -1 && supabase stop',
+    'pushd -n +1 && supabase stop',
+    'popd && supabase stop',
+    'popd +1; supabase stop',
+    'popd -n; supabase stop',
+    'declare -x CDPATH=/home/lab/apps; cd 10xjobs && supabase stop',
+    'CDPATH+=:/home/lab/apps; cd 10xjobs; supabase stop',
+    'export CDPATH; cd 10xjobs && supabase stop',
+    "bash -c 'CDPATH=/home/lab/apps; cd 10xjobs && supabase stop'",
+    "env CDPATH=/home/lab/apps bash -c 'cd 10xjobs && supabase stop'",
+    'builtin cd /tmp && supabase stop',
+    'cd +1 && supabase stop',
+  ])
+    assert.equal(blocked('Bash', { command: c }), true, c);
+  for (const c of [
+    'cd supabase && supabase status',
+    'cd libs/database && pnpm exec supabase status',
+    'pushd libs; supabase status',
+    'pushd libs && ls && popd',
+    'echo $CDPATH',
+    'builtin cd libs && supabase status',
+  ])
+    assert.equal(blocked('Bash', { command: c }), false, c);
+});
+
+test('review 4.5: a package manager directory flag counts like cd', () => {
+  for (const c of [
+    'pnpm --dir /tmp exec supabase stop',
+    'pnpm -C ../10xjobs exec supabase stop',
+    'pnpm --dir=/tmp exec supabase stop',
+    'pnpm -C/tmp exec supabase stop',
+    'pnpm -C $HOME exec supabase stop',
+    'pnpm -C ~/apps/10xjobs exec supabase stop',
+    'npm --prefix /tmp exec supabase stop',
+    'npm --prefix=../10xjobs exec -- supabase stop',
+    'yarn --cwd /tmp supabase stop',
+    'pnpm exec -C /tmp supabase stop',
+    'env A=1 pnpm -C /tmp exec supabase status',
+    'npm_config_dir=/tmp pnpm exec supabase status',
+    'export NPM_CONFIG_PREFIX=/tmp; npm exec supabase status',
+    "bash -c 'pnpm -C /tmp exec supabase status'",
+  ])
+    assert.equal(blocked('Bash', { command: c }), true, c);
+  for (const c of [
+    'pnpm -C libs/database exec supabase status',
+    'pnpm --dir libs/database exec supabase status',
+    `pnpm --dir=${repoRoot}/libs/database exec supabase status`,
+    'npm --prefix . exec supabase status',
+    'pnpm -C /tmp install',
+  ])
+    assert.equal(blocked('Bash', { command: c }), false, c);
+});
+
+test('review 4: the everyday commands still pass', () => {
+  for (const c of [
+    'pnpm db:reset',
+    'pnpm db:types',
+    'pnpm db:test',
+    'pnpm exec supabase status -o env',
+    'eval "$(scripts/supabase-env.sh)" && pnpm db:test',
+    'bash /x/scripts/review-package $PWD/docs/superpowers/plans/2026-11-16-supabase-and-the-database.md a b',
+    'git add supabase/migrations/*',
+    'git commit -m "feat(db): supabase migrations"',
+    'gh pr create --base main --title t --body-file /tmp/x.md',
+  ])
+    assert.equal(blocked('Bash', { command: c }), false, c);
 });
 
 test('supabase cli: the exported checks', () => {
