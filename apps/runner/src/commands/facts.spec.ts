@@ -92,6 +92,42 @@ describe('factsCheckCommand', () => {
     expect(text).not.toMatch(/\bMA\b|\bZZ\b|Zorblax/);
   });
 
+  it('counts the misses file when it exists and returns 0', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'misses-'));
+    dirs.push(dir);
+    const missesPath = join(dir, 'answer-misses.yaml');
+    writeFileSync(missesPath, 'version: 1\njobs: {}\nmisses: []\n');
+    const lines: string[] = [];
+    expect(
+      factsCheckCommand({
+        path: EXAMPLE,
+        rulesPath: tempRules(GOOD_RULES),
+        missesPath,
+        log: (l) => lines.push(l),
+      }),
+    ).toBe(0);
+    expect(lines.join('\n')).toContain('misses 0');
+  });
+
+  it('returns 1 for a bad misses file and prints none of its values', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'misses-'));
+    dirs.push(dir);
+    const missesPath = join(dir, 'answer-misses.yaml');
+    writeFileSync(missesPath, 'version: 1\nzq9secret: Zorblax\nmisses: 7\n');
+    const lines: string[] = [];
+    expect(
+      factsCheckCommand({
+        path: EXAMPLE,
+        rulesPath: tempRules(GOOD_RULES),
+        missesPath,
+        log: (l) => lines.push(l),
+      }),
+    ).toBe(1);
+    const text = lines.join('\n');
+    expect(text).toContain('misses: errors:');
+    expect(text).not.toContain('Zorblax');
+  });
+
   it('returns 1 for a missing rules file', () => {
     const lines: string[] = [];
     expect(

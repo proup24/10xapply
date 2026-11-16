@@ -1176,13 +1176,61 @@ describe('checkCandidate: date-offset', () => {
       'not a date',
     );
   });
-  it('a date with no math must have every number in a cited source', () => {
+  const dateBank = {
+    ...bank,
+    facts: [
+      ...bank.facts,
+      {
+        text: 'Founded in 2026, team of 11, shipped 19 features.',
+      },
+      { text: 'Available from 2026-11-19.' },
+    ],
+    answers: [
+      ...bank.answers,
+      { id: 'start-date', question: 'Start date', answer: '2026-12-01' },
+    ],
+  } as unknown as AnswerContext['bank'];
+  const checkDate = (c: Answer) =>
+    checkCandidate(date, c, { ...ctx, bank: dateBank });
+
+  it('fails a composed date even when each number is in the sources', () => {
     fails(
-      check(
-        date,
-        ans({ value: '2026-11-19', derivation: 'composed', sources: [notice] }),
+      checkDate(
+        ans({
+          value: '2026-11-19',
+          derivation: 'composed',
+          sources: [
+            {
+              kind: 'fact',
+              text: 'Founded in 2026, team of 11, shipped 19 features.',
+            },
+          ],
+        }),
       ),
-      'number not in sources',
+      'not as written',
     );
+  });
+  it('fails a fitted date', () => {
+    fails(
+      checkDate(
+        ans({
+          value: '2026-11-19',
+          derivation: 'fitted',
+          sources: [{ kind: 'fact', text: 'Available from 2026-11-19.' }],
+        }),
+      ),
+      'not as written',
+    );
+  });
+  it('passes an as-written date from the one cited answer', () => {
+    expect(
+      checkDate(
+        ans({
+          value: '2026-12-01',
+          derivation: 'as-written',
+          sources: [{ kind: 'answer', id: 'start-date' }],
+        }),
+      ),
+    ).toEqual({ ok: true, value: '2026-12-01' });
   });
 });

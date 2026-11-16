@@ -854,6 +854,15 @@ describe('fillField', () => {
         false,
       );
       expect(suggestionMatches('Tangiers, Morocco', pick)).toBe(false);
+      expect(
+        suggestionMatches(
+          'Tangier Med, Tanger-Tetouan-Al Hoceima, Morocco',
+          pick,
+        ),
+      ).toBe(false);
+      expect(
+        suggestionMatches('Tangier, Tanger-Tetouan-Al Hoceima, Morocco', pick),
+      ).toBe(true);
     });
   });
 

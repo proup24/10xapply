@@ -54,11 +54,13 @@ export function suggestionMatches(
   const want = squash(pick.text);
   if (pick.country === undefined) return text === want;
   const country = squash(pick.country);
-  if (want === '' || country === '' || !text.startsWith(want)) return false;
-  // The city is a whole word ("Tangier", not "Tangiers"), and the country
-  // one whole comma-separated part ("Morocco", not "Morocco Street").
-  if (/[\p{L}\p{N}]/u.test(text.charAt(want.length))) return false;
-  return text.split(',').some((part) => part.trim() === country);
+  if (want === '' || country === '') return false;
+  // The city is the whole first comma-separated part ("Tangier", not
+  // "Tangier Med"), and the country one whole part ("Morocco", not
+  // "Morocco Street").
+  const parts = text.split(',').map((part) => part.trim());
+  if (parts[0] !== want) return false;
+  return parts.some((part) => part === country);
 }
 
 /**

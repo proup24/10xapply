@@ -339,6 +339,8 @@ export function checkCandidate(
   if (isDate && c.derivation === 'math') {
     return checkDateOffset(c, authorTexts, ctx.runDate, value);
   }
+  // A date is backed only by the bank (as written) or by math, never composed.
+  if (isDate && c.derivation !== 'as-written') return fail('not as written');
 
   if (c.derivation === 'as-written' && fieldText !== null) {
     if (value !== fieldText) return fail('not as written');

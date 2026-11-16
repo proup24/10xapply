@@ -1,4 +1,5 @@
-import { dirname, resolve } from 'node:path';
+import { existsSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
 import {
   checkRules,
   DEFAULT_RULES_PATH,
@@ -10,6 +11,7 @@ import {
   formatProblem,
   type CheckResult,
 } from '@xapply/fact-bank';
+import { loadMisses, MissesError } from '../apply/misses.js';
 
 const REPO_ROOT = dirname(dirname(DEFAULT_FACT_BANK_PATH));
 
@@ -52,6 +54,7 @@ export function factsCheckCommand(
   opts: {
     path?: string;
     rulesPath?: string;
+    missesPath?: string;
     log?: (line: string) => void;
   } = {},
 ): number {
@@ -61,5 +64,26 @@ export function factsCheckCommand(
   log(formatCheck(result));
   const rules = checkRules(opts.rulesPath ?? DEFAULT_RULES_PATH);
   log(formatRulesCheck(rules));
-  return result.ok && rules.ok ? 0 : 1;
+  const rulesFile = opts.rulesPath ?? DEFAULT_RULES_PATH;
+  const misses = checkMissesFile(
+    opts.missesPath ?? join(dirname(rulesFile), 'answer-misses.yaml'),
+    log,
+  );
+  return result.ok && rules.ok && misses ? 0 : 1;
+}
+
+/**
+ * Validates the misses file when it exists: a count, or the error's own
+ * message (it names the file and the schema problem, never a value).
+ */
+function checkMissesFile(path: string, log: (line: string) => void): boolean {
+  if (!existsSync(path)) return true;
+  try {
+    log(`misses ${loadMisses(path).misses.length}`);
+    return true;
+  } catch (e) {
+    log('misses: errors:');
+    log(`  ${e instanceof MissesError ? e.message : 'cannot read the file'}`);
+    return false;
+  }
 }
