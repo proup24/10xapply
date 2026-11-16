@@ -3,8 +3,10 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import {
+  decide,
   evaluate,
   readSupabaseProjectRef,
   remoteOptInProblem,
@@ -14,6 +16,8 @@ import {
   SUPABASE_NO_PROJECT_TOOLS,
   SUPABASE_REF_TOOLS,
 } from './guard.mjs';
+
+const GUARD = new URL('./guard.mjs', import.meta.url);
 
 const blocked = (tool_name, tool_input) =>
   evaluate({ tool_name, tool_input }).block;
@@ -1673,4 +1677,213 @@ test('supabase cli: the exported checks', () => {
     remoteOptInProblem('XAPPLY_ALLOW_REMOTE_DB=1 pnpm db:migrate'),
     null,
   );
+});
+
+test('final review I4: U&"…" identifiers are refused anywhere', () => {
+  for (const q of [
+    "select U&\"set\\005fconfig\"('role', 'x', false)",
+    'select U&"pg\\005fterminate_backend"(1)',
+    'select u&"id" from public.users',
+    'select 1 /* U&"x" */',
+  ])
+    assert.notEqual(sqlProblem(q), null, q);
+  assert.match(sqlProblem('select U&"a" from public.users'), /U&/);
+});
+
+test('final review I4: setval and nextval are refused', () => {
+  for (const q of [
+    "select setval('auth.refresh_tokens_id_seq', 1, false)",
+    "select SETVAL ('public.x_id_seq', 1)",
+    'select "setval"(\'x_id_seq\', 1)',
+    "select nextval('auth.refresh_tokens_id_seq')",
+    "insert into public.users (id) select nextval('x')",
+  ])
+    assert.notEqual(sqlProblem(q), null, q);
+  assert.equal(sqlProblem('select resetval from public.users'), null);
+});
+
+test('final review I4: pg_* calls are refused off the read list', () => {
+  for (const q of [
+    "select pg_create_logical_replication_slot('s', 'pgoutput')",
+    "select pg_drop_replication_slot('s')",
+    "select pg_replication_origin_create('x')",
+    "select pg_backup_start('x')",
+    'select pg_switch_wal()',
+    'select pg_stat_reset()',
+    'select PG_STAT_RESET ()',
+    'select "pg_stat_reset"()',
+    'select pg_stat_reset/**/()',
+    'select pg_export_snapshot()',
+    "select pg_logical_emit_message(true, 'x', 'y')",
+    'select pg_typeof(1), pg_promote()',
+  ])
+    assert.notEqual(sqlProblem(q), null, q);
+  assert.match(sqlProblem('select pg_switch_wal()'), /pg_\* function/);
+  for (const q of [
+    'select pg_typeof(id) from public.users',
+    "select pg_size_pretty(pg_total_relation_size('users'))",
+    "select pg_relation_size('users'), pg_table_size('users')",
+    "select pg_indexes_size('users'), pg_column_size(id) from public.users",
+    'select pg_get_functiondef(p.oid) from pg_proc p',
+    "select pg_get_indexdef('users_pkey'::regclass)",
+    'select * from pg_stat_activity where pid in (1, 2)',
+    'select * from pg_catalog.pg_class',
+  ])
+    assert.equal(sqlProblem(q), null, q);
+});
+
+test('final review I4: a very long query is refused', () => {
+  const pad = (n) => `select ${'1'.repeat(n - 7)}`;
+  assert.equal(sqlProblem(pad(20000)), null);
+  assert.match(sqlProblem(pad(20001)), /over 20000 characters/);
+  const started = Date.now();
+  sqlProblem(pad(200000));
+  assert.ok(Date.now() - started < 200);
+});
+
+test('final review I4: a crash in the check refuses Bash and MCP calls', () => {
+  const boom = () => {
+    throw new Error('boom');
+  };
+  for (const tool_name of [
+    'Bash',
+    'mcp__plugin_supabase_supabase__execute_sql',
+    'mcp__other__tool',
+  ]) {
+    const result = decide({ tool_name, tool_input: {} }, boom);
+    assert.equal(result.block, true, tool_name);
+    assert.match(result.reason, /crashed.*boom/);
+  }
+  assert.equal(
+    decide({ tool_name: 'Read', tool_input: {} }, boom).block,
+    false,
+  );
+  assert.equal(decide(null, boom).block, false);
+  // The real check: a null tool_input used to throw and exit 1.
+  assert.equal(decide({ tool_name: 'Bash', tool_input: null }).block, true);
+  // Without a crash, decide is evaluate.
+  assert.equal(
+    decide({ tool_name: 'Bash', tool_input: { command: 'ls' } }).block,
+    false,
+  );
+  assert.equal(
+    decide({ tool_name: 'Bash', tool_input: { command: 'supabase link' } })
+      .block,
+    true,
+  );
+});
+
+test('final review I4: the hook process exits 2 on a crash', () => {
+  const run = (event) =>
+    spawnSync(process.execPath, [fileURLToPath(GUARD)], {
+      input: typeof event === 'string' ? event : JSON.stringify(event),
+      encoding: 'utf8',
+    });
+  const crash = run({ tool_name: 'Bash', tool_input: null });
+  assert.equal(crash.status, 2);
+  assert.match(crash.stderr, /guard hook crashed/);
+  assert.equal(
+    run({ tool_name: 'Bash', tool_input: { command: 'ls' } }).status,
+    0,
+  );
+  assert.equal(
+    run({ tool_name: 'Bash', tool_input: { command: 'supabase link' } }).status,
+    2,
+  );
+  // Unparseable input is kept as it was: nothing to check.
+  assert.equal(run('not json').status, 0);
+});
+
+test('final review M1: the supabase folder named to a command that never runs it', () => {
+  for (const c of [
+    'git add supabase libs/database',
+    'git status supabase apps',
+    'git diff --stat supabase',
+    'git log --oneline -- supabase',
+    'prettier --check supabase docs',
+    'pnpm prettier --check supabase docs',
+    'pnpm exec prettier --check supabase docs',
+    'tar czf /tmp/x.tgz supabase libs',
+    'npm view supabase version',
+    'find . -name "*.ts" | xargs grep -l supabase',
+    'find supabase -name "*.toml"',
+    'ls -la supabase',
+    'mkdir -p supabase',
+    'rm -rf supabase/.temp supabase',
+    'cp -r supabase /tmp/x',
+    'echo supabase link',
+    'echo "do not run supabase link"',
+    'if true; then git add supabase; fi',
+  ])
+    assert.equal(blocked('Bash', { command: c }), false, c);
+  for (const c of [
+    // a real launch next to a folder mention
+    'git add supabase && supabase link',
+    'ls supabase; supabase db push',
+    'supabase link',
+    'pnpm exec supabase link',
+    'npm exec supabase link',
+    'npm run supabase link',
+    // flags and subcommands that run a program
+    'git bisect run supabase link',
+    'git rebase --exec supabase link',
+    'git submodule foreach supabase link',
+    'git grep -Osupabase x supabase',
+    'find . -exec supabase link ;',
+    'find . -execdir supabase link ;',
+    'find . -ok supabase link ;',
+    'tar -I supabase -cf x y',
+    'tar cIf supabase x y',
+    'tar cf x --to-command supabase y',
+    'prettier --plugin supabase x',
+    'rg --pre supabase x supabase',
+    'xargs git add supabase',
+    'xargs rg supabase',
+    'env supabase link git add',
+    'timeout 5 git add supabase libs',
+    // the binary itself, by path or from its folder
+    'cp node_modules/.bin/supabase /tmp/x',
+    'cd node_modules/.bin && cp supabase /tmp/x',
+    'cd node_modules/.bin && mv supabase /tmp/x',
+    'cd node_modules/.bin && bash -c "cp supabase /tmp/x"',
+    'CDPATH=/x cp supabase /tmp/x',
+    // echo whose output goes somewhere
+    'echo supabase link | sh',
+    'echo "supabase link" | sh',
+    'echo supabase link > run.sh',
+    'echo supabase link >> run.sh',
+    'echo supabase link >&3',
+    'sh -c "echo supabase link" | xargs env',
+    'eval "$(echo supabase link)"',
+    'echo "$(cat supabase/config.toml)"',
+    'echo supabase `date`',
+    'echo supabase $x',
+  ])
+    assert.equal(blocked('Bash', { command: c }), true, c);
+});
+
+test('final review M2: a case arm pattern is not a command word', () => {
+  for (const c of [
+    'case "$x" in a) echo a;; *) echo b;; esac',
+    'case "$x" in *.md) echo a;; *) echo b;; esac',
+    'case "$x" in\n  a) echo a ;;\n  *) echo b ;;\nesac',
+    'case "$x" in [0-9]*) echo n;; ?) echo one;; esac',
+    'x=$(case "$y" in a) echo 1;; *) echo 2;; esac)',
+  ])
+    assert.equal(blocked('Bash', { command: c }), false, c);
+  for (const c of [
+    // no open case: the word before `)` is a command word
+    '*) echo b',
+    's*e) link',
+    'case x in x) ;; esac; s*e ) link',
+    // more than one word, or an expansion, before the `)`
+    'node_modules/.bin/s*e ${x:+)} link',
+    'case x in x) ;; esac; node_modules/.bin/s*e${x:+)} link',
+    'case x in x) node_modules/.bin/s*e${x:+)} link;; esac',
+    'case x in x) s*e link;; esac',
+    'case x in x) $EDITOR f;; esac',
+    'case "$x" in a) supabase link;; *) echo b;; esac',
+    'case "$x" in a) echo a;; *) supabase db push;; esac',
+  ])
+    assert.equal(blocked('Bash', { command: c }), true, c);
 });

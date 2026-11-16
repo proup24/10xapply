@@ -80,6 +80,8 @@ function parse(command) {
   let token = '';
   let quote = null;
   let tick = false;
+  // Open `(` count: a `)` with none open closes a `case` pattern.
+  let depth = 0;
   // True when a `$'…'` span never closes.
   let open = false;
   const endToken = () => {
@@ -153,6 +155,11 @@ function parse(command) {
       endToken();
       // An opening backtick leaves a marker where the substitution stands.
       if (ch === '`' && (tick = !tick)) segments.at(-1).push('`');
+      if (ch === '(') depth++;
+      else if (ch === ')') {
+        if (depth > 0) depth--;
+        else segments.at(-1).casePattern = true;
+      }
       segments.push([]);
     } else if (/\s/.test(ch)) {
       endToken();
@@ -1174,9 +1181,106 @@ function launchWordProblem(word, next) {
   return EXPANSION.test(word) ? WORD_EXPANDED : null;
 }
 
+// A `case` arm's pattern, as in `*) echo b;;`: one glob word that ended at
+// a `)` with no `(` open, while a `case` is still open (more `case` words
+// than `esac` before it). Bash matches it and never runs it. A word with
+// `$`, a backtick or a brace is not taken for one.
+const CASE_PATTERN = /^[\w.*?[\]!^+@,:/-]+$/;
+const count = (segments, w) => segments.flat().filter((t) => t === w).length;
+const isCasePattern = (tokens, earlier) =>
+  tokens.casePattern === true &&
+  tokens.length === 1 &&
+  CASE_PATTERN.test(tokens[0]) &&
+  count(earlier, 'case') > count(earlier, 'esac');
+
+// Commands that take the bare word `supabase` as a folder name or as text
+// and never run it. Each test gets the words after the command word and
+// says whether no flag there makes the command run a program.
+const GIT_FILE_COMMANDS = [
+  'add',
+  'status',
+  'diff',
+  'log',
+  'show',
+  'grep',
+  'ls-files',
+  'ls-tree',
+  'blame',
+  'restore',
+  'checkout',
+  'reset',
+  'rm',
+  'mv',
+  'stash',
+  'commit',
+  'check-ignore',
+];
+const FIND_RUNS = /^-(exec|ok)(dir)?$/;
+const FOLDER_WORDS = {
+  ls: () => true,
+  cat: () => true,
+  mkdir: () => true,
+  rm: () => true,
+  grep: () => true,
+  rg: (args) => !args.some((a) => READER_RUNS.rg.test(a)),
+  find: (args) => !args.some((a) => FIND_RUNS.test(a)),
+  // Only the plain letter bundle: `-I`, `--to-command` and the like run a
+  // program.
+  tar: (args) =>
+    /^-?[cxtzjJvf]+$/.test(args[0] ?? '') &&
+    !args.slice(1).some((a) => a.startsWith('-')),
+  prettier: (args) => !args.some((a) => a.startsWith('--plugin')),
+  npm: (args) => ['view', 'info', 'show'].includes(args[0]),
+  git: (args) => {
+    const t = ['git', ...args];
+    const j = gitSubcommand(t);
+    return (
+      j > 0 &&
+      GIT_FILE_COMMANDS.includes(t[j]) &&
+      !t.slice(j + 1).some((a) => GIT_RUNS.test(a))
+    );
+  },
+};
+// cp and mv could copy the CLI binary under another name from a folder that
+// holds it, and echo's output could be piped or written to a script: these
+// three count only at the top level (not inside `bash -c`), with no cd in
+// the command, and echo with no pipe, redirect or expansion anywhere.
+const FOLDER_WORDS_TOP = ['cp', 'mv', 'echo'];
+
+// True when the segment's command word only names the `supabase` folder (or
+// prints the word): the bare token is then not a launch. Only shell keywords
+// may precede the command word, or `xargs` before grep (it appends file
+// names). `pnpm prettier` and `pnpm exec prettier` count as prettier.
+function folderOnly(tokens, i, { command, parts, inner }) {
+  let w = tokens[i];
+  let args = withoutRedirects(tokens.slice(i + 1));
+  if (w === 'pnpm' || w === 'npx') {
+    const [j] = launchedWords([w, ...args]);
+    if (j === undefined || args[j - 1] !== 'prettier') return false;
+    w = 'prettier';
+    args = args.slice(j);
+  }
+  const before = tokens.slice(0, i);
+  const viaXargs =
+    w === 'grep' &&
+    before[0] === 'xargs' &&
+    before.slice(1).every((t) => t.startsWith('-'));
+  if (!viaXargs && !before.every((t) => KEYWORDS.includes(t))) return false;
+  if (FOLDER_WORDS_TOP.includes(w)) {
+    if (inner) return false;
+    const moves = parts.some((p) =>
+      ['cd', 'pushd', 'popd'].includes(p[commandIndex(p)]),
+    );
+    if (moves || parts.flat().some((t) => MOVES_DIR.test(t))) return false;
+    return w !== 'echo' || !/[|<>$`]/.test(command);
+  }
+  return Object.hasOwn(FOLDER_WORDS, w) && FOLDER_WORDS[w](args);
+}
+
 // Returns why a Supabase CLI call in the command is refused, or null.
-// `away` is true once an earlier `cd` or `pushd` left the repo.
-export function supabaseCliProblem(command, away = false) {
+// `away` is true once an earlier `cd` or `pushd` left the repo. `inner` is
+// true for a command string run by another command (`bash -c '…'`).
+export function supabaseCliProblem(command, away = false, inner = false) {
   const { segments: parts, unclosed } = parse(command);
   if (
     unclosed &&
@@ -1192,6 +1296,7 @@ export function supabaseCliProblem(command, away = false) {
   const env = parts.flat().map(supabaseEnv).find(Boolean);
   if (parts.flat().some((t) => MOVES_DIR.test(t))) away = true;
   for (const [n, tokens] of parts.entries()) {
+    if (isCasePattern(tokens, parts.slice(0, n))) continue;
     const i = commandIndex(tokens);
     const args = withoutRedirects(tokens.slice(i));
     for (const k of [0, ...launchedWords(args)]) {
@@ -1199,7 +1304,7 @@ export function supabaseCliProblem(command, away = false) {
       if (problem) return problem;
     }
     const nested = nestedCommand(tokens, i);
-    const nestedProblem = nested && supabaseCliProblem(nested, away);
+    const nestedProblem = nested && supabaseCliProblem(nested, away, true);
     if (nestedProblem) return nestedProblem;
     // A shell reading its commands from stdin or a here-string.
     if (
@@ -1237,12 +1342,15 @@ export function supabaseCliProblem(command, away = false) {
     // pattern and a commit message are never run.
     const skip = commitMessages(tokens, i);
     if (readOnly) skip.add(patternIndex(tokens));
+    const folder = folderOnly(tokens, i, { command, parts, inner });
+    // echo prints its words: none of them is run.
+    if (folder && tokens[i] === 'echo') tokens.forEach((_, j) => skip.add(j));
     for (const [j, t] of tokens.entries()) {
       if (skip.has(j) || !/\s/.test(t) || !CLI_PART.test(t)) continue;
       // The command may be glued to a flag: `-O'cmd'`, `--flag=cmd`.
       const unglued = t.replace(/^--[\w-]+=|^-[A-Za-z]/, '');
       for (const text of new Set([t, unglued])) {
-        const problem = supabaseCliProblem(text, segmentAway);
+        const problem = supabaseCliProblem(text, segmentAway, true);
         if (problem) return problem;
       }
     }
@@ -1268,6 +1376,8 @@ export function supabaseCliProblem(command, away = false) {
     let launched = false;
     for (let k = 0; k < cli.length; k++) {
       if (!isSupabaseCli(cli[k])) continue;
+      // The folder's name given to a command that never runs it.
+      if (folder && cli[k] === 'supabase') continue;
       launched = true;
       if (cli.slice(k + 1).some((a) => EXPANSION.test(a))) {
         return 'a supabase argument built by expansion cannot be checked';
@@ -1435,8 +1545,9 @@ const SQL_SYSTEM_SCHEMA = word(
   '(?:auth|storage|supabase_migrations|extensions|information_schema|prisma_contract|pg_[A-Za-z0-9_$]*)',
 );
 // U&"..." spells an identifier with escapes, so it could name a system
-// schema without its letters.
+// schema or a refused function without its letters.
 const SQL_UNICODE_IDENT = /u&"/i;
+const SQL_MAX_LENGTH = 20000;
 const SQL_INTO = word('into');
 const SQL_INSERT_INTO = new RegExp(
   `(?<![A-Za-z0-9_$])(?:insert|merge)\\s+into(?![A-Za-z0-9_$])`,
@@ -1515,13 +1626,31 @@ const isReadOnlyCall = (parts) =>
     (f) => parts[1] === `"${f}"` || parts[1].toLowerCase() === f,
   );
 const W = '[A-Za-z0-9_$]*';
+// setval and nextval move a sequence, which is a write the table check
+// cannot hold to public (`setval('auth.refresh_tokens_id_seq', 1)`).
 const SQL_SIDE_EFFECT_CALL = new RegExp(
-  `(?<![A-Za-z0-9_$])"?(?:set_config|dblink${W}|lo_${W}|pg_read${W}|pg_ls${W}|pg_stat_file|pg_terminate${W}|pg_cancel${W}|pg_sleep${W}|pg_reload_conf|pg_rotate_logfile|pg_advisory${W}|pg_notify)"?\\s*\\(`,
+  `(?<![A-Za-z0-9_$])"?(?:set_config|setval|nextval|dblink${W}|lo_${W}|pg_read${W}|pg_ls${W}|pg_stat_file|pg_terminate${W}|pg_cancel${W}|pg_sleep${W}|pg_reload_conf|pg_rotate_logfile|pg_advisory${W}|pg_notify)"?\\s*\\(`,
   'i',
 );
+// Every unqualified pg_*() call is refused but these, which only read:
+// replication slots, backups, WAL switches and statistics resets are all
+// pg_* functions, and each Postgres version adds more.
+const SQL_PG_CALL = new RegExp(`(?<![A-Za-z0-9_$])"?(pg_${W})"?\\s*\\(`, 'gi');
+const SQL_PG_READS = [
+  'pg_typeof',
+  'pg_size_pretty',
+  'pg_total_relation_size',
+  'pg_relation_size',
+  'pg_table_size',
+  'pg_indexes_size',
+  'pg_column_size',
+];
+const isPgRead = (name) =>
+  SQL_PG_READS.includes(name) || name.startsWith('pg_get_');
 
-// Any schema-qualified call but auth.uid() and auth.jwt(), and the listed
-// unqualified functions with side effects, are refused.
+// Any schema-qualified call but auth.uid() and auth.jwt(), the listed
+// unqualified functions with side effects, and any pg_* function off the
+// read list are refused.
 function functionProblem(text, spans) {
   let t = text;
   for (const [a, b] of spans)
@@ -1534,6 +1663,11 @@ function functionProblem(text, spans) {
   if (SQL_SIDE_EFFECT_CALL.test(t)) {
     return `a function with side effects; ${REWORD}`;
   }
+  for (const m of t.matchAll(SQL_PG_CALL)) {
+    if (!isPgRead(m[1].toLowerCase())) {
+      return `a pg_* function off the read list (${SQL_PG_READS.join(', ')}, pg_get_*); ${REWORD}`;
+    }
+  }
   return null;
 }
 const REWORD =
@@ -1544,6 +1678,15 @@ const REWORD =
 // stripper misreads can never hide anything.
 export function sqlProblem(query) {
   if (typeof query !== 'string') return 'execute_sql needs a query string';
+  // The checks below are regular expressions over the whole text; a very
+  // long query could run the hook into its timeout.
+  if (query.length > SQL_MAX_LENGTH) {
+    return `a query over ${SQL_MAX_LENGTH} characters`;
+  }
+  // U&"…" spells any identifier with escapes, a refused function included.
+  if (SQL_UNICODE_IDENT.test(query)) {
+    return `a U&"…" identifier; ${REWORD}`;
+  }
   const stripped = stripSqlComments(query);
   if (stripped === null) return 'an unclosed /* comment';
   const texts = [query, stripped];
@@ -1698,6 +1841,24 @@ export function evaluate(
   return { block: false };
 }
 
+// What the hook does with one event. A crash in the check must not let the
+// call through: Claude Code treats any exit code but 2 as "go ahead", so a
+// throw on a Bash or MCP call is turned into a refusal.
+export function decide(event, check = evaluate) {
+  try {
+    return check(event ?? {});
+  } catch (error) {
+    const name = event?.tool_name;
+    if (name === 'Bash' || (typeof name === 'string' && /^mcp__/.test(name))) {
+      return {
+        block: true,
+        reason: `Blocked: the guard hook crashed on this call, so it is refused (${error?.message ?? error}). Fix .claude/hooks/guard.mjs or reword the call.`,
+      };
+    }
+    return { block: false };
+  }
+}
+
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
   let input = '';
   process.stdin.setEncoding('utf8');
@@ -1708,7 +1869,7 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
   } catch {
     process.exit(0);
   }
-  const result = evaluate(event ?? {});
+  const result = decide(event);
   if (result.block) {
     console.error(result.reason);
     process.exit(2);
