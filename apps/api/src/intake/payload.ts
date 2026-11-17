@@ -47,21 +47,32 @@ const matchQualified = z.looseObject({
   }),
 });
 
-/** Parses a delivery's raw body. Never throws and never logs. */
+// The signed body's own event. Only the body is signed, so it decides the kind.
+const envelope = z.looseObject({ event: z.enum(['match.qualified', 'test']) });
+
+/**
+ * Parses a delivery's raw body. The kind comes from the signed body's
+ * `event`, which must equal the unsigned `X-10xjobs-Event` header: a header
+ * cannot relabel a signed test as a match or the reverse. A body that is not
+ * JSON is unparsed whatever the header says. Never throws and never logs.
+ */
 export function parseDelivery(
   rawBody: Buffer,
   event: string,
   headerDeliveryId: string,
 ): ParsedDelivery {
-  if (event === 'test') return { kind: 'test' };
-  if (event !== 'match.qualified') return { kind: 'unparsed' };
-
   let json: unknown;
   try {
     json = JSON.parse(rawBody.toString('utf8'));
   } catch {
     return { kind: 'unparsed' };
   }
+  const signed = envelope.safeParse(json);
+  if (!signed.success || signed.data.event !== event) {
+    return { kind: 'unparsed' };
+  }
+  if (signed.data.event === 'test') return { kind: 'test' };
+
   const parsed = matchQualified.safeParse(json);
   if (!parsed.success) return { kind: 'unparsed' };
   const body = parsed.data;

@@ -8,6 +8,7 @@ import pg from 'pg';
 import { AppModule } from '../app.module';
 import type { Environment } from '../config/environment';
 import { APP_OPTIONS, configureApp, createApp } from '../create-app';
+import type { DatabaseClient } from '@xapply/database';
 import { DatabaseService } from '../database/database.service';
 import { IntakeRepository } from './intake.repository';
 import { createTestUser, localDatabaseUrl } from './testing/local-db';
@@ -54,8 +55,12 @@ const createdUsers: string[] = [];
 let pool: pg.Pool;
 let app: NestExpressApplication;
 let failingApp: NestExpressApplication;
+let rollbackApp: NestExpressApplication;
 let base: string;
 let failingBase: string;
+let rollbackBase: string;
+/** Set when the rollback app's delivery insert returned its row, inside the transaction. */
+let rollbackDeliveryInserted = false;
 
 const urlOf = (a: NestExpressApplication) =>
   `http://127.0.0.1:${(a.getHttpServer().address() as AddressInfo).port}`;
@@ -66,31 +71,89 @@ beforeAll(async () => {
   await app.listen(0, '127.0.0.1');
   base = urlOf(app);
 
+  failingApp = await appWithRepository((database) => {
+    const repo = new IntakeRepository(database);
+    repo.store = () => Promise.reject(new Error(DB_ERROR));
+    return repo;
+  });
+  failingBase = urlOf(failingApp);
+
+  // The real store and its real transaction, with the match insert (the
+  // transaction's second query, after the delivery insert) failing.
+  rollbackApp = await appWithRepository(
+    (database) =>
+      new IntakeRepository({
+        db: failingSecondQuery(database.db),
+      } as unknown as DatabaseService),
+  );
+  rollbackBase = urlOf(rollbackApp);
+});
+
+/** An app whose IntakeRepository the factory builds. */
+async function appWithRepository(
+  factory: (database: DatabaseService) => IntakeRepository,
+): Promise<NestExpressApplication> {
   const moduleRef = await Test.createTestingModule({
     imports: [AppModule.register(env)],
   })
     .overrideProvider(IntakeRepository)
-    .useFactory({
-      factory: (database: DatabaseService) => {
-        const repo = new IntakeRepository(database);
-        repo.store = () => Promise.reject(new Error(DB_ERROR));
-        return repo;
-      },
-      inject: [DatabaseService],
-    })
+    .useFactory({ factory, inject: [DatabaseService] })
     .compile();
-  failingApp = moduleRef.createNestApplication<NestExpressApplication>({
+  const built = moduleRef.createNestApplication<NestExpressApplication>({
     ...APP_OPTIONS,
     logger,
   });
-  configureApp(failingApp, env);
-  await failingApp.listen(0, '127.0.0.1');
-  failingBase = urlOf(failingApp);
-});
+  configureApp(built, env);
+  await built.listen(0, '127.0.0.1');
+  return built;
+}
+
+/** A method bound to its target, so a proxy never changes `this`. */
+function bound(target: object, prop: string | symbol): unknown {
+  const value: unknown = Reflect.get(target, prop);
+  return typeof value === 'function' ? value.bind(target) : value;
+}
+
+/**
+ * The real client, except that inside a transaction the second `query` (the
+ * match insert) throws once the first (the delivery insert) has run.
+ */
+function failingSecondQuery(db: DatabaseClient): DatabaseClient {
+  type Tx = Parameters<Parameters<DatabaseClient['transaction']>[0]>[0];
+  const wrapTx = (tx: Tx): Tx => {
+    let queries = 0;
+    return new Proxy(tx, {
+      get(target, prop) {
+        if (prop !== 'query') return bound(target, prop);
+        return async (...args: Parameters<Tx['query']>) => {
+          queries += 1;
+          if (queries > 1) throw new Error(DB_ERROR);
+          const rows = await target.query(...args);
+          rollbackDeliveryInserted = rows.length === 1;
+          return rows;
+        };
+      },
+    });
+  };
+  return new Proxy(db, {
+    get(target, prop) {
+      if (prop !== 'transaction') return bound(target, prop);
+      return (
+        fn: Parameters<DatabaseClient['transaction']>[0],
+        ...rest: unknown[]
+      ) =>
+        (target.transaction as (...a: unknown[]) => unknown)(
+          (tx: Tx) => fn(wrapTx(tx)),
+          ...rest,
+        );
+    },
+  });
+}
 
 afterAll(async () => {
   await app?.close();
   await failingApp?.close();
+  await rollbackApp?.close();
   if (createdUsers.length > 0) {
     // Cascades to public.users, and from there to links, deliveries and matches.
     await pool.query('DELETE FROM auth.users WHERE id = ANY($1::uuid[])', [
@@ -334,9 +397,37 @@ describe('POST /api/intake/:token', () => {
 
   it('records a test event without a match', async () => {
     const { userId, token } = await newUser();
-    await expectOk(await send({ token, event: 'test', body: '{"test":true}' }));
+    const deliveryId = randomUUID();
+    const body = JSON.stringify({ ...payload(deliveryId), event: 'test' });
+    await expectOk(await send({ token, deliveryId, event: 'test', body }));
     const ds = await deliveries(userId);
     expect(ds.map((d) => [d.event, d.outcome])).toEqual([['test', 'test']]);
+    expect(await matches(userId)).toHaveLength(0);
+  });
+
+  it('takes the kind from the signed body: a test body under a match header is unparsed', async () => {
+    const { userId, token } = await newUser();
+    const deliveryId = randomUUID();
+    const body = JSON.stringify({ ...payload(deliveryId), event: 'test' });
+    await expectOk(
+      await send({ token, deliveryId, event: 'match.qualified', body }),
+    );
+    const ds = await deliveries(userId);
+    // The stored event column keeps the header's value.
+    expect(ds.map((d) => [d.event, d.outcome])).toEqual([
+      ['match.qualified', 'unparsed'],
+    ]);
+    expect(await matches(userId)).toHaveLength(0);
+  });
+
+  it('takes the kind from the signed body: a match body under a test header is unparsed', async () => {
+    const { userId, token } = await newUser();
+    const deliveryId = randomUUID();
+    const body = JSON.stringify(payload(deliveryId));
+    await expectOk(await send({ token, deliveryId, event: 'test', body }));
+    expect((await deliveries(userId)).map((d) => d.outcome)).toEqual([
+      'unparsed',
+    ]);
     expect(await matches(userId)).toHaveLength(0);
   });
 
@@ -468,6 +559,34 @@ describe('POST /api/intake/:token', () => {
     const logged = logger.lines.slice(from).join('\n');
     expect(logged).toContain(`intake: ${deliveryId} error 500`);
     expect(logged).not.toContain(DB_ERROR);
+  });
+
+  it('rolls the delivery back when the match insert fails, and a retry stores it', async () => {
+    const { userId, token } = await newUser();
+    const deliveryId = randomUUID();
+    const ts = nowSeconds();
+    const body = JSON.stringify(payload(deliveryId));
+    const from = logger.lines.length;
+    rollbackDeliveryInserted = false;
+
+    const res = await send({ token, deliveryId, ts, body, url: rollbackBase });
+    expect(res.status).toBe(500);
+    expect(await res.text()).toBe('{"error":"internal"}');
+    // The delivery row was written inside the transaction, then rolled back.
+    expect(rollbackDeliveryInserted).toBe(true);
+    expect(await deliveries(userId)).toHaveLength(0);
+    expect(await matches(userId)).toHaveLength(0);
+    const logged = logger.lines.slice(from).join('\n');
+    expect(logged).toContain(`intake: ${deliveryId} error 500`);
+    expect(logged).not.toContain(DB_ERROR);
+
+    // 10xjobs's retry: the same signed request, to a working repository.
+    await expectOk(await send({ token, deliveryId, ts, body }));
+    const ds = await deliveries(userId);
+    expect(ds.map((d) => [d.deliveryId, d.outcome])).toEqual([
+      [deliveryId, 'match'],
+    ]);
+    expect(await matches(userId)).toHaveLength(1);
   });
 
   it('logs no secret', async () => {

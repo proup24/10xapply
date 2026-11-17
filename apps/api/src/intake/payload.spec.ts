@@ -89,11 +89,51 @@ describe('parseDelivery', () => {
     expect(JSON.stringify(r)).not.toContain('\\u0000');
   });
 
-  it('is a test for event test, whatever the body', () => {
-    expect(parseDelivery(buf('not json'), 'test', id)).toEqual({
+  it('is a test when the signed body and the header both say test', () => {
+    // A test need not pass the match schema.
+    expect(parseDelivery(buf({ event: 'test' }), 'test', id)).toEqual({
       kind: 'test',
     });
+    expect(
+      parseDelivery(buf({ ...base(), event: 'test' }), 'test', id),
+    ).toEqual({ kind: 'test' });
   });
+
+  it('is unparsed for a test header over a body that is not JSON', () => {
+    expect(parseDelivery(buf('not json'), 'test', id)).toEqual({
+      kind: 'unparsed',
+    });
+  });
+
+  it('is unparsed for a test header over a match body (the header is unsigned)', () => {
+    expect(parseDelivery(buf(base()), 'test', id)).toEqual({
+      kind: 'unparsed',
+    });
+  });
+
+  it('is unparsed for a match header over a test body (the header is unsigned)', () => {
+    expect(
+      parseDelivery(buf({ ...base(), event: 'test' }), 'match.qualified', id),
+    ).toEqual({ kind: 'unparsed' });
+  });
+
+  it('is unparsed for a body without an event', () => {
+    const b: Record<string, unknown> = base();
+    delete b['event'];
+    expect(parseDelivery(buf(b), 'match.qualified', id)).toEqual({
+      kind: 'unparsed',
+    });
+    expect(parseDelivery(buf({}), 'test', id)).toEqual({ kind: 'unparsed' });
+  });
+
+  it.each(['null', '[]', '"test"', '1'])(
+    'is unparsed for a JSON body that is not an object (%s)',
+    (raw) => {
+      expect(parseDelivery(buf(raw), 'test', id)).toEqual({
+        kind: 'unparsed',
+      });
+    },
+  );
 
   it('is unparsed for version 2', () => {
     expect(
@@ -137,5 +177,12 @@ describe('parseDelivery', () => {
     expect(parseDelivery(buf(base()), 'match.updated', id)).toEqual({
       kind: 'unparsed',
     });
+    expect(
+      parseDelivery(
+        buf({ ...base(), event: 'match.updated' }),
+        'match.updated',
+        id,
+      ),
+    ).toEqual({ kind: 'unparsed' });
   });
 });

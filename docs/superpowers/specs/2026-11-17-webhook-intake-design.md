@@ -121,7 +121,7 @@ Grants are written in the migration, as `init_users` does. `apps/db-tests/src/gr
 4. **Signature and timestamp.** Use the code from 10xjobs's `docs/webhooks.md`, with the row's secret: a constant-time compare and a 5-minute tolerance either way. If either check fails, answer **401**. A missing or repeated header counts as a failure.
 5. **Store.** All of this runs in one transaction:
    - Insert the `webhook_deliveries` row. If (`userId`, `deliveryId`) already exists, do nothing and answer **200**. That's a 10xjobs retry.
-   - Then parse the body:
+   - Then parse the body. The kind comes from the signed body's `event` (only the body is signed); it must be `match.qualified` or `test` and equal the `X-10xjobs-Event` header, else `unparsed` (final review, 2026-11-17). A body that is not JSON is `unparsed` whatever the header says.
      - `test` event: outcome `test`, and no match.
      - `match.qualified` that parses as version 1: insert the `matches` row with `ON CONFLICT DO NOTHING` (no target, so either unique key counts). Outcome `match` if a row went in, else `duplicate-job`.
      - Anything else: outcome `unparsed`.
