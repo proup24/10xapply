@@ -79,6 +79,7 @@ test('database area', () => {
     true,
   );
   assert.equal(classify(['apps/db-tests/src/x.ts']).database, true);
+  assert.equal(classify(['apps/api/src/intake/x.ts']).database, true);
   assert.equal(classify(['supabase/config.toml']).database, true);
   assert.equal(classify(['pnpm-lock.yaml']).database, true);
   assert.equal(classify(['apps/runner/src/x.ts']).database, false);

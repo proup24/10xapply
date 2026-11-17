@@ -7,7 +7,12 @@ import { execFileSync } from 'node:child_process';
 import { appendFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 
-const DATABASE_PREFIXES = ['libs/database/', 'apps/db-tests/', 'supabase/'];
+const DATABASE_PREFIXES = [
+  'libs/database/',
+  'apps/db-tests/',
+  'apps/api/',
+  'supabase/',
+];
 const DEPLOY_PREFIXES = ['deploy/'];
 const DEPLOY_FILES = ['scripts/deploy-api-check.sh'];
 const DATABASE_FILES = [
