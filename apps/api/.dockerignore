@@ -1,0 +1,3 @@
+# Only dist/ reaches the image build context (the Dockerfile copies nothing else).
+*
+!dist

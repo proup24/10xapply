@@ -10,7 +10,10 @@ x-logging: &logging
     max-file: '5'
 
 services:
-  api:
+  # Every service on `edge` is named `xapply-*`: Compose adds the service name as
+  # a DNS name on each network, and 10xjobs's Caddy is on `edge` too. The alias
+  # repeats the name on purpose.
+  xapply-api:
     image: ghcr.io/proup24/10xapply-api:${API_IMAGE_TAG:?}
     restart: unless-stopped
     stop_grace_period: 30s

@@ -41,7 +41,7 @@ jobs:
       - name: Check the health route
         if: steps.guard.outputs.skip != 'true'
         run: |
-          if ! printf 'X-Xapply-Key: %s\n' "$XAPPLY_API_KEY" | curl -sf -o /dev/null \
+          if ! printf 'X-Xapply-Key: %s\n' "$XAPPLY_API_KEY" | curl -sf -o /dev/null --max-time 10 \
             --retry 4 --retry-delay 15 --retry-all-errors -H @- "https://$XAPPLY_HOSTNAME/api/health"; then
             echo "::error::API health failed"
             exit 1

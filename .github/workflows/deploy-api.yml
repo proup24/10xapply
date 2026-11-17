@@ -297,7 +297,7 @@ jobs:
       # so the first failing command ends it, ssh exits non-zero and this step
       # and the job fail:
       #   1. prune old 10xapply images (keeps the new tag and the previous one)
-      #   2. `pull api` with the staged .incoming/compose.yaml
+      #   2. `pull xapply-api` with the staged .incoming/compose.yaml
       #   3. `mv` the staged compose file in place
       #   4. write image.env with the new tag
       #   5. `up -d --remove-orphans`
@@ -340,7 +340,7 @@ jobs:
           # quick rollback; older ones are pulled again from GHCR when needed.
           keep_api_images "$1" "$previous"
           API_IMAGE_TAG="$1" docker compose -p xapply-api -f .incoming/compose.yaml \
-            --project-directory . --env-file .env pull api
+            --project-directory . --env-file .env pull xapply-api
           mv .incoming/compose.yaml compose.yaml
           printf 'API_IMAGE_TAG=%s\n' "$1" > image.env
           docker compose -p xapply-api --env-file image.env --env-file .env up -d --remove-orphans
@@ -361,7 +361,7 @@ jobs:
           cd ~/xapply
           export DOCKER_CONFIG="$HOME/xapply/.docker"
           C="docker compose -p xapply-api --env-file image.env --env-file .env"
-          cid="$($C ps -q api)"
+          cid="$($C ps -q xapply-api)"
           status=none
           for _ in $(seq 1 24); do
             status="$(docker inspect -f '{{.State.Health.Status}}' "$cid" 2>/dev/null || echo none)"
@@ -369,17 +369,17 @@ jobs:
             sleep 5
           done
           if [ "$status" != healthy ]; then
-            echo "::error::The api container is '$status', not healthy"
+            echo "::error::The xapply-api container is '$status', not healthy"
             exit 1
           fi
-          echo "The api container is healthy"
+          echo "The xapply-api container is healthy"
           REMOTE
-          if ! printf 'X-Xapply-Key: %s\n' "$XAPPLY_API_KEY" | curl -sf -o /dev/null \
+          if ! printf 'X-Xapply-Key: %s\n' "$XAPPLY_API_KEY" | curl -sf -o /dev/null --max-time 10 \
             --retry 12 --retry-delay 5 --retry-all-errors -H @- "https://$XAPPLY_HOSTNAME/api/health"; then
             echo "::error::Health check with the key failed"
             exit 1
           fi
-          code="$(curl -s -o /dev/null -w '%{http_code}' "https://$XAPPLY_HOSTNAME/api/health")"
+          code="$(curl -s -o /dev/null --max-time 10 --retry 3 --retry-delay 5 -w '%{http_code}' "https://$XAPPLY_HOSTNAME/api/health")"
           if [ "$code" != 401 ]; then
             echo "::error::Health without the key answered $code, expected 401"
             exit 1
@@ -392,7 +392,7 @@ jobs:
         if: failure() && steps.ssh.outcome == 'success'
         run: |
           ssh "$XAPPLY_SSH_USER@$XAPPLY_SSH_HOST" \
-            'cd ~/xapply && export DOCKER_CONFIG="$HOME/xapply/.docker" && C="docker compose -p xapply-api --env-file image.env --env-file .env"; $C ps; $C logs --tail 100 api' || true
+            'cd ~/xapply && export DOCKER_CONFIG="$HOME/xapply/.docker" && C="docker compose -p xapply-api --env-file image.env --env-file .env"; $C ps; $C logs --tail 100 xapply-api' || true
 
       - name: Log the server out of GHCR
         if: always()
