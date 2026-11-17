@@ -1,0 +1,49 @@
+name: API uptime
+
+# Checks the hosted API's health route once an hour, with the API key.
+#
+# GitHub emails a failed scheduled run to whoever last changed the cron line
+# below, so that person is the one alerted. Change the line to hand it over.
+#
+# This repo is public: the hostname and key come from the `prod` environment,
+# the key reaches curl over stdin (never its argv) and nothing prints either.
+on:
+  schedule:
+    - cron: '17 * * * *'
+  workflow_dispatch:
+
+permissions: {}
+
+defaults:
+  run:
+    shell: bash -euo pipefail {0}
+
+jobs:
+  health:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: prod
+    env:
+      XAPPLY_HOSTNAME: ${{ secrets.XAPPLY_HOSTNAME }}
+      XAPPLY_API_KEY: ${{ secrets.XAPPLY_API_KEY }}
+    steps:
+      # Secrets can't be read in a job-level `if:`, so the skip is decided here
+      # and the next step is gated on its output.
+      - name: Guard on the API being configured
+        id: guard
+        run: |
+          if [ -z "$XAPPLY_HOSTNAME" ]; then
+            echo "::notice::XAPPLY_HOSTNAME not set; skipping API uptime check"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      # No response body is printed and the hostname stays out of the log.
+      - name: Check the health route
+        if: steps.guard.outputs.skip != 'true'
+        run: |
+          if ! printf 'X-Xapply-Key: %s\n' "$XAPPLY_API_KEY" | curl -sf -o /dev/null \
+            --retry 4 --retry-delay 15 --retry-all-errors -H @- "https://$XAPPLY_HOSTNAME/api/health"; then
+            echo "::error::API health failed"
+            exit 1
+          fi
+          echo "API health ok"
