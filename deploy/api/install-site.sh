@@ -9,7 +9,9 @@
 # 3. Reload Caddy; on failure restore, reload again and exit 1.
 #
 # Files are written with `cat >`, not `mv`, mirroring 10xjobs. It never prints
-# a site file or Caddy's own output: this runs inside public CI logs.
+# a site file or Caddy's own output: this runs inside public CI logs, and a
+# Caddy error can name 10xjobs's hostname. Caddy's output is appended to
+# ~/xapply/install-site.log (mode 600) on the server instead.
 set -euo pipefail
 
 SITES=/home/deploy/caddy-sites
@@ -18,18 +20,36 @@ TARGET="$SITES/xapply.caddy"
 BACKUP="$SITES/.backup-xapply"
 CADDY=xjobs-engine-caddy-1
 CONFIG=/etc/caddy/Caddyfile
+LOG="$HOME/xapply/install-site.log"
+
+if [[ ! -e $LOG ]]; then
+  (umask 077 && : >"$LOG")
+fi
+chmod 600 "$LOG"
+printf '== %s install-site\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >>"$LOG"
 
 caddy_cmd() {
-  docker exec "$CADDY" caddy "$1" --config "$CONFIG" >/dev/null 2>&1
+  printf -- '-- caddy %s\n' "$1" >>"$LOG"
+  docker exec "$CADDY" caddy "$1" --config "$CONFIG" >>"$LOG" 2>&1
+}
+
+log_hint() {
+  echo 'install-site: Caddy output is in ~/xapply/install-site.log on the server' >&2
 }
 
 restore() {
   if [[ $had_backup -eq 1 ]]; then
-    cat "$BACKUP" >"$TARGET"
-    echo 'install-site: restored the previous site file'
+    if cat "$BACKUP" >"$TARGET"; then
+      echo 'install-site: restored the previous site file'
+    else
+      echo 'install-site: could not restore the previous site file' >&2
+    fi
   else
-    rm -f "$TARGET"
-    echo 'install-site: removed the new site file (there was none before)'
+    if rm -f "$TARGET"; then
+      echo 'install-site: removed the new site file (there was none before)'
+    else
+      echo 'install-site: could not remove the new site file' >&2
+    fi
   fi
 }
 
@@ -44,16 +64,23 @@ if [[ -f $TARGET ]]; then
   had_backup=1
 fi
 
-cat "$INCOMING" >"$TARGET"
+# A partial write must never stay in place.
+cat "$INCOMING" >"$TARGET" || {
+  echo 'install-site: could not write the site file' >&2
+  restore
+  exit 1
+}
 
 if ! caddy_cmd validate; then
   echo 'install-site: caddy validate failed' >&2
+  log_hint
   restore
   exit 1
 fi
 
 if ! caddy_cmd reload; then
   echo 'install-site: caddy reload failed' >&2
+  log_hint
   restore
   if caddy_cmd reload; then
     echo 'install-site: reloaded the restored config'
