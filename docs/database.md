@@ -10,7 +10,7 @@ The local stack uses `project_id = "xapply"`: API on 55321, DB on 55322. 10xjobs
 - `pnpm db:reset` wipes the local database, applies the migrations and seeds the test users.
 - `pnpm db:migrate` applies the migrations to the database in `DATABASE_URL`. `pnpm db:seed` seeds it.
 - `pnpm db:types` regenerates `libs/database/src/supabase/database.types.ts`. CI fails if it is stale.
-- `pnpm db:test` runs the RLS tests in `apps/db-tests` against the local stack. Run `eval "$(scripts/supabase-env.sh)"` first.
+- `pnpm db:test` runs the RLS tests in `apps/db-tests` and the API's local-stack tests (`apps/api/src/**/*.db.spec.ts`) against the local stack. Run `eval "$(scripts/supabase-env.sh)"` first.
 
 The library's own scripts (`db:emit`, `db:format`, `db:migration:plan`, `db:migration:status`, `db:migrate:show`, `db:verify`) are in `libs/database/package.json`.
 
