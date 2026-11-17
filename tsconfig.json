@@ -20,6 +20,9 @@
     },
     {
       "path": "./apps/db-tests"
+    },
+    {
+      "path": "./apps/api"
     }
   ],
   "compilerOptions": {}

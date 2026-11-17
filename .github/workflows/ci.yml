@@ -26,6 +26,7 @@ jobs:
       hooks: ${{ steps.changes.outputs.hooks }}
       code: ${{ steps.changes.outputs.code }}
       database: ${{ steps.changes.outputs.database }}
+      deploy: ${{ steps.changes.outputs.deploy }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -138,8 +139,20 @@ jobs:
             echo "::endgroup::"
           done
 
+  # Offline checks of the API's deploy files: shellcheck, compose config and the
+  # shared-Caddy site file. Never touches the server.
+  deploy-files:
+    needs: changes
+    if: needs.changes.outputs.deploy != 'false' || github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - run: scripts/deploy-api-check.sh
+
   ci-ok:
-    needs: [changes, checks, database]
+    needs: [changes, checks, database, deploy-files]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 2

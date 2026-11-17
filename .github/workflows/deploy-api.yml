@@ -1,0 +1,399 @@
+name: Deploy API
+
+# Builds the API image, pushes it to GHCR and rolls it out to the server
+# shared with 10xjobs, once the Database deploy workflow has migrated the
+# cloud database.
+#
+# Chain depth: CI -> Database deploy -> Deploy API is three workflow_run
+# levels, which is GitHub's maximum. Do not chain another workflow after this.
+#
+# Three jobs keep the credentials apart: `check` only reads, `build` is the
+# only job that can push to GHCR, and `deploy` holds the SSH key and a
+# read-only registry token.
+#
+# This repo is public: no step prints the server's address, the hostname, a
+# key or Caddy's own output. Every docker command on the server runs with
+# DOCKER_CONFIG=~/xapply/.docker, so this repo's GHCR login never shares or
+# clears 10xjobs's.
+on:
+  workflow_run:
+    workflows: [Database deploy]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: Existing image SHA to redeploy (full 40-character commit SHA)
+        type: string
+        required: false
+
+permissions: {}
+
+defaults:
+  run:
+    shell: bash -euo pipefail {0}
+
+concurrency:
+  group: deploy-api
+  cancel-in-progress: false
+
+env:
+  IMAGE: ghcr.io/proup24/10xapply-api
+
+jobs:
+  check:
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: prod
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      skip: ${{ steps.guard.outputs.skip == 'true' || steps.migrations.outputs.skip == 'true' || steps.resolve.outputs.skip == 'true' }}
+      sha: ${{ steps.resolve.outputs.sha }}
+      build: ${{ steps.resolve.outputs.build }}
+    steps:
+      - name: Guard on the server being configured
+        id: guard
+        env:
+          XAPPLY_SSH_HOST: ${{ secrets.XAPPLY_SSH_HOST }}
+        run: |
+          if [ -z "$XAPPLY_SSH_HOST" ]; then
+            echo "::notice::XAPPLY_SSH_HOST not set; skipping API deploy"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      # The workflow_run conclusion is Database deploy's overall result, and a
+      # run whose `deploy` job was skipped (CI failed, or not a push) also ends
+      # green. Only deploy when the migrations really ran.
+      - name: Guard on the migrations having run
+        id: migrations
+        if: steps.guard.outputs.skip != 'true' && github.event_name == 'workflow_run'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          REPO: ${{ github.repository }}
+        run: |
+          conclusion="$(gh api "repos/$REPO/actions/runs/$RUN_ID/jobs" \
+            --jq '[.jobs[] | select(.name == "deploy") | .conclusion] | .[0] // "none"')"
+          if [ "$conclusion" != "success" ]; then
+            echo "::notice::Database deploy job 'deploy' concluded '$conclusion'; migrations did not run, skipping API deploy"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      # On workflow_run, `head_sha` is main's HEAD when this run was triggered,
+      # which can be newer than the commit Database deploy migrated if merges
+      # land in quick succession. Database deploy's run-name carries the SHA it
+      # actually migrated (CI's head_sha), so read it from display_title.
+      # A rollback's image_tag is checked against the same 40-character SHA
+      # pattern below before anything uses it.
+      - name: Resolve the commit to deploy
+        id: resolve
+        if: steps.guard.outputs.skip != 'true' && steps.migrations.outputs.skip != 'true'
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_TAG: ${{ inputs.image_tag }}
+          TITLE: ${{ github.event.workflow_run.display_title }}
+          EVENT_SHA: ${{ github.sha }}
+          REF: ${{ github.ref }}
+        run: |
+          build=true
+          if [ "$EVENT_NAME" = workflow_run ]; then
+            mapfile -t found < <(printf '%s\n' "$TITLE" | grep -owE '[0-9a-f]{40}' || true)
+            if [ "${#found[@]}" -ne 1 ]; then
+              echo "::error::Expected exactly one 40-character SHA in the Database deploy run title, found ${#found[@]}"
+              exit 1
+            fi
+            sha="${found[0]}"
+          elif [ -n "$INPUT_TAG" ]; then
+            sha="$INPUT_TAG"
+            build=false
+          else
+            # Building here would deploy code whose migrations never ran
+            if [ "$REF" != refs/heads/main ]; then
+              echo "::notice::Dispatch without image_tag only builds from main (ref is $REF); skipping API deploy"
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            sha="$EVENT_SHA"
+          fi
+          if ! [[ "$sha" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::'$sha' is not a full 40-character lowercase commit SHA"
+            exit 1
+          fi
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "build=$build" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: check
+    if: needs.check.result == 'success' && needs.check.outputs.skip != 'true' && needs.check.outputs.build == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    env:
+      SHA: ${{ needs.check.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.check.outputs.sha }}
+          persist-credentials: false
+
+      # Installs the pnpm version pinned in package.json's packageManager field
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # `build` defaults to NODE_ENV=production; prune adds package.json, the
+      # lockfile and workspace_modules to apps/api/dist.
+      - name: Build and prune the API
+        run: pnpm exec nx run @xapply/api:prune
+
+      - name: Check the dist layout
+        run: |
+          for f in main.js package.json pnpm-lock.yaml workspace_modules; do
+            test -e "apps/api/dist/$f" || { echo "::error::apps/api/dist/$f is missing"; exit 1; }
+          done
+
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/build-push-action@v7
+        with:
+          context: apps/api
+          file: apps/api/Dockerfile
+          push: true
+          # The source label links a new GHCR package to this repository, so
+          # the deploy job's GITHUB_TOKEN can pull it.
+          labels: org.opencontainers.image.source=https://github.com/${{ github.repository }}
+          # When two merges deploy out of order, `:prod` can briefly point at
+          # the older build: this job cannot know. The deploy job still refuses
+          # to roll the server back to it.
+          tags: |
+            ${{ env.IMAGE }}:${{ needs.check.outputs.sha }}
+            ${{ env.IMAGE }}:prod
+
+  deploy:
+    needs: [check, build]
+    if: >-
+      !cancelled() && needs.check.result == 'success' && needs.check.outputs.skip != 'true' &&
+      (needs.build.result == 'success' || needs.build.result == 'skipped')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: prod
+    permissions:
+      contents: read
+      packages: read
+    env:
+      SHA: ${{ needs.check.outputs.sha }}
+      XAPPLY_SSH_HOST: ${{ secrets.XAPPLY_SSH_HOST }}
+      XAPPLY_SSH_USER: ${{ secrets.XAPPLY_SSH_USER }}
+    steps:
+      # Checked out at the deployed SHA, even for a rollback, so the copied
+      # deploy files match the image.
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.check.outputs.sha }}
+          persist-credentials: false
+
+      # Rendered first, so a refused hostname fails the job before anything
+      # reaches the server. render-site.sh never echoes the hostname.
+      - name: Render the site file
+        env:
+          XAPPLY_HOSTNAME: ${{ secrets.XAPPLY_HOSTNAME }}
+        run: |
+          if ! bash deploy/api/render-site.sh "$XAPPLY_HOSTNAME" > "$RUNNER_TEMP/xapply.caddy"; then
+            echo "::error::render-site.sh refused XAPPLY_HOSTNAME"
+            exit 1
+          fi
+
+      - name: Set up SSH
+        id: ssh
+        env:
+          XAPPLY_SSH_PRIVATE_KEY: ${{ secrets.XAPPLY_SSH_PRIVATE_KEY }}
+          XAPPLY_SSH_KNOWN_HOSTS: ${{ secrets.XAPPLY_SSH_KNOWN_HOSTS }}
+        run: |
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$XAPPLY_SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          printf '%s\n' "$XAPPLY_SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          cat > ~/.ssh/config <<'CONF'
+          Host *
+            IdentityFile ~/.ssh/id_ed25519
+            StrictHostKeyChecking yes
+            BatchMode yes
+          CONF
+
+      # Parallel CI runs for two quick merges can finish out of order. Never let
+      # an automatic deploy roll the server back to an older commit. Manual
+      # dispatches skip this check, so rollbacks still work.
+      - name: Skip if the server runs a newer commit
+        id: newer
+        if: github.event_name == 'workflow_run'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          raw="$(ssh "$XAPPLY_SSH_USER@$XAPPLY_SSH_HOST" \
+            'if [ -f ~/xapply/image.env ]; then sed -n "s/^API_IMAGE_TAG=//p" ~/xapply/image.env; fi')"
+          current="$(printf '%s' "$raw" | tr -d '\r"' | head -n 1)"
+          if [ -z "$current" ]; then
+            echo "No deployed image recorded; first deploy"
+            exit 0
+          fi
+          if ! [[ "$current" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::warning::API_IMAGE_TAG on the server is not a commit SHA; deploying anyway"
+            exit 0
+          fi
+          if [ "$current" = "$SHA" ]; then
+            echo "The server already runs $SHA; redeploying"
+            exit 0
+          fi
+          # compare/BASE...HEAD: `ahead` means HEAD (the running commit) has
+          # commits that BASE (the new one) lacks, so the server is newer.
+          if ! status="$(gh api "repos/$REPO/compare/$SHA...$current" --jq .status 2>/dev/null)"; then
+            echo "::error::Could not compare $SHA with the running $current"
+            exit 1
+          fi
+          echo "compare $SHA...$current: $status"
+          if [ "$status" = ahead ]; then
+            echo "::notice::The server runs $current, which is newer than $SHA; skipping the rollout"
+            echo "stale=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      # The compose file is staged in .incoming/ and the site file as
+      # .incoming-xapply (the `*.caddy` import skips it), so a failed pull
+      # leaves the live files untouched.
+      - name: Copy the deploy files
+        if: steps.newer.outputs.stale != 'true'
+        run: |
+          ssh "$XAPPLY_SSH_USER@$XAPPLY_SSH_HOST" 'mkdir -p ~/xapply/.incoming && install -d -m 700 ~/xapply/.docker'
+          scp deploy/api/compose.yaml "$XAPPLY_SSH_USER@$XAPPLY_SSH_HOST:xapply/.incoming/"
+          scp "$RUNNER_TEMP/xapply.caddy" "$XAPPLY_SSH_USER@$XAPPLY_SSH_HOST:/home/deploy/caddy-sites/.incoming-xapply"
+          scp deploy/api/install-site.sh "$XAPPLY_SSH_USER@$XAPPLY_SSH_HOST:xapply/"
+
+      # The token goes over ssh stdin only: never into a command line or the log.
+      - name: Log the server in to GHCR
+        if: steps.newer.outputs.stale != 'true'
+        env:
+          GHCR_TOKEN: ${{ github.token }}
+          ACTOR: ${{ github.actor }}
+        run: |
+          # shellcheck disable=SC2029  # the actor is quoted on purpose, client side
+          printf '%s' "$GHCR_TOKEN" | ssh "$XAPPLY_SSH_USER@$XAPPLY_SSH_HOST" \
+            "DOCKER_CONFIG=~/xapply/.docker docker login ghcr.io -u $(printf '%q' "$ACTOR") --password-stdin"
+
+      # Order (Review Focus 5). The remote script runs under `set -euo pipefail`,
+      # so the first failing command ends it, ssh exits non-zero and this step
+      # and the job fail:
+      #   1. prune old 10xapply images (keeps the new tag and the previous one)
+      #   2. `pull xapply-api` with the staged .incoming/compose.yaml
+      #   3. `mv` the staged compose file in place
+      #   4. write image.env with the new tag
+      #   5. `up -d --remove-orphans`
+      #   6. `bash ~/xapply/install-site.sh` (validate, then reload Caddy)
+      # A failed pull (2) therefore exits before any `mv` (3), before image.env
+      # is written (4) and before install-site.sh runs (6): the running
+      # container, compose.yaml, image.env and xapply.caddy stay as they were.
+      # `--project-directory .` keeps `env_file: .env` resolving in ~/xapply
+      # rather than in .incoming/. Nothing here touches 10xjobs's compose
+      # project; install-site.sh only validates and reloads its Caddy.
+      - name: Roll out the image
+        if: steps.newer.outputs.stale != 'true'
+        env:
+          REPO: ${{ github.repository }}
+        run: |
+          # shellcheck disable=SC2029  # the validated SHA and repo are quoted on purpose, client side
+          ssh "$XAPPLY_SSH_USER@$XAPPLY_SSH_HOST" \
+            "bash -s $(printf '%q' "$SHA") $(printf '%q' "https://github.com/$REPO")" <<'REMOTE'
+          set -euo pipefail
+          cd ~/xapply
+          export DOCKER_CONFIG="$HOME/xapply/.docker"
+          API_IMAGE=ghcr.io/proup24/10xapply-api
+          SOURCE_LABEL="org.opencontainers.image.source=$2"
+          # Remove every 10xapply image whose tag isn't one of the arguments,
+          # then dangling 10xapply layers only (by the image's source label).
+          # An image a container still uses is refused by `docker image rm`,
+          # so this never breaks what is running.
+          keep_api_images() {
+            docker image ls "$API_IMAGE" --format '{{.Tag}}' | while read -r tag; do
+              case " $* " in
+                *" $tag "*) ;;
+                *) docker image rm "$API_IMAGE:$tag" > /dev/null 2>&1 || true ;;
+              esac
+            done
+            docker image prune -f --filter "label=$SOURCE_LABEL" > /dev/null
+          }
+          previous="$(sed -n 's/^API_IMAGE_TAG=//p' image.env 2> /dev/null || true)"
+          # Make room before the pull: on a full disk the pull fails (10xjobs,
+          # 2026-11-14). Keep the new image and the one it replaces, for a
+          # quick rollback; older ones are pulled again from GHCR when needed.
+          keep_api_images "$1" "$previous"
+          API_IMAGE_TAG="$1" docker compose -p xapply-api -f .incoming/compose.yaml \
+            --project-directory . --env-file .env pull xapply-api
+          mv .incoming/compose.yaml compose.yaml
+          printf 'API_IMAGE_TAG=%s\n' "$1" > image.env
+          docker compose -p xapply-api --env-file image.env --env-file .env up -d --remove-orphans
+          bash ~/xapply/install-site.sh
+          REMOTE
+
+      # Waits for the container's own healthcheck on the server (printing only
+      # the status), then checks the public URL from CI. The key reaches curl
+      # over stdin (-H @-), never its argv, and no response body is printed.
+      - name: Health check
+        if: steps.newer.outputs.stale != 'true'
+        env:
+          XAPPLY_HOSTNAME: ${{ secrets.XAPPLY_HOSTNAME }}
+          XAPPLY_API_KEY: ${{ secrets.XAPPLY_API_KEY }}
+        run: |
+          ssh "$XAPPLY_SSH_USER@$XAPPLY_SSH_HOST" 'bash -s' <<'REMOTE'
+          set -euo pipefail
+          cd ~/xapply
+          export DOCKER_CONFIG="$HOME/xapply/.docker"
+          C="docker compose -p xapply-api --env-file image.env --env-file .env"
+          cid="$($C ps -q xapply-api)"
+          status=none
+          for _ in $(seq 1 24); do
+            status="$(docker inspect -f '{{.State.Health.Status}}' "$cid" 2>/dev/null || echo none)"
+            [ "$status" = healthy ] && break
+            sleep 5
+          done
+          if [ "$status" != healthy ]; then
+            echo "::error::The xapply-api container is '$status', not healthy"
+            exit 1
+          fi
+          echo "The xapply-api container is healthy"
+          REMOTE
+          if ! printf 'X-Xapply-Key: %s\n' "$XAPPLY_API_KEY" | curl -sf -o /dev/null --max-time 10 \
+            --retry 12 --retry-delay 5 --retry-all-errors -H @- "https://$XAPPLY_HOSTNAME/api/health"; then
+            echo "::error::Health check with the key failed"
+            exit 1
+          fi
+          code="$(curl -s -o /dev/null --max-time 10 --retry 3 --retry-delay 5 -w '%{http_code}' "https://$XAPPLY_HOSTNAME/api/health")"
+          if [ "$code" != 401 ]; then
+            echo "::error::Health without the key answered $code, expected 401"
+            exit 1
+          fi
+          echo "Healthy with the key; 401 without it"
+
+      # Also covers a failed `up -d`, which never reaches the health check.
+      # 10xapply's project only.
+      - name: Dump container status and logs
+        if: failure() && steps.ssh.outcome == 'success'
+        run: |
+          ssh "$XAPPLY_SSH_USER@$XAPPLY_SSH_HOST" \
+            'cd ~/xapply && export DOCKER_CONFIG="$HOME/xapply/.docker" && C="docker compose -p xapply-api --env-file image.env --env-file .env"; $C ps; $C logs --tail 100 xapply-api' || true
+
+      - name: Log the server out of GHCR
+        if: always()
+        run: ssh "$XAPPLY_SSH_USER@$XAPPLY_SSH_HOST" 'DOCKER_CONFIG=~/xapply/.docker docker logout ghcr.io' || true

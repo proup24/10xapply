@@ -43,7 +43,7 @@ Decision marks: _(user)_ means the user decided it; _(my call)_ means Claude pro
 - **Author's everyday Chrome first, a dedicated profile before servers** _(user)_. Through Phases 1 and 2 the runner uses the author's normal Windows Chrome and the LinkedIn sign-in it already has. The switch to a dedicated profile comes with the move to servers in Phase 3. Slice 03 settled two things (see [its spec](../superpowers/specs/2026-11-11-local-browser-and-session-design.md)):
   - Recent Chrome versions refuse automation (remote debugging) on the default profile folder. Slice 03 uses our own small bridge extension in the everyday profile, not a copy of the profile or a second profile.
   - The browser is Windows Chrome, not Chrome inside WSL, so LinkedIn sees the same device as always _(my call)_. The relay runs in WSL and the extension reaches it over WSL's mirrored networking.
-- **One fixed resume now, tailored resumes soon** _(user)_. Phases 1–2 upload one fixed resume. Tailored per-job resumes come right after Phase 2's launch check (slice 17), reusing the author's existing resume engine from its own repo. Slice 12's webhook payload leaves room for a per-job resume reference.
+- **One fixed resume now, tailored resumes soon** _(user)_. Phases 1–2 upload one fixed resume. Tailored per-job resumes come right after Phase 2's launch check (slice 17), reusing the author's existing resume engine from its own repo. 10xjobs's webhook payload has no resume reference; slice 17 can add one as a new field in payload version 1.
 - **Safety stops apply from Phase 1 on.** Every run stops, without submitting, on a captcha, a security check, a sign-in prompt, an unfamiliar field type or an unexpected page. No run retries its way past one of these.
 
 ## Phase 0: Foundation
@@ -249,7 +249,7 @@ The author gives the runner one LinkedIn job URL. A real Chrome window on the au
 
 1. 08 Supabase and the database
 2. 11 Hosted API
-3. 12 Webhook intake, with the small sending PR in 10xjobs. Until 13, matches are read in the Supabase dashboard.
+3. 12 Webhook intake, with no sending PR in 10xjobs: 10xapply receives 10xjobs's existing webhook. Until 13, matches are read in the Supabase dashboard.
 4. 07c and 07f side by side, then 07d and 07e
 5. 09, 10, 13, 14 and on, as in the table
 
@@ -274,15 +274,16 @@ The author gives the runner one LinkedIn job URL. A real Chrome window on the au
 
 ### 11 Hosted API
 
-- **Scope:** the NestJS API app, a Hetzner server running Docker Compose with Caddy for HTTPS, deploy on merge to `main` through GitHub Actions, secrets only on the server and in GitHub secrets.
+- **Spec:** [slice 11 spec](../superpowers/specs/2026-11-17-hosted-api-design.md).
+- **Scope:** the NestJS API app, deployed on merge to `main` through GitHub Actions to the Hetzner server it shares with 10xjobs (Docker Compose, 10xjobs's Caddy for HTTPS), an hourly uptime check, secrets only on the server and in GitHub secrets.
 - **Copy from:** 10xjobs specs and plans `2026-11-10-engine-hosting`, `deploy/`, `docker-compose.yaml`, `.github/workflows/deploy-engine.yml`.
-- **Spec answers:** whether 10xapply shares 10xjobs's server or gets its own. `CLAUDE.md` says separate servers; the spec confirms that holds even for a tiny API.
+- **Spec answers:** settled in the spec: shared server _(user)_.
 
 ### 12 Webhook intake
 
-- **Scope:** the webhook endpoint and the payload contract 10xapply defines (user email plus the job: LinkedIn job id, URL, title, company, location, Easy Apply flag if known), with room for an optional per-job resume reference that slice 17 fills. Signature check against the single integration API key, idempotent on the job, held matches for unknown emails attached when that person signs up. The sending side in 10xjobs is a separate small PR in the 10xjobs repo, specced here and built there.
-- **Locked:** everything in `CLAUDE.md` under "Webhooks".
-- **Spec answers:** the signing scheme and key rotation; whether idempotency is per job or per user and job (one job can match several users); what happens to a held match that is never claimed; when 10xjobs sends (on match, or in a batch).
+- **Scope:** the intake endpoint for 10xjobs's existing match webhook, received as it is. Each 10xapply user gets their own intake URL with a long random token and pastes 10xjobs's secret into 10xapply. The intake checks the token, the signature and the timestamp, stores the request and answers 2xx at once.
+- **Locked:** everything in `CLAUDE.md` under "Webhooks". Duplicates are dropped on `X-10xjobs-Delivery` and on the user plus the LinkedIn job id. No email crosses between the apps, there are no held matches, and there is no PR in 10xjobs _(user)_. One webhook URL per 10xjobs user, so a user who points it at 10xapply can't also feed other tools from it _(user)_.
+- **Spec answers:** idempotency details; how the user gets and rotates their URL and secret; the database role the API uses.
 
 ### 13 Approve or skip matches
 
@@ -308,7 +309,7 @@ The author gives the runner one LinkedIn job URL. A real Chrome window on the au
 ### 17 Tailored resumes
 
 - **Scope:** each application uploads a resume tailored to that job instead of the fixed one, produced by the author's existing resume engine (its own repo), improved and reused. Not part of Phase 2's exit criteria; it follows the launch check _(user: "very soon")_.
-- **Spec answers:** where the engine runs (inside 10xapply, as a service, or inside 10xjobs, sending a resume reference in the webhook); whether the author reviews a tailored resume before it is used; how the resume is chosen when tailoring fails (fall back to the fixed one, or block).
+- **Spec answers:** where the engine runs (inside 10xapply, as a service, or inside 10xjobs, sending a resume reference as a new field in its webhook's payload version 1); whether the author reviews a tailored resume before it is used; how the resume is chosen when tailoring fails (fall back to the fixed one, or block).
 
 ## Phase 3: Friends (headlines only)
 

@@ -5,13 +5,14 @@ import { classify, gitDiffArgs, areasFor } from './ci-changes.mjs';
 test('docs only', () =>
   assert.deepEqual(
     classify(['docs/roadmap/README.md', 'CLAUDE.md', 'apps/web/DESIGN.md']),
-    { hooks: false, code: false, database: false },
+    { hooks: false, code: false, database: false, deploy: false },
   ));
 test('docs plus code', () =>
   assert.deepEqual(classify(['docs/a.md', 'packages/x/src/index.ts']), {
     hooks: false,
     code: true,
     database: false,
+    deploy: false,
   }));
 test('root and dot-folder config counts as code', () => {
   for (const f of [
@@ -34,6 +35,7 @@ test('no files', () =>
     hooks: false,
     code: false,
     database: false,
+    deploy: false,
   }));
 test('diff lists both sides of a rename, against the merge base, unquoted paths', () =>
   assert.deepEqual(gitDiffArgs('b', 'h'), [
@@ -57,18 +59,19 @@ test('no usable base: everything changed', () => {
       hooks: true,
       code: true,
       database: true,
+      deploy: true,
     });
   assert.deepEqual(
     areasFor('b', 'h', () => {
       throw new Error('bad object');
     }),
-    { hooks: true, code: true, database: true },
+    { hooks: true, code: true, database: true, deploy: true },
   );
 });
 test('normal base uses the listed files', () =>
   assert.deepEqual(
     areasFor('b', 'h', () => ['docs/x.md']),
-    { hooks: false, code: false, database: false },
+    { hooks: false, code: false, database: false, deploy: false },
   ));
 test('database area', () => {
   assert.equal(
@@ -86,4 +89,15 @@ test('database area', () => {
 });
 test('fallbacks treat database as changed', () => {
   assert.equal(areasFor('', 'abc', () => []).database, true);
+});
+test('deploy area', () => {
+  assert.equal(classify(['deploy/api/compose.yaml']).deploy, true);
+  assert.equal(classify(['deploy/api/README.md']).deploy, true);
+  assert.equal(classify(['scripts/deploy-api-check.sh']).deploy, true);
+  assert.equal(classify(['scripts/ci-changes.mjs']).deploy, false);
+  assert.equal(classify(['apps/api/src/main.ts']).deploy, false);
+  assert.equal(classify(['docs/deploy/x.md']).deploy, false);
+});
+test('fallbacks treat deploy as changed', () => {
+  assert.equal(areasFor('', 'abc', () => []).deploy, true);
 });
