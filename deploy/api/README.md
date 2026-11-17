@@ -13,14 +13,15 @@ Do these in order. The order matters: 10xjobs's change must not deploy before st
 3. Create `/home/deploy/xapply/.env` with mode 600, from `deploy/api/.env.example`. Set `API_KEY` to at least 32 characters, no spaces: `openssl rand -hex 32`.
 4. Create CI's deploy key on your own machine: `ssh-keygen -t ed25519 -N '' -C xapply-ci -f <path>`. Add its public half to `deploy`'s `~/.ssh/authorized_keys`. It is separate from 10xjobs's CI key.
 5. Add Claude's public key (`~/.ssh/10xapply-server.pub`) to `authorized_keys` too, with a comment naming it.
-6. In GitHub, add six secrets to the `prod` environment:
+6. In GitHub → Settings → Environments → `prod`, set deployment branches to `main` only, before adding any secret. CI's SSH key is effectively root on the shared server (the `deploy` user runs Docker), so only workflows running from `main` may read it.
+7. In GitHub, add six secrets to the `prod` environment:
    - `XAPPLY_SSH_PRIVATE_KEY`: the private half of CI's key.
    - `XAPPLY_SSH_KNOWN_HOSTS`: the output of `ssh-keyscan <host>`.
    - `XAPPLY_SSH_HOST`: `<host>`.
    - `XAPPLY_SSH_USER`: `deploy`.
    - `XAPPLY_HOSTNAME`: `<hostname>`.
    - `XAPPLY_API_KEY`: the same value as `API_KEY` in the server's `.env`.
-7. Trigger the first deploy with a merge to `main`, or run `Deploy API` from the Actions tab (it builds from `main`).
+8. Trigger the first deploy with a merge to `main`, or run `Deploy API` from the Actions tab (it builds from `main`).
 
 No new firewall rule is needed: 80 and 443 are already open for 10xjobs.
 
@@ -32,20 +33,20 @@ The `prod` environment must not require reviewers. A required review would make 
 
 Run these as `deploy`, in `/home/deploy/xapply`. Use `DOCKER_CONFIG=~/xapply/.docker` in front of any command that pulls from GHCR.
 
-- **Status and logs:** `docker compose -p xapply-api --env-file image.env --env-file .env ps`, and `docker compose -p xapply-api --env-file image.env --env-file .env logs -f api`. Compose needs the two env files because `compose.yaml` requires `API_IMAGE_TAG`.
-- **Restart:** `docker compose -p xapply-api --env-file image.env --env-file .env restart api`.
+- **Status and logs:** `docker compose -p xapply-api --env-file image.env --env-file .env ps`, and `docker compose -p xapply-api --env-file image.env --env-file .env logs -f xapply-api`. Compose needs the two env files because `compose.yaml` requires `API_IMAGE_TAG`.
+- **Restart:** `docker compose -p xapply-api --env-file image.env --env-file .env restart xapply-api`.
 - **Change the key:** edit `.env`, run `docker compose -p xapply-api --env-file image.env --env-file .env up -d`, then update the `XAPPLY_API_KEY` secret to the same value. Until the secret matches, the deploy's health check and the hourly uptime check fail. Then update every caller that sends the key.
-- **Roll back:** run `Deploy API` from the Actions tab with `image_tag` set to an earlier full 40-character commit SHA. It skips the build and redeploys that image with that commit's deploy files. A merge deploy never rolls the server back to an older commit by itself.
+- **Roll back:** run `Deploy API` from the Actions tab with `image_tag` set to an earlier full 40-character commit SHA. It skips the build and redeploys that image with that commit's deploy files. Run the dispatch from `main` (the default branch in the Run workflow menu): `prod` only allows `main`, so a dispatch from any other branch fails. A merge deploy never rolls the server back to an older commit by itself.
 - **Add or remove an SSH key:** add or delete one line in `deploy`'s `~/.ssh/authorized_keys`. Deleting Claude's line removes its access.
 - **Move to a real domain:** point a DNS record at the server, set the `XAPPLY_HOSTNAME` secret to the new name, then redeploy. The deploy renders and validates a new site file, and Caddy gets the certificate on its own. The site file holds one hostname, so the old name stops working.
-- **If `install-site.sh` refuses the site file:** Caddy keeps its old config, and the script puts the previous site file back (or removes the new one if there was none). The public job log shows only a fixed line. Read the details in `~/xapply/install-site.log` on the server. Fix the cause and redeploy. A refused `XAPPLY_HOSTNAME` (`invalid hostname`) fails earlier, before anything reaches the server.
+- **If `install-site.sh` refuses the site file:** it validates the staged file in a temp copy of Caddy's config before anything in the sites folder changes, so a refused file is never installed and Caddy keeps its old config. If the reload fails after the file is in place, the script puts the previous site file back (or removes the new one if there was none) and reloads again. The public job log shows only a fixed line. Read the details in `~/xapply/install-site.log` on the server. Fix the cause and redeploy. A refused `XAPPLY_HOSTNAME` (`invalid hostname`) fails earlier, before anything reaches the server.
 - **Uptime alert:** `API uptime` checks `/api/health` with the key every hour. GitHub emails a failed scheduled run to whoever last changed its cron line. GitHub pauses scheduled workflows after 60 days without repo activity: if the alerts stop, re-enable `API uptime` in the Actions tab.
 
 10xjobs retries a failed webhook for about 21 hours and never resends what it missed, so fix an outage within a day.
 
 ## What is shared with 10xjobs
 
-- **The `edge` network.** An external Docker network. 10xjobs's Caddy and 10xapply's `api` both join it. 10xapply's container has the alias `xapply-api`; Caddy reaches it as `xapply-api:3000`. It publishes no host port.
+- **The `edge` network.** An external Docker network. 10xjobs's Caddy and 10xapply's `xapply-api` service both join it; Caddy reaches it as `xapply-api:3000`. It publishes no host port. No service on `edge` may share a name or alias with a 10xjobs service, because Compose adds each service name as a DNS name on every network it joins: 10xapply's are all `xapply-*` (checked by `scripts/deploy-api-check.sh`), and 10xjobs's Caddy proxies `xjobs-api`.
 - **The sites folder.** `/home/deploy/caddy-sites`, mounted read-only at `/etc/caddy/sites` in 10xjobs's Caddy container (`xjobs-engine-caddy-1`). Caddy imports every `*.caddy` file there. 10xapply owns `xapply.caddy`. The deploy stages the new file as `.incoming-xapply`, which the glob skips, and keeps a `.backup-xapply`.
 - **10xjobs's Caddy.** 10xapply's deploy only runs `caddy validate` and `caddy reload` in it. It never runs `up`, `pull` or `down` on 10xjobs's project.
 - **The `deploy` user.** Each repo uses its own Docker login directory, so neither clears the other's GHCR login: 10xapply's is `~/xapply/.docker`.
@@ -55,5 +56,5 @@ Run these as `deploy`, in `/home/deploy/xapply`. Use `DOCKER_CONFIG=~/xapply/.do
 Order for changing any of it:
 
 1. Changing the `edge` network name or the sites folder: change 10xjobs's compose first, with the network and folder in place on the server, then change 10xapply's compose and redeploy.
-2. A bad site file cannot break 10xjobs: the deploy validates the full Caddy config with it before moving it in place. A 10xjobs deploy runs `caddy reload` too, which re-reads every site file.
+2. A bad site file is refused before it is installed: `install-site.sh` validates the full Caddy config with it, in a temp folder inside the Caddy container, before moving it in place. A 10xjobs deploy runs `caddy reload` too, which re-reads every site file.
 3. If 10xapply's container is down, Caddy still starts. Only the 10xapply hostname answers 502.

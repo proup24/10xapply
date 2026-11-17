@@ -94,8 +94,8 @@ What exists today: 10xjobs's compose project `xjobs-engine` lives in `/home/depl
 
 **10xapply on the server** _(my call unless marked)_:
 
-- Compose project `xapply-api` in `/home/deploy/xapply/` with one service, `api`. The image is `ghcr.io/proup24/10xapply-api:${API_IMAGE_TAG}`, with `restart: unless-stopped`, `stop_grace_period: 30s`, `env_file: .env`, `NODE_ENV=production` and `XAPPLY_SKIP_ENV_FILES=1`.
-- `api` joins the `edge` network with the alias `xapply-api` and publishes no host port.
+- Compose project `xapply-api` in `/home/deploy/xapply/` with one service, `xapply-api`. The image is `ghcr.io/proup24/10xapply-api:${API_IMAGE_TAG}`, with `restart: unless-stopped`, `stop_grace_period: 30s`, `env_file: .env`, `NODE_ENV=production` and `XAPPLY_SKIP_ENV_FILES=1`.
+- `xapply-api` joins the `edge` network (its name, repeated as an alias) and publishes no host port. Compose adds every service name as a DNS name on each network, so every service on `edge` is named `xapply-*`, and 10xjobs's Caddy proxies its own API as `xjobs-api`, not `api`.
 - A Docker healthcheck calls `/api/health` with the key, using `$$` as 10xjobs's compose does. `json-file` logs rotate (10m × 5) _(10xjobs)_.
 - **Hostname:** `xapply.<ip-with-dashes>.sslip.io` on the server's IP (10xjobs's engine has `api.…`). Caddy gets its certificate automatically. Moving to a real domain later is a new hostname value plus a DNS record.
 - **Site file** `/home/deploy/caddy-sites/xapply.caddy`, rendered by the deploy from `deploy/api/xapply.caddy.template` with the literal hostname: `<hostname> { encode gzip; reverse_proxy xapply-api:3000 }`.
@@ -132,7 +132,7 @@ New workflow `.github/workflows/deploy-api.yml` _(10xjobs, cut down)_:
   - `XAPPLY_API_KEY`, for the health wait and the uptime check.
 - **Rollback:** dispatch with an earlier SHA.
 
-`Database deploy` runs only after CI passes on a push to `main`, and CI runs only on code changes. A docs-only merge therefore deploys nothing, which is fine _(my call)_.
+`Database deploy` runs only after CI passes on a push to `main`. CI runs on every push to `main` (it only skips its checks on docs-only changes) and `Database deploy` has no path filter, so every merge, docs-only ones included, rebuilds and redeploys the API with unchanged code, which is harmless _(my call)_.
 
 ### Uptime alert
 
@@ -148,7 +148,7 @@ New workflow `.github/workflows/api-uptime.yml`, run hourly by `schedule` and al
 - Claude generates its own ed25519 key on the author's machine, outside the repo (`~/.ssh/10xapply-server`). The author adds its public key to `deploy`'s `authorized_keys`, with a comment naming it.
 - Being in the `docker` group makes it effectively root on the box, so it can reach both projects. The author accepts that knowingly _(user)_.
 - **Rules in `CLAUDE.md`:**
-  - **Allowed without asking:** reading 10xapply's and 10xjobs's container status and logs, and restarting or redeploying 10xapply's `api`.
+  - **Allowed without asking:** reading 10xapply's and 10xjobs's container status and logs, and restarting or redeploying 10xapply's `xapply-api` service.
   - **Only on the author's ask in that session:** any change to 10xjobs's containers, its Caddy (other than the deploy's validate and reload), the `edge` network, the firewall or the system.
   - **Never:** printing either app's secret values. That rules out reading a `.env`, `docker inspect` on a container, `docker compose config`, `printenv` or `env` inside a container, and `/proc/*/environ`. Health checks from inside a container pass the key by reference (as the compose healthcheck's `$$API_KEY` does), never by printing it.
 - **Rules only, no guard rule** _(user)_. These rules live in `CLAUDE.md` and nothing enforces them. `guard.mjs` does not change in this slice.
@@ -203,7 +203,7 @@ deploy/api/
 2. A merge to `main` here runs CI, then `Database deploy`, then `Deploy API`, with no manual step. The server runs the image tagged with that commit's SHA.
 3. `curl https://xapply.<ip>.sslip.io/api/health` with the key returns 200 with a valid certificate. Without the key it returns 401. 10xjobs's own hostname is unaffected.
 4. From inside 10xjobs's API container, the same request with the key returns 200, which proves the hairpin path. Claude runs this one on the author's ask during the live checks, since it touches a 10xjobs container.
-5. Stopping 10xapply's `api` makes only its hostname fail and 10xjobs keeps answering. That Caddy starts with 10xapply's site file present and its upstream down is proven with a throwaway Caddy container running the same config, not by restarting the live one _(my call)_.
+5. Stopping 10xapply's `xapply-api` makes only its hostname fail and 10xjobs keeps answering. That Caddy starts with 10xapply's site file present and its upstream down is proven with a throwaway Caddy container running the same config, not by restarting the live one _(my call)_.
 6. A deliberately broken site file (tested once by hand, or in the CI validate step) is refused, and Caddy keeps serving both apps.
 7. The uptime workflow fails, and the author gets the email, while the API is stopped. It passes again once the API is back.
 8. Claude can SSH in with its own key and read `docker compose ps` and logs for both projects.
