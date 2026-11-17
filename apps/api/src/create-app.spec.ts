@@ -1,8 +1,24 @@
 import type { AddressInfo } from 'node:net';
+import { gzipSync } from 'node:zlib';
+import type { LoggerService } from '@nestjs/common';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { createApp } from './create-app';
 
 const key = 'fake-test-key-'.padEnd(40, 'x');
+
+/** Collects every line the app logs, at any level. */
+const lines: string[] = [];
+const push = (...args: unknown[]) => {
+  lines.push(args.map((a) => String(a)).join(' '));
+};
+const logger: LoggerService = {
+  log: push,
+  error: push,
+  warn: push,
+  debug: push,
+  verbose: push,
+  fatal: push,
+};
 let app: NestExpressApplication;
 let base: string;
 
@@ -14,7 +30,7 @@ beforeAll(async () => {
       NODE_ENV: 'test',
       DATABASE_URL: 'postgresql://u:p@127.0.0.1:1/db',
     },
-    { logger: false },
+    { logger },
   );
   await app.listen(0, '127.0.0.1');
   base = `http://127.0.0.1:${(app.getHttpServer().address() as AddressInfo).port}`;
@@ -32,6 +48,16 @@ describe('createApp', () => {
     expect(res.status).toBe(503);
     expect(await res.json()).toEqual({ status: 'database-unreachable' });
     expect(res.headers.get('cache-control')).toBe('no-store');
+  });
+
+  it('logs one fixed line when the health check finds the database down', async () => {
+    const from = lines.length;
+    await fetch(`${base}/api/health`, withKey);
+    const logged = lines.slice(from);
+    expect(logged).toEqual([
+      expect.stringContaining('health: database unreachable'),
+    ]);
+    expect(logged.join('\n')).not.toContain('127.0.0.1');
   });
 
   it('GET /api/health without the key answers 401', async () => {
@@ -95,8 +121,9 @@ describe('createApp', () => {
     expect(res.status).toBe(401);
   });
 
-  it('a body over 1 MB on the intake route answers 413', async () => {
-    const res = await fetch(`${base}/api/intake/abc`, {
+  it('a body over 1 MB on the intake route answers 413 and logs a fixed line', async () => {
+    const from = lines.length;
+    const res = await fetch(`${base}/api/intake/a-path-token`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: 'x'.repeat(1024 * 1024 + 1),
@@ -104,16 +131,30 @@ describe('createApp', () => {
     expect(res.status).toBe(413);
     expect(res.headers.get('content-type')).toMatch(/^application\/json/);
     expect(await res.text()).toBe('{"error":"payload-too-large"}');
+    const logged = lines.slice(from);
+    expect(logged).toEqual([expect.stringContaining('intake: rejected 413')]);
+    expect(logged.join('\n')).not.toContain('a-path-token');
   });
 
-  it('a body that fails to decode on the intake route answers 400 JSON without a stack', async () => {
-    const res = await fetch(`${base}/api/intake/abc`, {
-      method: 'POST',
-      headers: { 'content-encoding': 'gzip' },
-      body: 'not gzip',
-    });
-    expect(res.status).toBe(400);
-    expect(res.headers.get('content-type')).toMatch(/^application\/json/);
-    expect(await res.text()).toBe('{"error":"bad-request"}');
-  });
+  // The signature is over the wire bytes: a compressed body is never inflated.
+  it.each([
+    ['a valid gzip body', gzipSync('{"a":1}')],
+    ['a body that is not gzip', 'not gzip'],
+  ])(
+    'a content-encoded body on the intake route answers 415 JSON without a stack (%s)',
+    async (_name, body) => {
+      const from = lines.length;
+      const res = await fetch(`${base}/api/intake/abc`, {
+        method: 'POST',
+        headers: { 'content-encoding': 'gzip' },
+        body,
+      });
+      expect(res.status).toBe(415);
+      expect(res.headers.get('content-type')).toMatch(/^application\/json/);
+      expect(await res.text()).toBe('{"error":"unsupported-encoding"}');
+      expect(lines.slice(from)).toEqual([
+        expect.stringContaining('intake: rejected 415'),
+      ]);
+    },
+  );
 });

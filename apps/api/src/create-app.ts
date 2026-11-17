@@ -1,6 +1,6 @@
 import express from 'express';
 import type { NextFunction, Request, Response } from 'express';
-import type { LoggerService } from '@nestjs/common';
+import { Logger, type LoggerService } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { AppModule } from './app.module';
@@ -34,7 +34,10 @@ export function configureApp(
   app.disable('x-powered-by');
   app.use(apiKeyMiddleware(env.API_KEY));
   // Intake only: the exact bytes as a Buffer (any content type) for the HMAC.
-  const raw = express.raw({ type: () => true, limit: '1mb' });
+  // `inflate: false`: the signature is over the wire bytes, so a compressed
+  // body is refused (415) rather than inflated and checked as something else.
+  const raw = express.raw({ type: () => true, limit: '1mb', inflate: false });
+  const logger = new Logger('IntakeBody');
   app.use((req: Request, res: Response, next: NextFunction) => {
     if (!isIntakePost(req.method, req.path)) {
       next();
@@ -46,13 +49,19 @@ export function configureApp(
         return;
       }
       // A fixed JSON body: never Express's HTML page, a stack or the request body.
+      // A fixed log line too: no body, no path (it holds the token).
       const status = statusOf(error);
-      res
-        .status(status)
-        .json({ error: status === 413 ? 'payload-too-large' : 'bad-request' });
+      logger.log(`intake: rejected ${status}`);
+      res.status(status).json({ error: errorName(status) });
     });
   });
   app.setGlobalPrefix('api');
+}
+
+function errorName(status: number): string {
+  if (status === 413) return 'payload-too-large';
+  if (status === 415) return 'unsupported-encoding';
+  return 'bad-request';
 }
 
 /** The 4xx status a body-parser error carries, else 400. */

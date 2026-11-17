@@ -3,8 +3,11 @@ import { createDatabaseClient, type DatabaseClient } from '@xapply/database';
 
 export const DATABASE_URL = Symbol('DATABASE_URL');
 
-/** Bounded so a dead database fails a health check fast instead of hanging. */
-export const CONNECTION_TIMEOUT_MS = 5000;
+/**
+ * Bounded so a dead database fails a health check fast instead of hanging:
+ * under the compose healthcheck's 5 s timeout, so health answers 503 first.
+ */
+export const CONNECTION_TIMEOUT_MS = 3000;
 export const IDLE_TIMEOUT_MS = 30000;
 
 /** Owns the single database client for the API. */
