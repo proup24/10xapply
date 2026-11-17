@@ -8,7 +8,12 @@ let base: string;
 
 beforeAll(async () => {
   app = await createApp(
-    { API_KEY: key, PORT: 3000, NODE_ENV: 'test' },
+    {
+      API_KEY: key,
+      PORT: 3000,
+      NODE_ENV: 'test',
+      DATABASE_URL: 'postgresql://u:p@127.0.0.1:1/db',
+    },
     { logger: false },
   );
   await app.listen(0, '127.0.0.1');
@@ -22,10 +27,10 @@ afterAll(async () => {
 const withKey = { headers: { 'x-xapply-key': key } };
 
 describe('createApp', () => {
-  it('GET /api/health with the key answers 200 {"status":"ok"} with no-store', async () => {
+  it('GET /api/health with the key answers 503 {"status":"database-unreachable"} when the database is down', async () => {
     const res = await fetch(`${base}/api/health`, withKey);
-    expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ status: 'ok' });
+    expect(res.status).toBe(503);
+    expect(await res.json()).toEqual({ status: 'database-unreachable' });
     expect(res.headers.get('cache-control')).toBe('no-store');
   });
 

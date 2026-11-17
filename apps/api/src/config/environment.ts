@@ -2,6 +2,7 @@ import { z } from 'zod';
 
 export const environmentSchema = z.object({
   API_KEY: z.string().min(32).regex(/^\S+$/),
+  DATABASE_URL: z.string().regex(/^postgres(ql)?:\/\//),
   PORT: z.coerce.number().int().min(1).max(65535).default(3000),
   NODE_ENV: z
     .enum(['development', 'production', 'test'])

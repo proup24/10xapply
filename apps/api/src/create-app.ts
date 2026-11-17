@@ -10,7 +10,7 @@ export async function createApp(
   options: { logger?: false } = {},
 ): Promise<NestExpressApplication> {
   const app = await NestFactory.create<NestExpressApplication>(
-    AppModule,
+    AppModule.register(env),
     options,
   );
   app.disable('x-powered-by');

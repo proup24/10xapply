@@ -274,6 +274,9 @@ importers:
       '@nestjs/platform-express':
         specifier: ^11.0.0
         version: 11.2.10(@nestjs/common@11.2.10(reflect-metadata@0.2.2)(rxjs@7.8.2)(supports-color@7.2.0))(@nestjs/core@11.2.10)(supports-color@7.2.0)
+      '@xapply/database':
+        specifier: workspace:*
+        version: link:../../libs/database
       reflect-metadata:
         specifier: ^0.2.0
         version: 0.2.2
