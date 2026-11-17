@@ -1,0 +1,41 @@
+# 10xapply's hosted API. Runs as Compose project `xapply-api` from /home/deploy/xapply/.
+# No host ports: 10xjobs's Caddy reaches it on the shared `edge` network as
+# `xapply-api:3000`, through the site file /home/deploy/caddy-sites/xapply.caddy.
+name: xapply-api
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: '10m'
+    max-file: '5'
+
+services:
+  api:
+    image: ghcr.io/proup24/10xapply-api:${API_IMAGE_TAG:?}
+    restart: unless-stopped
+    stop_grace_period: 30s
+    env_file: .env
+    environment:
+      NODE_ENV: production
+      XAPPLY_SKIP_ENV_FILES: '1'
+    expose: ['3000']
+    # Every route needs the key, health included. `$$` stops Compose
+    # interpolating it; the container's own shell expands it from env_file.
+    healthcheck:
+      test:
+        [
+          'CMD-SHELL',
+          'wget -qO- --header "X-Xapply-Key: $$API_KEY" http://127.0.0.1:3000/api/health || exit 1',
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    networks:
+      edge:
+        aliases: [xapply-api]
+    logging: *logging
+
+networks:
+  edge:
+    external: true

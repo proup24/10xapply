@@ -8,6 +8,8 @@ import { appendFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 
 const DATABASE_PREFIXES = ['libs/database/', 'apps/db-tests/', 'supabase/'];
+const DEPLOY_PREFIXES = ['deploy/'];
+const DEPLOY_FILES = ['scripts/deploy-api-check.sh'];
 const DATABASE_FILES = [
   'package.json',
   'pnpm-lock.yaml',
@@ -23,6 +25,11 @@ export function classify(files) {
       (f) =>
         DATABASE_PREFIXES.some((p) => f.startsWith(p)) ||
         DATABASE_FILES.includes(f),
+    ),
+    deploy: files.some(
+      (f) =>
+        DEPLOY_PREFIXES.some((p) => f.startsWith(p)) ||
+        DEPLOY_FILES.includes(f),
     ),
   };
 }
@@ -40,12 +47,12 @@ export function gitDiffArgs(base, head) {
 
 export function areasFor(base, head, listFiles) {
   if (!base || /^0+$/.test(base))
-    return { hooks: true, code: true, database: true };
+    return { hooks: true, code: true, database: true, deploy: true };
   let files;
   try {
     files = listFiles(base, head);
   } catch {
-    return { hooks: true, code: true, database: true };
+    return { hooks: true, code: true, database: true, deploy: true };
   }
   return classify(files);
 }
@@ -74,7 +81,7 @@ function main() {
   if (fallback) console.log(`${fallback}: treating everything as changed`);
   console.log(`Changed files (${files.length}):`);
   for (const f of files) console.log(f);
-  const lines = `hooks=${areas.hooks}\ncode=${areas.code}\ndatabase=${areas.database}\n`;
+  const lines = `hooks=${areas.hooks}\ncode=${areas.code}\ndatabase=${areas.database}\ndeploy=${areas.deploy}\n`;
   if (process.env.GITHUB_OUTPUT)
     appendFileSync(process.env.GITHUB_OUTPUT, lines);
   else process.stdout.write(lines);

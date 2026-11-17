@@ -1,0 +1,9 @@
+# Mirrors 10xjobs's deploy/engine/Caddyfile, for CI only (scripts/deploy-api-check.sh).
+# Update it whenever that file changes.
+
+{$ENGINE_HOSTNAME} {
+	encode gzip
+	reverse_proxy api:3000
+}
+
+import /etc/caddy/sites/*.caddy
