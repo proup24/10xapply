@@ -29,6 +29,7 @@ The library's own scripts (`db:emit`, `db:format`, `db:migration:plan`, `db:migr
 4. Move the committed ref to the new contract hash, or `db:migrate` stops at the old contract (the cloud deploy too):
    `pnpm --filter @xapply/database exec prisma migration ref set db <hash>`
    The ref is `libs/database/src/migrations/app/refs/db.json`; the plan prints the hash.
+   `prisma migration ref set` wipes the ref's `invariants`. Restore them by hand (step 5 says how), or the data-only migrations stop running.
    A unit test in `libs/database` (`src/contract/db-ref.spec.ts`) fails while the ref is behind the contract or the newest migration.
 5. Give a new table its own `GRANT`s in the migration (a raw SQL step, as in `init_users`). Nothing is granted by default: `tighten_users_grants` removed `public`'s default table and sequence grants to `anon` and `authenticated` (the cloud project had them, the local stack sets `auto_expose_new_tables = false`). Without a grant, `authenticated` and `service_role` get error 42501. Grant `anon` nothing unless the table is public, and add the table's `authenticated` privileges to `apps/db-tests/src/grants.db.spec.ts`, which fails on any other grant.
    A change with no contract change (grants, functions) is a data-only migration: `prisma migration new --name <name> --from <current hash>`, then run its `migration.ts` with node to emit it. Give its `rawSql` step an `invariantId` and add that id to `invariants` in `refs/db.json`, as `tighten_users_grants` does, or it never runs.

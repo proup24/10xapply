@@ -21,7 +21,7 @@ Failure even if it technically works:
 ## Decisions so far
 
 - **Separate from 10xjobs.** Separate users, sign-in and database. The servers are shared: 10xapply's API runs on 10xjobs's server, behind its Caddy (author, 2026-11-17). The only link between the apps is 10xjobs's own webhook.
-- **Webhooks.** 10xapply receives 10xjobs's existing match webhook as it is (its signed, versioned JSON payload; see 10xjobs's `docs/webhooks.md`). Each 10xapply user gets their own intake URL with a long random token, which identifies them. They paste it into 10xjobs's Webhook page and paste 10xjobs's secret back into 10xapply. The intake checks the token, the signature and the timestamp. Duplicates are dropped on `X-10xjobs-Delivery` and on the user plus the LinkedIn job id. No email is shared between the apps, there are no held matches, and there is no sending PR in 10xjobs.
+- **Webhooks.** 10xapply receives 10xjobs's existing match webhook as it is (its signed, versioned JSON payload; see 10xjobs's `docs/webhooks.md`). Each 10xapply user gets their own intake URL with a long random token, which identifies them. They paste it into 10xjobs's Webhook page and paste 10xjobs's secret back into 10xapply. The intake checks the token, the signature and the timestamp. Duplicates are dropped on `X-10xjobs-Delivery` and on the user plus 10xjobs's `job.id`; one small 10xjobs PR adds `job.key`, which carries the LinkedIn id. No email is shared between the apps and there are no held matches.
 - **Approval.** The user approves each match in 10xapply's web app; only then does the engine queue an application run.
 - **Facts and answers.** 10xapply keeps its own per-user fact bank (contact details, resume, work authorization, skills, salary, and so on). An LLM answers each form question from it. When the facts don't support a confident answer, the run stops and asks the user.
 - **LinkedIn access.** The user signs in once through a browser we host, in a live view they drive themselves; we keep the session and ask them to sign in again when it expires. We never see or store their password. A Chrome extension that captures cookies is a possible later option.
@@ -30,7 +30,7 @@ Failure even if it technically works:
 
 ## Stack
 
-- Nx 24 monorepo with pnpm, TypeScript strict with nodenext. Eight projects so far: the API (`apps/api`, NestJS, slice 11), the runner (`apps/runner`, a Node CLI), the bridge extension (`apps/bridge-extension`, plain-JS MV3), `libs/fact-bank` (the fact bank's schema, loader and check), `libs/answerer` (answers form questions from the bank through `claude -p`, plus its golden eval), `libs/disqualify` (the disqualification extractor, rules, decision and golden eval), `libs/database` (the Prisma contract, migrations, seed and env guard) and `apps/db-tests` (the RLS tests).
+- Nx 24 monorepo with pnpm, TypeScript strict with nodenext. Eight projects so far: the API (`apps/api`, NestJS, slice 11; the webhook intake, slice 12, connects it to the database), the runner (`apps/runner`, a Node CLI), the bridge extension (`apps/bridge-extension`, plain-JS MV3), `libs/fact-bank` (the fact bank's schema, loader and check), `libs/answerer` (answers form questions from the bank through `claude -p`, plus its golden eval), `libs/disqualify` (the disqualification extractor, rules, decision and golden eval), `libs/database` (the Prisma contract, migrations, seed and env guard) and `apps/db-tests` (the RLS tests).
 - Expected, mirroring 10xjobs, **not built yet**: workers (browser runs), Next.js web app, Redis queues, LLMs through `claude -p` on the author's subscription, browsers on our own server. Each piece is decided in its own slice.
 - **Set up** (slice 02): ESLint, Vitest and Prettier, all run through Nx.
 - **Set up** (slice 08): Supabase (Auth and Postgres with per-user row-level security) and Prisma, a local stack plus one cloud project. See [docs/database.md](docs/database.md).
@@ -44,7 +44,7 @@ Build in small slices, one per session: brainstorm, then spec (`docs/superpowers
 ## Commands
 
 - `pnpm test:hooks` runs the guard hook tests.
-- `pnpm db:start`, `db:stop` and `db:status` run the local Supabase stack (API 55321, DB 55322, alongside 10xjobs's). `db:reset` rebuilds and seeds it, `db:migrate` and `db:seed` run against `DATABASE_URL`, `db:types` regenerates the Database type, and `db:test` runs the RLS tests (after `eval "$(scripts/supabase-env.sh)"`).
+- `pnpm db:start`, `db:stop` and `db:status` run the local Supabase stack (API 55321, DB 55322, alongside 10xjobs's). `db:reset` rebuilds and seeds it, `db:migrate` and `db:seed` run against `DATABASE_URL`, `db:types` regenerates the Database type, and `db:test` runs the RLS tests and the API's local-stack tests (`*.db.spec.ts`) (after `eval "$(scripts/supabase-env.sh)"`).
 - `pnpm nx serve api` runs the API locally. It needs `apps/api/.env.local` with `API_KEY` (at least 32 characters), written by the author.
 - `pnpm nx run @xapply/api:docker:build` builds the API's Docker image.
 - `pnpm test:scripts` runs the tests for the repo's own scripts (added in slice 02).
@@ -81,6 +81,7 @@ See [docs/roadmap/README.md](docs/roadmap/README.md): phases, slice order and th
 
 - `.env*` files (except `.env.example`) are off-limits. Claude may read and write the repo-root `private/` folder, except `applications.json` (see below), and never commits anything from it. `.claude/hooks/guard.mjs` enforces this for file tools and Bash.
 - Claude may push a feature branch only as `git push -u origin <branch>` and may open its PR to `main` with `gh pr create`. Claude never pushes `main`, force-pushes or deletes remote branches; `guard.mjs` blocks every other push form, and the human merges. `guard.mjs` also blocks `gh pr merge`, approving or retargeting PRs, PRs to anything but `main`, and `gh api` write calls.
+- Claude may create and update `intake_links` rows (token hash and 10xjobs secret) with the Supabase tools only when the author asks in that session, and never writes a token or secret to a file.
 - Credentials go only in untracked `.env*` files; personal data (resumes, facts) only in the untracked `private/` folder. Never commit either.
 - Never commit or log LinkedIn session cookies or proxy credentials.
 - `run-reports/` holds redacted run reports (no personal facts, no cookies). It is git-ignored and Claude may read it.

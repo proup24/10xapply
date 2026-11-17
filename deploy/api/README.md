@@ -10,7 +10,7 @@ Do these in order. The order matters: 10xjobs's change must not deploy before st
 
 1. As `deploy` on the server: `docker network create edge`, then `mkdir -p /home/deploy/caddy-sites /home/deploy/xapply`.
 2. Merge the 10xjobs PR (#82 in the 10xjobs repo) and let it deploy. Check that 10xjobs's health still passes. If step 1 was skipped, 10xjobs's `up` fails after its files are in place.
-3. Create `/home/deploy/xapply/.env` with mode 600, from `deploy/api/.env.example`. Set `API_KEY` to at least 32 characters, no spaces: `openssl rand -hex 32`.
+3. Create `/home/deploy/xapply/.env` with mode 600, from `deploy/api/.env.example`. Set `API_KEY` to at least 32 characters, no spaces: `openssl rand -hex 32`. Set `DATABASE_URL` too: the session pooler URL, port 5432, written by the author. It must be in place before the webhook intake PR (slice 12) merges, or the deploy's health check fails with 503 (`database-unreachable`).
 4. Create CI's deploy key on your own machine: `ssh-keygen -t ed25519 -N '' -C xapply-ci -f <path>`. Add its public half to `deploy`'s `~/.ssh/authorized_keys`. It is separate from 10xjobs's CI key.
 5. Add Claude's public key (`~/.ssh/10xapply-server.pub`) to `authorized_keys` too, with a comment naming it.
 6. In GitHub → Settings → Environments → `prod`, set deployment branches to `main` only, before adding any secret. CI's SSH key is effectively root on the shared server (the `deploy` user runs Docker), so only workflows running from `main` may read it.
@@ -43,6 +43,24 @@ Run these as `deploy`, in `/home/deploy/xapply`. Use `DOCKER_CONFIG=~/xapply/.do
 - **Uptime alert:** `API uptime` checks `/api/health` with the key every hour. GitHub emails a failed scheduled run to whoever last changed its cron line. GitHub pauses scheduled workflows after 60 days without repo activity: if the alerts stop, re-enable `API uptime` in the Actions tab.
 
 10xjobs retries a failed webhook for about 21 hours and never resends what it missed, so fix an outage within a day.
+
+## Intake link
+
+`POST /api/intake/<token>` receives 10xjobs's match webhook. The token's SHA-256 hex is looked up in `intake_links`, which gives the user and the 10xjobs secret. Any failure (unknown token, bad or old signature or timestamp) answers 401. There is no web app for links yet, so the author's link is set up by hand. Never write the URL, token or secret into the repo, a log or a file.
+
+1. Invite the author from the Supabase dashboard (Auth, Users, Invite). The `on_auth_user_created` trigger creates their `users` row. Accepting the invite is not needed for intake.
+2. Claude generates a token locally: 32 random bytes, base64url. It computes the token's SHA-256 hex and gives the author the URL `https://xapply.<ip-with-dashes>.sslip.io/api/intake/<token>`.
+3. The author pastes the URL into 10xjobs's Webhook page, turns the webhook on, and gives Claude the secret.
+4. Claude inserts the `intake_links` row with `execute_sql`: the user id, the token hash and the secret.
+5. The author presses "Send test" on 10xjobs's Webhook page. Claude reads the `webhook_deliveries` row, which has outcome `test`.
+
+Check what arrived:
+
+```sql
+select outcome, "createdAt" from webhook_deliveries order by "createdAt" desc limit 5
+```
+
+**Rotate.** A new token means a new hash in the row and the new URL in 10xjobs. A new secret is regenerated in 10xjobs and updated in the row. The intake stops accepting the old value as soon as the row changes.
 
 ## What is shared with 10xjobs
 

@@ -228,7 +228,7 @@ The author gives the runner one LinkedIn job URL. A real Chrome window on the au
 
 10xjobs sends its matches for the author to 10xapply. The author approves or skips each one in the web app. The runner on the author's machine works through approved jobs on its own, at a human pace and within a daily cap, while the machine is on. Blocking questions show up in the web app. Only parts that hold no LinkedIn session run hosted: the API and the database.
 
-**Exit criteria:** a job 10xjobs matches for the author shows up in the web app; approving it leads to a submitted Easy Apply application by the runner without any terminal command; a blocking question can be answered in the web app and the run then goes ahead; the same job sent twice by webhook, or approved twice, is applied to at most once; matches for an email with no account are held and show up when that person signs up; one user can never read another user's data, and tests prove it.
+**Exit criteria:** a job 10xjobs matches for the author shows up in the web app; approving it leads to a submitted Easy Apply application by the runner without any terminal command; a blocking question can be answered in the web app and the run then goes ahead; the same job sent twice by webhook, or approved twice, is applied to at most once; a match reaches only the user whose intake URL received it; one user can never read another user's data, and tests prove it.
 
 | #   | Slice                             | Depends on       |
 | --- | --------------------------------- | ---------------- |
@@ -249,7 +249,7 @@ The author gives the runner one LinkedIn job URL. A real Chrome window on the au
 
 1. 08 Supabase and the database
 2. 11 Hosted API
-3. 12 Webhook intake, with no sending PR in 10xjobs: 10xapply receives 10xjobs's existing webhook. Until 13, matches are read in the Supabase dashboard.
+3. 12 Webhook intake: 10xapply receives 10xjobs's existing webhook (plus one small PR in 10xjobs for `job.key`). Until 13, matches are read in the Supabase dashboard.
 4. 07c and 07f side by side, then 07d and 07e
 5. 09, 10, 13, 14 and on, as in the table
 
@@ -281,15 +281,16 @@ The author gives the runner one LinkedIn job URL. A real Chrome window on the au
 
 ### 12 Webhook intake
 
+- **Spec:** [slice 12 spec](../superpowers/specs/2026-11-17-webhook-intake-design.md).
 - **Scope:** the intake endpoint for 10xjobs's existing match webhook, received as it is. Each 10xapply user gets their own intake URL with a long random token and pastes 10xjobs's secret into 10xapply. The intake checks the token, the signature and the timestamp, stores the request and answers 2xx at once.
-- **Locked:** everything in `CLAUDE.md` under "Webhooks". Duplicates are dropped on `X-10xjobs-Delivery` and on the user plus the LinkedIn job id. No email crosses between the apps, there are no held matches, and there is no PR in 10xjobs _(user)_. One webhook URL per 10xjobs user, so a user who points it at 10xapply can't also feed other tools from it _(user)_.
-- **Spec answers:** idempotency details; how the user gets and rotates their URL and secret; the database role the API uses.
+- **Locked:** everything in `CLAUDE.md` under "Webhooks". Duplicates are dropped on `X-10xjobs-Delivery` and on the user plus 10xjobs's `job.id` _(user)_. No email crosses between the apps and there are no held matches. One small 10xjobs PR adds `job.key` to payload version 1 _(user)_. One webhook URL per 10xjobs user, so a user who points it at 10xapply can't also feed other tools from it _(user)_.
+- **Spec answers:** settled in the spec. A match's identity is 10xjobs's `job.id`; a second delivery of the same job, or of a LinkedIn id already stored for the user, is recorded as `duplicate-job`. The LinkedIn id comes from `job.key`, or from `postingUrl` until the key exists. Every signed request gets 200, even one that cannot be parsed (it is stored as `unparsed`). The author's link is set up by hand without a web app (see `deploy/api/README.md`). The API connects with `DATABASE_URL` (the session pooler) and `/api/health` checks the database.
 
 ### 13 Approve or skip matches
 
 - **Scope:** a web app list of incoming matches with the job's details and a link to the posting; approve or skip each. Approving sets the match to "approved", which is what the runner picks up. Jobs that aren't Easy Apply are shown but can't be approved yet.
 - **Locked:** nothing is applied to without the author's approval (from `CLAUDE.md`).
-- **Spec answers:** whether approval can be undone before the run starts; how Easy Apply is detected if the webhook doesn't say.
+- **Spec answers:** whether approval can be undone before the run starts; how Easy Apply is detected if the webhook doesn't say. Slice 12 stores the payload's `applyUrl`: when it is null the job has no outside apply link, which in practice means Easy Apply. Use that as a hint.
 
 ### 14 The runner takes approved jobs
 
