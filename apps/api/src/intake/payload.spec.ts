@@ -69,6 +69,26 @@ describe('parseDelivery', () => {
     expect(parseDelivery(buf(b), 'match.qualified', id).kind).toBe('match');
   });
 
+  it('strips NUL characters from the match fields', () => {
+    const b = base();
+    b.job.title = 'a\u0000b';
+    b.job.company.name = '\u0000Acme';
+    b.profile.label = 'Backend\u0000 engineer';
+    b.job.key = 'linkedin-job:4488\u0000500594';
+    const r = parseDelivery(buf(b), 'match.qualified', id);
+    expect(r).toMatchObject({
+      kind: 'match',
+      match: {
+        title: 'ab',
+        companyName: 'Acme',
+        profileLabel: 'Backend engineer',
+        jobKey: 'linkedin-job:4488500594',
+        linkedinJobId: '4488500594',
+      },
+    });
+    expect(JSON.stringify(r)).not.toContain('\\u0000');
+  });
+
   it('is a test for event test, whatever the body', () => {
     expect(parseDelivery(buf('not json'), 'test', id)).toEqual({
       kind: 'test',

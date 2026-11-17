@@ -352,6 +352,28 @@ describe('POST /api/intake/:token', () => {
     expect(await matches(userId)).toHaveLength(0);
   });
 
+  it('stores a match whose title holds an escaped NUL, without the NUL', async () => {
+    const { userId, token } = await newUser();
+    const deliveryId = randomUUID();
+    const p = payload(deliveryId);
+    p.job.title = 'a\u0000b';
+    const body = JSON.stringify(p);
+    expect(body).toContain('"title":"a\\u0000b"');
+    await expectOk(await send({ token, deliveryId, body }));
+    expect((await deliveries(userId)).map((d) => d.outcome)).toEqual(['match']);
+    expect((await matches(userId)).map((m) => m['title'])).toEqual(['ab']);
+  });
+
+  it('stores an unparsed delivery for a signed body with a raw NUL byte', async () => {
+    const { userId, token } = await newUser();
+    const body = 'not\u0000json';
+    await expectOk(await send({ token, body, contentType: 'text/plain' }));
+    const ds = await deliveries(userId);
+    expect(ds.map((d) => [d.outcome, d.rawBody])).toEqual([
+      ['unparsed', 'not\uFFFDjson'],
+    ]);
+  });
+
   it('stores an unparsed delivery for a signed request with no body', async () => {
     const { userId, token } = await newUser();
     await expectOk(await send({ token, body: '' }));

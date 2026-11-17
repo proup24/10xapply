@@ -21,6 +21,15 @@ export type ParsedDelivery =
 
 const text = z.string().min(1);
 
+/**
+ * Postgres text cannot hold U+0000, which an escaped `\u0000` in the JSON
+ * becomes. Stripped so a signed match is stored rather than failing (and
+ * being retried) or being lost to `unparsed`.
+ */
+function noNul(value: string): string {
+  return value.replaceAll('\u0000', '');
+}
+
 // Loose objects: new fields can appear within version 1.
 const matchQualified = z.looseObject({
   version: z.literal(1),
@@ -60,18 +69,22 @@ export function parseDelivery(
   const matchedAt = new Date(body.createdAt);
   if (Number.isNaN(matchedAt.getTime())) return { kind: 'unparsed' };
 
-  const jobKey = body.job.key ?? null;
+  const key = body.job.key;
+  const jobKey = key === undefined || key === null ? null : noNul(key);
+  const postingUrl = noNul(body.job.postingUrl);
+  const applyUrl = body.job.applyUrl;
   return {
     kind: 'match',
     match: {
-      xjobsJobId: body.job.id,
+      xjobsJobId: noNul(body.job.id),
       jobKey,
-      linkedinJobId: linkedinJobId(jobKey, body.job.postingUrl),
-      title: body.job.title,
-      companyName: body.job.company.name,
-      postingUrl: body.job.postingUrl,
-      applyUrl: body.job.applyUrl ?? null,
-      profileLabel: body.profile.label,
+      linkedinJobId: linkedinJobId(jobKey, postingUrl),
+      title: noNul(body.job.title),
+      companyName: noNul(body.job.company.name),
+      postingUrl,
+      applyUrl:
+        applyUrl === undefined || applyUrl === null ? null : noNul(applyUrl),
+      profileLabel: noNul(body.profile.label),
       unverified: body.match.unverified,
       matchedAt,
     },

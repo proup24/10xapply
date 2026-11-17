@@ -13,6 +13,16 @@ import { parseDelivery } from './payload';
 import { verifySignature } from './signature';
 import { hashToken } from './token';
 
+/**
+ * The body as stored text. Postgres text cannot hold U+0000, so a NUL becomes
+ * U+FFFD, as `toString('utf8')` already does for invalid bytes: in those two
+ * cases the stored copy is not byte-identical to what was signed. Header
+ * values need no such step: Node's HTTP parser refuses a NUL in a header.
+ */
+function storedText(rawBody: Buffer): string {
+  return rawBody.toString('utf8').replaceAll('\u0000', '\uFFFD');
+}
+
 type Reply = { ok: true } | { error: 'unauthorized' | 'internal' };
 
 /**
@@ -73,7 +83,7 @@ export class IntakeController {
         deliveryId,
         event,
         sentAt: signature.sentAt,
-        rawBody: rawBody.toString('utf8'),
+        rawBody: storedText(rawBody),
         parsed: parseDelivery(rawBody, event, deliveryId),
       });
       this.logger.log(`intake: ${deliveryId} ${outcome} 200`);
