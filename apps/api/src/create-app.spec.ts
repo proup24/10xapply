@@ -50,4 +50,54 @@ describe('createApp', () => {
     const res = await fetch(`${base}/api/health`, withKey);
     expect(res.headers.get('x-powered-by')).toBeNull();
   });
+
+  it('POST /api/intake/some-token without the key gets past the key check', async () => {
+    const res = await fetch(`${base}/api/intake/some-token`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: '{"a":1}',
+    });
+    expect(res.status).toBe(404);
+  });
+
+  it('keeps the decision when a query string is added', async () => {
+    const post = await fetch(`${base}/api/intake/abc?x=1`, { method: 'POST' });
+    expect(post.status).toBe(404);
+    expect((await fetch(`${base}/api/intake/abc?x=1`)).status).toBe(401);
+  });
+
+  it('GET /api/intake/x without the key answers 401', async () => {
+    expect((await fetch(`${base}/api/intake/x`)).status).toBe(401);
+  });
+
+  it.each([
+    '/api/intake/abc/',
+    '/api/intake/abc/def',
+    '/api/intake/',
+    '/api/intake',
+    '/api/intakex/abc',
+    '/API/INTAKE/abc',
+  ])('POST %s without the key answers 401', async (path) => {
+    const res = await fetch(`${base}${path}`, { method: 'POST' });
+    expect(res.status).toBe(401);
+  });
+
+  it('POST /api/intake/a%2Fb without the key is one segment and passes the key check', async () => {
+    const res = await fetch(`${base}/api/intake/a%2Fb`, { method: 'POST' });
+    expect(res.status).toBe(404);
+  });
+
+  it('POST to another route without the key answers 401', async () => {
+    const res = await fetch(`${base}/api/health`, { method: 'POST' });
+    expect(res.status).toBe(401);
+  });
+
+  it('a body over 1 MB on the intake route answers 413', async () => {
+    const res = await fetch(`${base}/api/intake/abc`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: 'x'.repeat(1024 * 1024 + 1),
+    });
+    expect(res.status).toBe(413);
+  });
 });

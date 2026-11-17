@@ -277,6 +277,9 @@ importers:
       '@xapply/database':
         specifier: workspace:*
         version: link:../../libs/database
+      express:
+        specifier: 5.2.1
+        version: 5.2.1(supports-color@7.2.0)
       reflect-metadata:
         specifier: ^0.2.0
         version: 0.2.2

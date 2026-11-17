@@ -1,9 +1,13 @@
 import type { NextFunction, Request, Response } from 'express';
-import { apiKeyMiddleware } from './api-key.middleware';
+import { apiKeyMiddleware, isIntakePost } from './api-key.middleware';
 
 const expected = 'fake-test-key-'.padEnd(40, 'x');
 
-function run(headers: Record<string, string | string[]>) {
+function run(
+  headers: Record<string, string | string[]>,
+  method = 'GET',
+  path = '/api/health',
+) {
   const next = vi.fn();
   const res = {
     status: vi.fn().mockReturnThis(),
@@ -11,7 +15,7 @@ function run(headers: Record<string, string | string[]>) {
     setHeader: vi.fn(),
   };
   apiKeyMiddleware(expected)(
-    { headers } as unknown as Request,
+    { headers, method, path } as unknown as Request,
     res as unknown as Response,
     next as NextFunction,
   );
@@ -53,5 +57,42 @@ describe('apiKeyMiddleware', () => {
     expectUnauthorized(r);
     expect(JSON.stringify(r.res.json.mock.calls)).not.toContain(sent);
     expect(r.res.setHeader).not.toHaveBeenCalled();
+  });
+});
+
+describe('isIntakePost', () => {
+  it('is true only for POST to one segment under /api/intake', () => {
+    expect(isIntakePost('POST', '/api/intake/abc')).toBe(true);
+    expect(isIntakePost('POST', '/api/intake/a%2Fb')).toBe(true);
+  });
+
+  it.each([
+    ['GET', '/api/intake/abc'],
+    ['POST', '/api/intake/abc/x'],
+    ['POST', '/api/intake/abc/'],
+    ['POST', '/api/intake/'],
+    ['POST', '/api/intake'],
+    ['POST', '/api/intakex/abc'],
+    ['POST', '/api/health'],
+  ])('is false for %s %s', (method, path) => {
+    expect(isIntakePost(method, path)).toBe(false);
+  });
+});
+
+describe('apiKeyMiddleware on the intake route', () => {
+  it('calls next without the key for POST /api/intake/abc', () => {
+    const r = run({}, 'POST', '/api/intake/abc');
+    expect(r.next).toHaveBeenCalledOnce();
+    expect(r.res.status).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['GET', '/api/intake/abc'],
+    ['POST', '/api/intake/abc/x'],
+    ['POST', '/api/intake/'],
+    ['POST', '/api/intakex/abc'],
+    ['POST', '/api/health'],
+  ])('401 without the key for %s %s', (method, path) => {
+    expectUnauthorized(run({}, method, path));
   });
 });
