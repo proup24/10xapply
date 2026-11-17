@@ -1,0 +1,28 @@
+[
+  {
+    "id": "grants.tighten_users",
+    "invariantId": "tighten-users-grants",
+    "label": "Users: anon nothing, authenticated select and update; no default table grants in public",
+    "operationClass": "data",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "table",
+        "name": "users"
+      }
+    },
+    "precheck": [],
+    "execute": [
+      {
+        "description": "reset the grants on users",
+        "sql": "REVOKE ALL ON public.users FROM PUBLIC, anon, authenticated;\nGRANT SELECT, UPDATE ON public.users TO authenticated;\nGRANT ALL ON public.users TO service_role;"
+      },
+      {
+        "description": "stop new tables and sequences in public granting anon and authenticated by default",
+        "sql": "ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public REVOKE ALL ON TABLES FROM PUBLIC, anon, authenticated;\nALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public REVOKE ALL ON SEQUENCES FROM PUBLIC, anon, authenticated;"
+      }
+    ],
+    "postcheck": []
+  }
+]

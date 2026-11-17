@@ -1,4 +1,4 @@
 {
   "hash": "6fef1dc7aa30f1b5f495cc8bf6353dc9f7c0238a8aace4439e07726613984d2e",
-  "invariants": []
+  "invariants": ["tighten-users-grants"]
 }
