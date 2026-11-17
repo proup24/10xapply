@@ -25,4 +25,9 @@ async function bootstrap(): Promise<void> {
   await app.listen(env.PORT, '0.0.0.0');
 }
 
-void bootstrap();
+bootstrap().catch((error: unknown) => {
+  // Message only: never the environment or any value.
+  const message = error instanceof Error ? error.message : 'unknown error';
+  process.stderr.write(`API failed to start: ${message}\n`);
+  process.exit(1);
+});
