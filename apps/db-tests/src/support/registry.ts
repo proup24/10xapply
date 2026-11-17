@@ -1,3 +1,6 @@
+import { randomUUID } from 'node:crypto';
+import { admin } from './admin.js';
+
 export type OwnedTable = {
   table: string;
   ownerColumn: 'userId' | 'id';
@@ -20,6 +23,32 @@ export const ownedTables: OwnedTable[] = [
     seed: async (userId) => userId,
     insertPayload: null,
     patch: { updatedAt: new Date().toISOString() },
+    canDelete: false,
+  },
+  {
+    table: 'matches',
+    ownerColumn: 'userId',
+    seed: async (userId) => {
+      const { data, error } = await admin()
+        .from('matches')
+        .insert({
+          userId,
+          xjobsJobId: randomUUID(),
+          deliveryId: randomUUID(),
+          title: 'T',
+          companyName: 'C',
+          postingUrl: 'https://example.com/j',
+          profileLabel: 'P',
+          unverified: false,
+          matchedAt: new Date().toISOString(),
+        })
+        .select('id')
+        .single();
+      if (error) throw new Error(error.message);
+      return data.id as string;
+    },
+    insertPayload: null,
+    patch: null,
     canDelete: false,
   },
 ];

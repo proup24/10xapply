@@ -1,0 +1,829 @@
+[
+  {
+    "id": "table.intake_links",
+    "label": "Create table \"intake_links\"",
+    "summary": "Creates table \"intake_links\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "table",
+        "name": "intake_links"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure table \"intake_links\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"intake_links\""
+        ],
+        "expectation": {
+          "expects": "absent",
+          "object": "table \"intake_links\""
+        }
+      }
+    ],
+    "execute": [
+      {
+        "description": "create table \"intake_links\"",
+        "sql": "CREATE TABLE \"public\".\"intake_links\" (\n  \"createdAt\" timestamptz(3) DEFAULT (now()) NOT NULL,\n  \"id\" uuid DEFAULT (gen_random_uuid()) NOT NULL,\n  \"secret\" text NOT NULL,\n  \"tokenHash\" text NOT NULL,\n  \"updatedAt\" timestamptz(3) DEFAULT (now()) NOT NULL,\n  \"userId\" uuid NOT NULL,\n  PRIMARY KEY (\"id\")\n)",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify table \"intake_links\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_class\" AS \"c\" WHERE (\"c\".\"oid\" = to_regclass($1) AND (\"c\".\"relkind\" = $2 OR \"c\".\"relkind\" = $3))) AS \"result\"",
+        "params": [
+          "\"public\".\"intake_links\"",
+          "r",
+          "p"
+        ],
+        "expectation": {
+          "expects": "present",
+          "object": "table \"intake_links\""
+        }
+      }
+    ]
+  },
+  {
+    "id": "table.matches",
+    "label": "Create table \"matches\"",
+    "summary": "Creates table \"matches\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "table",
+        "name": "matches"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure table \"matches\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"matches\""
+        ],
+        "expectation": {
+          "expects": "absent",
+          "object": "table \"matches\""
+        }
+      }
+    ],
+    "execute": [
+      {
+        "description": "create table \"matches\"",
+        "sql": "CREATE TABLE \"public\".\"matches\" (\n  \"applyUrl\" text,\n  \"companyName\" text NOT NULL,\n  \"createdAt\" timestamptz(3) DEFAULT (now()) NOT NULL,\n  \"deliveryId\" text NOT NULL,\n  \"id\" uuid DEFAULT (gen_random_uuid()) NOT NULL,\n  \"jobKey\" text,\n  \"linkedinJobId\" text,\n  \"matchedAt\" timestamptz(3) NOT NULL,\n  \"postingUrl\" text NOT NULL,\n  \"profileLabel\" text NOT NULL,\n  \"status\" text DEFAULT 'new' NOT NULL,\n  \"title\" text NOT NULL,\n  \"unverified\" bool NOT NULL,\n  \"updatedAt\" timestamptz(3) DEFAULT (now()) NOT NULL,\n  \"userId\" uuid NOT NULL,\n  \"xjobsJobId\" text NOT NULL,\n  PRIMARY KEY (\"id\"),\n  CONSTRAINT \"matches_status_check_7a4128ff\" CHECK (\"status\" IN ('new'))\n)",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify table \"matches\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_class\" AS \"c\" WHERE (\"c\".\"oid\" = to_regclass($1) AND (\"c\".\"relkind\" = $2 OR \"c\".\"relkind\" = $3))) AS \"result\"",
+        "params": [
+          "\"public\".\"matches\"",
+          "r",
+          "p"
+        ],
+        "expectation": {
+          "expects": "present",
+          "object": "table \"matches\""
+        }
+      }
+    ]
+  },
+  {
+    "id": "table.webhook_deliveries",
+    "label": "Create table \"webhook_deliveries\"",
+    "summary": "Creates table \"webhook_deliveries\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "table",
+        "name": "webhook_deliveries"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure table \"webhook_deliveries\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"webhook_deliveries\""
+        ],
+        "expectation": {
+          "expects": "absent",
+          "object": "table \"webhook_deliveries\""
+        }
+      }
+    ],
+    "execute": [
+      {
+        "description": "create table \"webhook_deliveries\"",
+        "sql": "CREATE TABLE \"public\".\"webhook_deliveries\" (\n  \"createdAt\" timestamptz(3) DEFAULT (now()) NOT NULL,\n  \"deliveryId\" text NOT NULL,\n  \"event\" text NOT NULL,\n  \"id\" uuid DEFAULT (gen_random_uuid()) NOT NULL,\n  \"outcome\" text NOT NULL,\n  \"rawBody\" text NOT NULL,\n  \"sentAt\" timestamptz(3) NOT NULL,\n  \"updatedAt\" timestamptz(3) DEFAULT (now()) NOT NULL,\n  \"userId\" uuid NOT NULL,\n  PRIMARY KEY (\"id\"),\n  CONSTRAINT \"webhook_deliveries_outcome_check_69f9d3b2\" CHECK (\"outcome\" IN ('match', 'duplicate-job', 'test', 'unparsed'))\n)",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify table \"webhook_deliveries\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_class\" AS \"c\" WHERE (\"c\".\"oid\" = to_regclass($1) AND (\"c\".\"relkind\" = $2 OR \"c\".\"relkind\" = $3))) AS \"result\"",
+        "params": [
+          "\"public\".\"webhook_deliveries\"",
+          "r",
+          "p"
+        ],
+        "expectation": {
+          "expects": "present",
+          "object": "table \"webhook_deliveries\""
+        }
+      }
+    ]
+  },
+  {
+    "id": "unique.intake_links.intake_links_userId_key",
+    "label": "Add unique constraint on \"intake_links\" (userId)",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "unique",
+        "name": "intake_links_userId_key",
+        "table": "intake_links"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure constraint \"intake_links_userId_key\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "intake_links_userId_key",
+          "public",
+          "\"public\".\"intake_links\""
+        ],
+        "expectation": {
+          "expects": "absent",
+          "object": "constraint \"intake_links_userId_key\" on \"intake_links\""
+        }
+      }
+    ],
+    "execute": [
+      {
+        "description": "add unique constraint \"intake_links_userId_key\"",
+        "sql": "ALTER TABLE \"public\".\"intake_links\" ADD CONSTRAINT \"intake_links_userId_key\" UNIQUE (\"userId\")"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify unique constraint \"intake_links_userId_key\" exists on (userId)",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3) AND \"c\".\"contype\" = $4 AND (SELECT coalesce(jsonb_agg(key_attribute.attname ORDER BY key_column.position), '[]'::jsonb) FROM unnest(\"c\".\"conkey\"::int2[]) WITH ORDINALITY AS key_column(attnum, position) JOIN pg_attribute key_attribute ON key_attribute.attrelid = \"c\".\"conrelid\" AND key_attribute.attnum = key_column.attnum) = ($5)::jsonb)) AS \"result\"",
+        "params": [
+          "intake_links_userId_key",
+          "public",
+          "\"public\".\"intake_links\"",
+          "u",
+          "[\"userId\"]"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "unique.intake_links.intake_links_tokenHash_key",
+    "label": "Add unique constraint on \"intake_links\" (tokenHash)",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "unique",
+        "name": "intake_links_tokenHash_key",
+        "table": "intake_links"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure constraint \"intake_links_tokenHash_key\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "intake_links_tokenHash_key",
+          "public",
+          "\"public\".\"intake_links\""
+        ],
+        "expectation": {
+          "expects": "absent",
+          "object": "constraint \"intake_links_tokenHash_key\" on \"intake_links\""
+        }
+      }
+    ],
+    "execute": [
+      {
+        "description": "add unique constraint \"intake_links_tokenHash_key\"",
+        "sql": "ALTER TABLE \"public\".\"intake_links\" ADD CONSTRAINT \"intake_links_tokenHash_key\" UNIQUE (\"tokenHash\")"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify unique constraint \"intake_links_tokenHash_key\" exists on (tokenHash)",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3) AND \"c\".\"contype\" = $4 AND (SELECT coalesce(jsonb_agg(key_attribute.attname ORDER BY key_column.position), '[]'::jsonb) FROM unnest(\"c\".\"conkey\"::int2[]) WITH ORDINALITY AS key_column(attnum, position) JOIN pg_attribute key_attribute ON key_attribute.attrelid = \"c\".\"conrelid\" AND key_attribute.attnum = key_column.attnum) = ($5)::jsonb)) AS \"result\"",
+        "params": [
+          "intake_links_tokenHash_key",
+          "public",
+          "\"public\".\"intake_links\"",
+          "u",
+          "[\"tokenHash\"]"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "unique.matches.matches_userId_xjobsJobId_key",
+    "label": "Add unique constraint on \"matches\" (userId, xjobsJobId)",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "unique",
+        "name": "matches_userId_xjobsJobId_key",
+        "table": "matches"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure constraint \"matches_userId_xjobsJobId_key\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "matches_userId_xjobsJobId_key",
+          "public",
+          "\"public\".\"matches\""
+        ],
+        "expectation": {
+          "expects": "absent",
+          "object": "constraint \"matches_userId_xjobsJobId_key\" on \"matches\""
+        }
+      }
+    ],
+    "execute": [
+      {
+        "description": "add unique constraint \"matches_userId_xjobsJobId_key\"",
+        "sql": "ALTER TABLE \"public\".\"matches\" ADD CONSTRAINT \"matches_userId_xjobsJobId_key\" UNIQUE (\"userId\", \"xjobsJobId\")"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify unique constraint \"matches_userId_xjobsJobId_key\" exists on (userId, xjobsJobId)",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3) AND \"c\".\"contype\" = $4 AND (SELECT coalesce(jsonb_agg(key_attribute.attname ORDER BY key_column.position), '[]'::jsonb) FROM unnest(\"c\".\"conkey\"::int2[]) WITH ORDINALITY AS key_column(attnum, position) JOIN pg_attribute key_attribute ON key_attribute.attrelid = \"c\".\"conrelid\" AND key_attribute.attnum = key_column.attnum) = ($5)::jsonb)) AS \"result\"",
+        "params": [
+          "matches_userId_xjobsJobId_key",
+          "public",
+          "\"public\".\"matches\"",
+          "u",
+          "[\"userId\",\"xjobsJobId\"]"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "unique.matches.matches_userId_linkedinJobId_key",
+    "label": "Add unique constraint on \"matches\" (userId, linkedinJobId)",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "unique",
+        "name": "matches_userId_linkedinJobId_key",
+        "table": "matches"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure constraint \"matches_userId_linkedinJobId_key\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "matches_userId_linkedinJobId_key",
+          "public",
+          "\"public\".\"matches\""
+        ],
+        "expectation": {
+          "expects": "absent",
+          "object": "constraint \"matches_userId_linkedinJobId_key\" on \"matches\""
+        }
+      }
+    ],
+    "execute": [
+      {
+        "description": "add unique constraint \"matches_userId_linkedinJobId_key\"",
+        "sql": "ALTER TABLE \"public\".\"matches\" ADD CONSTRAINT \"matches_userId_linkedinJobId_key\" UNIQUE (\"userId\", \"linkedinJobId\")"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify unique constraint \"matches_userId_linkedinJobId_key\" exists on (userId, linkedinJobId)",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3) AND \"c\".\"contype\" = $4 AND (SELECT coalesce(jsonb_agg(key_attribute.attname ORDER BY key_column.position), '[]'::jsonb) FROM unnest(\"c\".\"conkey\"::int2[]) WITH ORDINALITY AS key_column(attnum, position) JOIN pg_attribute key_attribute ON key_attribute.attrelid = \"c\".\"conrelid\" AND key_attribute.attnum = key_column.attnum) = ($5)::jsonb)) AS \"result\"",
+        "params": [
+          "matches_userId_linkedinJobId_key",
+          "public",
+          "\"public\".\"matches\"",
+          "u",
+          "[\"userId\",\"linkedinJobId\"]"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "unique.webhook_deliveries.webhook_deliveries_userId_deliveryId_key",
+    "label": "Add unique constraint on \"webhook_deliveries\" (userId, deliveryId)",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "unique",
+        "name": "webhook_deliveries_userId_deliveryId_key",
+        "table": "webhook_deliveries"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure constraint \"webhook_deliveries_userId_deliveryId_key\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "webhook_deliveries_userId_deliveryId_key",
+          "public",
+          "\"public\".\"webhook_deliveries\""
+        ],
+        "expectation": {
+          "expects": "absent",
+          "object": "constraint \"webhook_deliveries_userId_deliveryId_key\" on \"webhook_deliveries\""
+        }
+      }
+    ],
+    "execute": [
+      {
+        "description": "add unique constraint \"webhook_deliveries_userId_deliveryId_key\"",
+        "sql": "ALTER TABLE \"public\".\"webhook_deliveries\" ADD CONSTRAINT \"webhook_deliveries_userId_deliveryId_key\" UNIQUE (\"userId\", \"deliveryId\")"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify unique constraint \"webhook_deliveries_userId_deliveryId_key\" exists on (userId, deliveryId)",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3) AND \"c\".\"contype\" = $4 AND (SELECT coalesce(jsonb_agg(key_attribute.attname ORDER BY key_column.position), '[]'::jsonb) FROM unnest(\"c\".\"conkey\"::int2[]) WITH ORDINALITY AS key_column(attnum, position) JOIN pg_attribute key_attribute ON key_attribute.attrelid = \"c\".\"conrelid\" AND key_attribute.attnum = key_column.attnum) = ($5)::jsonb)) AS \"result\"",
+        "params": [
+          "webhook_deliveries_userId_deliveryId_key",
+          "public",
+          "\"public\".\"webhook_deliveries\"",
+          "u",
+          "[\"userId\",\"deliveryId\"]"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "index.matches.matches_userId_idx_a489d58a",
+    "label": "Create index \"matches_userId_idx_a489d58a\" on \"matches\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "matches_userId_idx_a489d58a",
+        "table": "matches"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"matches_userId_idx_a489d58a\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"matches_userId_idx_a489d58a\""
+        ],
+        "expectation": {
+          "expects": "absent",
+          "object": "index \"matches_userId_idx_a489d58a\""
+        }
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"matches_userId_idx_a489d58a\"",
+        "sql": "CREATE INDEX \"matches_userId_idx_a489d58a\" ON \"public\".\"matches\" (\"userId\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"matches_userId_idx_a489d58a\" exists on \"matches\" with the planned definition",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_class\" AS \"c\" INNER JOIN \"pg_index\" AS \"i\" ON \"i\".\"indexrelid\" = \"c\".\"oid\" INNER JOIN \"pg_am\" AS \"m\" ON \"m\".\"oid\" = \"c\".\"relam\" WHERE (\"c\".\"oid\" = to_regclass($1) AND (\"c\".\"relkind\" = $2 OR \"c\".\"relkind\" = $3) AND \"i\".\"indrelid\" = to_regclass($4) AND NOT (\"i\".\"indisunique\") AND \"m\".\"amname\" = $5 AND (\"i\".\"indexprs\" IS NULL AND (SELECT coalesce(jsonb_agg(key_attribute.attname ORDER BY key_column.position), '[]'::jsonb) FROM unnest(\"i\".\"indkey\"::int2[]) WITH ORDINALITY AS key_column(attnum, position) JOIN pg_attribute key_attribute ON key_attribute.attrelid = \"i\".\"indrelid\" AND key_attribute.attnum = key_column.attnum) = ($6)::jsonb) AND \"i\".\"indpred\" IS NULL)) AS \"result\"",
+        "params": [
+          "\"public\".\"matches_userId_idx_a489d58a\"",
+          "i",
+          "I",
+          "\"public\".\"matches\"",
+          "btree",
+          "[\"userId\"]"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "index.webhook_deliveries.webhook_deliveries_userId_idx_a489d58a",
+    "label": "Create index \"webhook_deliveries_userId_idx_a489d58a\" on \"webhook_deliveries\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "webhook_deliveries_userId_idx_a489d58a",
+        "table": "webhook_deliveries"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"webhook_deliveries_userId_idx_a489d58a\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"webhook_deliveries_userId_idx_a489d58a\""
+        ],
+        "expectation": {
+          "expects": "absent",
+          "object": "index \"webhook_deliveries_userId_idx_a489d58a\""
+        }
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"webhook_deliveries_userId_idx_a489d58a\"",
+        "sql": "CREATE INDEX \"webhook_deliveries_userId_idx_a489d58a\" ON \"public\".\"webhook_deliveries\" (\"userId\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"webhook_deliveries_userId_idx_a489d58a\" exists on \"webhook_deliveries\" with the planned definition",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_class\" AS \"c\" INNER JOIN \"pg_index\" AS \"i\" ON \"i\".\"indexrelid\" = \"c\".\"oid\" INNER JOIN \"pg_am\" AS \"m\" ON \"m\".\"oid\" = \"c\".\"relam\" WHERE (\"c\".\"oid\" = to_regclass($1) AND (\"c\".\"relkind\" = $2 OR \"c\".\"relkind\" = $3) AND \"i\".\"indrelid\" = to_regclass($4) AND NOT (\"i\".\"indisunique\") AND \"m\".\"amname\" = $5 AND (\"i\".\"indexprs\" IS NULL AND (SELECT coalesce(jsonb_agg(key_attribute.attname ORDER BY key_column.position), '[]'::jsonb) FROM unnest(\"i\".\"indkey\"::int2[]) WITH ORDINALITY AS key_column(attnum, position) JOIN pg_attribute key_attribute ON key_attribute.attrelid = \"i\".\"indrelid\" AND key_attribute.attnum = key_column.attnum) = ($6)::jsonb) AND \"i\".\"indpred\" IS NULL)) AS \"result\"",
+        "params": [
+          "\"public\".\"webhook_deliveries_userId_idx_a489d58a\"",
+          "i",
+          "I",
+          "\"public\".\"webhook_deliveries\"",
+          "btree",
+          "[\"userId\"]"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "foreignKey.intake_links.intake_links_userId_fkey",
+    "label": "Add foreign key \"intake_links_userId_fkey\" on \"intake_links\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "foreignKey",
+        "name": "intake_links_userId_fkey",
+        "table": "intake_links"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure FK \"intake_links_userId_fkey\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "intake_links_userId_fkey",
+          "public",
+          "\"public\".\"intake_links\""
+        ],
+        "expectation": {
+          "expects": "absent",
+          "object": "FK \"intake_links_userId_fkey\" on \"intake_links\""
+        }
+      }
+    ],
+    "execute": [
+      {
+        "description": "add FK \"intake_links_userId_fkey\"",
+        "sql": "ALTER TABLE \"public\".\"intake_links\"\nADD CONSTRAINT \"intake_links_userId_fkey\"\nFOREIGN KEY (\"userId\")\nREFERENCES \"public\".\"users\" (\"id\")\nON DELETE CASCADE"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify FK \"intake_links_userId_fkey\" exists with the planned columns, referenced table and actions",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3) AND \"c\".\"contype\" = $4 AND (SELECT coalesce(jsonb_agg(key_attribute.attname ORDER BY key_column.position), '[]'::jsonb) FROM unnest(\"c\".\"conkey\"::int2[]) WITH ORDINALITY AS key_column(attnum, position) JOIN pg_attribute key_attribute ON key_attribute.attrelid = \"c\".\"conrelid\" AND key_attribute.attnum = key_column.attnum) = ($5)::jsonb AND \"c\".\"confrelid\" = to_regclass($6) AND (SELECT coalesce(jsonb_agg(key_attribute.attname ORDER BY key_column.position), '[]'::jsonb) FROM unnest(\"c\".\"confkey\"::int2[]) WITH ORDINALITY AS key_column(attnum, position) JOIN pg_attribute key_attribute ON key_attribute.attrelid = \"c\".\"confrelid\" AND key_attribute.attnum = key_column.attnum) = ($7)::jsonb AND \"c\".\"confdeltype\" = $8 AND \"c\".\"confupdtype\" = $9)) AS \"result\"",
+        "params": [
+          "intake_links_userId_fkey",
+          "public",
+          "\"public\".\"intake_links\"",
+          "f",
+          "[\"userId\"]",
+          "\"public\".\"users\"",
+          "[\"id\"]",
+          "c",
+          "a"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "foreignKey.matches.matches_userId_fkey",
+    "label": "Add foreign key \"matches_userId_fkey\" on \"matches\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "foreignKey",
+        "name": "matches_userId_fkey",
+        "table": "matches"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure FK \"matches_userId_fkey\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "matches_userId_fkey",
+          "public",
+          "\"public\".\"matches\""
+        ],
+        "expectation": {
+          "expects": "absent",
+          "object": "FK \"matches_userId_fkey\" on \"matches\""
+        }
+      }
+    ],
+    "execute": [
+      {
+        "description": "add FK \"matches_userId_fkey\"",
+        "sql": "ALTER TABLE \"public\".\"matches\"\nADD CONSTRAINT \"matches_userId_fkey\"\nFOREIGN KEY (\"userId\")\nREFERENCES \"public\".\"users\" (\"id\")\nON DELETE CASCADE"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify FK \"matches_userId_fkey\" exists with the planned columns, referenced table and actions",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3) AND \"c\".\"contype\" = $4 AND (SELECT coalesce(jsonb_agg(key_attribute.attname ORDER BY key_column.position), '[]'::jsonb) FROM unnest(\"c\".\"conkey\"::int2[]) WITH ORDINALITY AS key_column(attnum, position) JOIN pg_attribute key_attribute ON key_attribute.attrelid = \"c\".\"conrelid\" AND key_attribute.attnum = key_column.attnum) = ($5)::jsonb AND \"c\".\"confrelid\" = to_regclass($6) AND (SELECT coalesce(jsonb_agg(key_attribute.attname ORDER BY key_column.position), '[]'::jsonb) FROM unnest(\"c\".\"confkey\"::int2[]) WITH ORDINALITY AS key_column(attnum, position) JOIN pg_attribute key_attribute ON key_attribute.attrelid = \"c\".\"confrelid\" AND key_attribute.attnum = key_column.attnum) = ($7)::jsonb AND \"c\".\"confdeltype\" = $8 AND \"c\".\"confupdtype\" = $9)) AS \"result\"",
+        "params": [
+          "matches_userId_fkey",
+          "public",
+          "\"public\".\"matches\"",
+          "f",
+          "[\"userId\"]",
+          "\"public\".\"users\"",
+          "[\"id\"]",
+          "c",
+          "a"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "foreignKey.webhook_deliveries.webhook_deliveries_userId_fkey",
+    "label": "Add foreign key \"webhook_deliveries_userId_fkey\" on \"webhook_deliveries\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "foreignKey",
+        "name": "webhook_deliveries_userId_fkey",
+        "table": "webhook_deliveries"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure FK \"webhook_deliveries_userId_fkey\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "webhook_deliveries_userId_fkey",
+          "public",
+          "\"public\".\"webhook_deliveries\""
+        ],
+        "expectation": {
+          "expects": "absent",
+          "object": "FK \"webhook_deliveries_userId_fkey\" on \"webhook_deliveries\""
+        }
+      }
+    ],
+    "execute": [
+      {
+        "description": "add FK \"webhook_deliveries_userId_fkey\"",
+        "sql": "ALTER TABLE \"public\".\"webhook_deliveries\"\nADD CONSTRAINT \"webhook_deliveries_userId_fkey\"\nFOREIGN KEY (\"userId\")\nREFERENCES \"public\".\"users\" (\"id\")\nON DELETE CASCADE"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify FK \"webhook_deliveries_userId_fkey\" exists with the planned columns, referenced table and actions",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3) AND \"c\".\"contype\" = $4 AND (SELECT coalesce(jsonb_agg(key_attribute.attname ORDER BY key_column.position), '[]'::jsonb) FROM unnest(\"c\".\"conkey\"::int2[]) WITH ORDINALITY AS key_column(attnum, position) JOIN pg_attribute key_attribute ON key_attribute.attrelid = \"c\".\"conrelid\" AND key_attribute.attnum = key_column.attnum) = ($5)::jsonb AND \"c\".\"confrelid\" = to_regclass($6) AND (SELECT coalesce(jsonb_agg(key_attribute.attname ORDER BY key_column.position), '[]'::jsonb) FROM unnest(\"c\".\"confkey\"::int2[]) WITH ORDINALITY AS key_column(attnum, position) JOIN pg_attribute key_attribute ON key_attribute.attrelid = \"c\".\"confrelid\" AND key_attribute.attnum = key_column.attnum) = ($7)::jsonb AND \"c\".\"confdeltype\" = $8 AND \"c\".\"confupdtype\" = $9)) AS \"result\"",
+        "params": [
+          "webhook_deliveries_userId_fkey",
+          "public",
+          "\"public\".\"webhook_deliveries\"",
+          "f",
+          "[\"userId\"]",
+          "\"public\".\"users\"",
+          "[\"id\"]",
+          "c",
+          "a"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "rowLevelSecurity.public.intake_links",
+    "label": "Enable row-level security on \"intake_links\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "rowLevelSecurity",
+        "name": "intake_links"
+      }
+    },
+    "precheck": [
+      {
+        "description": "check RLS is not already enabled on \"intake_links\"",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_class\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"relnamespace\" WHERE (\"n\".\"nspname\" = $1 AND \"c\".\"relname\" = $2 AND NOT (\"c\".\"relrowsecurity\"))) AS \"result\"",
+        "params": [
+          "public",
+          "intake_links"
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "enable row-level security on \"intake_links\"",
+        "sql": "ALTER TABLE \"public\".\"intake_links\" ENABLE ROW LEVEL SECURITY"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify row-level security is enabled on \"intake_links\"",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_class\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"relnamespace\" WHERE (\"n\".\"nspname\" = $1 AND \"c\".\"relname\" = $2 AND \"c\".\"relrowsecurity\")) AS \"result\"",
+        "params": [
+          "public",
+          "intake_links"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "rowLevelSecurity.public.matches",
+    "label": "Enable row-level security on \"matches\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "rowLevelSecurity",
+        "name": "matches"
+      }
+    },
+    "precheck": [
+      {
+        "description": "check RLS is not already enabled on \"matches\"",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_class\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"relnamespace\" WHERE (\"n\".\"nspname\" = $1 AND \"c\".\"relname\" = $2 AND NOT (\"c\".\"relrowsecurity\"))) AS \"result\"",
+        "params": [
+          "public",
+          "matches"
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "enable row-level security on \"matches\"",
+        "sql": "ALTER TABLE \"public\".\"matches\" ENABLE ROW LEVEL SECURITY"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify row-level security is enabled on \"matches\"",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_class\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"relnamespace\" WHERE (\"n\".\"nspname\" = $1 AND \"c\".\"relname\" = $2 AND \"c\".\"relrowsecurity\")) AS \"result\"",
+        "params": [
+          "public",
+          "matches"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "rowLevelSecurity.public.webhook_deliveries",
+    "label": "Enable row-level security on \"webhook_deliveries\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "rowLevelSecurity",
+        "name": "webhook_deliveries"
+      }
+    },
+    "precheck": [
+      {
+        "description": "check RLS is not already enabled on \"webhook_deliveries\"",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_class\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"relnamespace\" WHERE (\"n\".\"nspname\" = $1 AND \"c\".\"relname\" = $2 AND NOT (\"c\".\"relrowsecurity\"))) AS \"result\"",
+        "params": [
+          "public",
+          "webhook_deliveries"
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "enable row-level security on \"webhook_deliveries\"",
+        "sql": "ALTER TABLE \"public\".\"webhook_deliveries\" ENABLE ROW LEVEL SECURITY"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify row-level security is enabled on \"webhook_deliveries\"",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_class\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"relnamespace\" WHERE (\"n\".\"nspname\" = $1 AND \"c\".\"relname\" = $2 AND \"c\".\"relrowsecurity\")) AS \"result\"",
+        "params": [
+          "public",
+          "webhook_deliveries"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "rlsPolicy.public.matches.matches_owner_read_ab58a1a7",
+    "label": "Create RLS policy \"matches_owner_read_ab58a1a7\" on \"matches\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "rlsPolicy",
+        "name": "matches_owner_read_ab58a1a7",
+        "table": "matches"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure RLS policy \"matches_owner_read_ab58a1a7\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_policies\" WHERE (\"schemaname\" = $1 AND \"tablename\" = $2 AND \"policyname\" = $3)) AS \"result\"",
+        "params": [
+          "public",
+          "matches",
+          "matches_owner_read_ab58a1a7"
+        ],
+        "expectation": {
+          "expects": "absent",
+          "object": "RLS policy \"matches_owner_read_ab58a1a7\" on \"matches\""
+        }
+      }
+    ],
+    "execute": [
+      {
+        "description": "create RLS policy \"matches_owner_read_ab58a1a7\"",
+        "sql": "CREATE POLICY \"matches_owner_read_ab58a1a7\" ON \"public\".\"matches\" AS PERMISSIVE FOR SELECT TO authenticated USING (\"userId\" = auth.uid())",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify RLS policy \"matches_owner_read_ab58a1a7\" exists with the planned command, roles and permissiveness",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_policies\" WHERE (\"schemaname\" = $1 AND \"tablename\" = $2 AND \"policyname\" = $3 AND \"cmd\" = $4 AND \"permissive\" = $5 AND (SELECT coalesce(jsonb_agg(role_name ORDER BY role_name), '[]'::jsonb) FROM (SELECT DISTINCT policy_role::text COLLATE \"C\" AS role_name FROM unnest(\"roles\") AS policy_role) AS actual_roles) = (SELECT coalesce(jsonb_agg(role_name ORDER BY role_name), '[]'::jsonb) FROM (SELECT DISTINCT (CASE expected_role WHEN 'current_user' THEN current_user::text WHEN 'current_role' THEN current_role::text WHEN 'session_user' THEN session_user::text ELSE expected_role END) COLLATE \"C\" AS role_name FROM jsonb_array_elements_text(($6)::jsonb) AS expected_role) AS expected_roles))) AS \"result\"",
+        "params": [
+          "public",
+          "matches",
+          "matches_owner_read_ab58a1a7",
+          "SELECT",
+          "PERMISSIVE",
+          "[\"authenticated\"]"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "grants.webhook_intake",
+    "label": "Grant matches to authenticated and service_role; the intake tables to service_role",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "table",
+        "name": "matches"
+      }
+    },
+    "precheck": [],
+    "execute": [
+      {
+        "description": "grant the webhook intake tables",
+        "sql": "GRANT SELECT ON public.matches TO authenticated;\nGRANT ALL ON public.matches, public.intake_links, public.webhook_deliveries TO service_role;"
+      }
+    ],
+    "postcheck": []
+  }
+]

@@ -9,6 +9,108 @@ export type Json =
 export type Database = {
   public: {
     Tables: {
+      intake_links: {
+        Row: {
+          createdAt: string;
+          id: string;
+          secret: string;
+          tokenHash: string;
+          updatedAt: string;
+          userId: string;
+        };
+        ComputedFields: never;
+        Insert: {
+          createdAt?: string;
+          id?: string;
+          secret: string;
+          tokenHash: string;
+          updatedAt?: string;
+          userId: string;
+        };
+        Update: {
+          createdAt?: string;
+          id?: string;
+          secret?: string;
+          tokenHash?: string;
+          updatedAt?: string;
+          userId?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'intake_links_userId_fkey';
+            columns: ['userId'];
+            isOneToOne: true;
+            referencedRelation: 'users';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
+      matches: {
+        Row: {
+          applyUrl: string | null;
+          companyName: string;
+          createdAt: string;
+          deliveryId: string;
+          id: string;
+          jobKey: string | null;
+          linkedinJobId: string | null;
+          matchedAt: string;
+          postingUrl: string;
+          profileLabel: string;
+          status: string;
+          title: string;
+          unverified: boolean;
+          updatedAt: string;
+          userId: string;
+          xjobsJobId: string;
+        };
+        ComputedFields: never;
+        Insert: {
+          applyUrl?: string | null;
+          companyName: string;
+          createdAt?: string;
+          deliveryId: string;
+          id?: string;
+          jobKey?: string | null;
+          linkedinJobId?: string | null;
+          matchedAt: string;
+          postingUrl: string;
+          profileLabel: string;
+          status?: string;
+          title: string;
+          unverified: boolean;
+          updatedAt?: string;
+          userId: string;
+          xjobsJobId: string;
+        };
+        Update: {
+          applyUrl?: string | null;
+          companyName?: string;
+          createdAt?: string;
+          deliveryId?: string;
+          id?: string;
+          jobKey?: string | null;
+          linkedinJobId?: string | null;
+          matchedAt?: string;
+          postingUrl?: string;
+          profileLabel?: string;
+          status?: string;
+          title?: string;
+          unverified?: boolean;
+          updatedAt?: string;
+          userId?: string;
+          xjobsJobId?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'matches_userId_fkey';
+            columns: ['userId'];
+            isOneToOne: false;
+            referencedRelation: 'users';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
       users: {
         Row: {
           createdAt: string;
@@ -27,6 +129,51 @@ export type Database = {
           updatedAt?: string;
         };
         Relationships: [];
+      };
+      webhook_deliveries: {
+        Row: {
+          createdAt: string;
+          deliveryId: string;
+          event: string;
+          id: string;
+          outcome: string;
+          rawBody: string;
+          sentAt: string;
+          updatedAt: string;
+          userId: string;
+        };
+        ComputedFields: never;
+        Insert: {
+          createdAt?: string;
+          deliveryId: string;
+          event: string;
+          id?: string;
+          outcome: string;
+          rawBody: string;
+          sentAt: string;
+          updatedAt?: string;
+          userId: string;
+        };
+        Update: {
+          createdAt?: string;
+          deliveryId?: string;
+          event?: string;
+          id?: string;
+          outcome?: string;
+          rawBody?: string;
+          sentAt?: string;
+          updatedAt?: string;
+          userId?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'webhook_deliveries_userId_fkey';
+            columns: ['userId'];
+            isOneToOne: false;
+            referencedRelation: 'users';
+            referencedColumns: ['id'];
+          },
+        ];
       };
     };
     Views: {

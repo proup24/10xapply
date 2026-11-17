@@ -7,6 +7,7 @@ import { withCatalog } from './support/pg.js';
 
 /** The table privileges authenticated may hold. Add a table when it needs one. */
 const AUTHENTICATED: Record<string, string[]> = {
+  matches: ['SELECT'],
   users: ['SELECT', 'UPDATE'],
 };
 

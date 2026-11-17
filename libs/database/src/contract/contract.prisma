@@ -12,10 +12,25 @@ model mixin Timestamps {
   updatedAt TimestamptzJsDate(3) @default(now()) @onCreate(now()) @onUpdate(now())
 }
 
+// What a webhook delivery turned into.
+enum DeliveryOutcome {
+  @@type("pg/text@1")
+  match = "match"
+  duplicate-job = "duplicate-job"
+  test = "test"
+  unparsed = "unparsed"
+}
+
+// The only status so far: a match waits for the user's approval.
+enum MatchStatus {
+  @@type("pg/text@1")
+  new = "new"
+}
+
 // One row per Supabase Auth user, inserted by the on_auth_user_created trigger.
 model User {
-  id       Uuid                   @id
-  authUser supabase:auth.AuthUser @relation(fields: [id], references: [id], onDelete: Cascade)
+  id                Uuid                   @id
+  authUser          supabase:auth.AuthUser @relation(fields: [id], references: [id], onDelete: Cascade)
   +Timestamps
 
   @@map("users")
@@ -35,4 +50,74 @@ policy_update users_owner_update {
   roles = [authenticated]
   using = sql`id = auth.uid()`
   withCheck = sql`id = auth.uid()`
+}
+
+// A user's webhook intake URL and the 10xjobs secret. Engine-only: RLS on, no
+// policies, so only the service role reads it.
+model IntakeLink {
+  id        Uuid   @id @default(sql`gen_random_uuid()`) @onCreate(uuid(7))
+  userId    Uuid
+  user      User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // Hash of the long random token in the intake URL; the token itself is never stored.
+  tokenHash String
+  // The 10xjobs secret the user pasted in, used to check each signature.
+  secret    String
+  +Timestamps
+
+  @@unique([userId])
+  @@unique([tokenHash])
+  @@map("intake_links")
+  @@rls
+}
+
+// One row per webhook delivery received, kept as the audit trail and for the
+// duplicate check on X-10xjobs-Delivery. Engine-only: RLS on, no policies.
+model WebhookDelivery {
+  id         Uuid                 @id @default(sql`gen_random_uuid()`) @onCreate(uuid(7))
+  userId     Uuid
+  user       User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // The X-10xjobs-Delivery header.
+  deliveryId String
+  event      String
+  sentAt     TimestamptzJsDate(3)
+  rawBody    String
+  outcome    DeliveryOutcome
+  +Timestamps
+
+  @@unique([userId, deliveryId])
+  @@map("webhook_deliveries")
+  @@rls
+}
+
+// A job match from 10xjobs, waiting for the user's approval.
+model Match {
+  id            Uuid                 @id @default(sql`gen_random_uuid()`) @onCreate(uuid(7))
+  userId        Uuid
+  user          User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  deliveryId    String
+  xjobsJobId    String
+  jobKey        String?
+  linkedinJobId String?
+  title         String
+  companyName   String
+  postingUrl    String
+  applyUrl      String?
+  profileLabel  String
+  unverified    Boolean
+  matchedAt     TimestamptzJsDate(3)
+  status        MatchStatus          @default(new)
+  +Timestamps
+
+  @@unique([userId, xjobsJobId])
+  @@unique([userId, linkedinJobId])
+  @@index([userId])
+  @@map("matches")
+  @@rls
+}
+
+// Users read only their own matches. No insert, update or delete: the intake does that.
+policy_select matches_owner_read {
+  target = Match
+  roles = [authenticated]
+  using = sql`"userId" = auth.uid()`
 }

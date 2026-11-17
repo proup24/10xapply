@@ -14,6 +14,13 @@ The local stack uses `project_id = "xapply"`: API on 55321, DB on 55322. 10xjobs
 
 The library's own scripts (`db:emit`, `db:format`, `db:migration:plan`, `db:migration:status`, `db:migrate:show`, `db:verify`) are in `libs/database/package.json`.
 
+## Tables
+
+- `users`: one row per Auth user. `authenticated` has SELECT and UPDATE (own row).
+- `intake_links`: a user's intake token hash and 10xjobs secret. RLS on, no policies; `service_role` only.
+- `webhook_deliveries`: every webhook delivery received. RLS on, no policies; `service_role` only.
+- `matches`: job matches from 10xjobs. `authenticated` has SELECT (own rows, policy `matches_owner_read`); writes are `service_role` only.
+
 ## Changing the schema
 
 1. Edit `libs/database/src/contract/contract.prisma`.
