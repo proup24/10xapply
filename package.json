@@ -12,7 +12,7 @@
     "format:check": "nx format:check",
     "test:scripts": "node --test \"scripts/*.test.mjs\"",
     "db:start": "scripts/ensure-signing-key.sh && supabase start",
-    "db:test": "nx run @xapply/db-tests:db-test",
+    "db:test": "nx run-many -t db-test -p @xapply/db-tests @xapply/api",
     "db:stop": "supabase stop",
     "db:status": "supabase status",
     "db:types": "supabase gen types typescript --local --schema public > libs/database/src/supabase/database.types.ts && prettier --write libs/database/src/supabase/database.types.ts",

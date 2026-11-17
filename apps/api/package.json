@@ -67,6 +67,14 @@
           "build",
           "prune"
         ]
+      },
+      "db-test": {
+        "executor": "nx:run-commands",
+        "cache": false,
+        "options": {
+          "command": "vitest run --config vitest.db.config.mts",
+          "cwd": "apps/api"
+        }
       }
     }
   },
@@ -79,10 +87,12 @@
     "reflect-metadata": "^0.2.0",
     "rxjs": "^7.8.0",
     "tslib": "^2.3.0",
-    "zod": "^4.6.7"
+    "zod": "^4.6.7",
+    "pg": "^8.23.1"
   },
   "devDependencies": {
-    "@nestjs/testing": "^11.0.0"
+    "@nestjs/testing": "^11.0.0",
+    "@types/pg": "^8.23.1"
   },
   "scripts": {
     "start": "node dist/main.js"

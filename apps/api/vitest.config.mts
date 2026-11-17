@@ -9,6 +9,7 @@ export default defineConfig(() => ({
     globals: true,
     environment: 'node',
     include: ['src/**/*.{test,spec}.{js,mjs,cjs,ts,mts,cts}'],
+    exclude: ['**/node_modules/**', 'src/**/*.db.spec.ts'],
     passWithNoTests: true,
     reporters: ['default'],
   },
