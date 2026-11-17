@@ -1,14 +1,28 @@
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
+import { createApp } from './create-app';
 import { loadEnvironment } from './config/environment';
 
-// Task 3 wires createApp; for now the bootstrap only loads and validates env.
-function bootstrap(): void {
-  if (process.env.XAPPLY_SKIP_ENV_FILES !== '1') {
-    const envFile = join(process.cwd(), 'apps/api/.env.local');
-    if (existsSync(envFile)) process.loadEnvFile(envFile);
-  }
-  loadEnvironment(process.env);
+/**
+ * Finds `.env.local` next to the app root (the bundle lives in `dist/`), so it
+ * resolves the same from any working directory; falls back to the workspace
+ * layout relative to cwd.
+ */
+function envFile(): string | undefined {
+  return [
+    join(__dirname, '..', '.env.local'),
+    join(process.cwd(), 'apps/api/.env.local'),
+  ].find((path) => existsSync(path));
 }
 
-bootstrap();
+async function bootstrap(): Promise<void> {
+  if (process.env.XAPPLY_SKIP_ENV_FILES !== '1') {
+    const file = envFile();
+    if (file) process.loadEnvFile(file);
+  }
+  const env = loadEnvironment(process.env);
+  const app = await createApp(env);
+  await app.listen(env.PORT, '0.0.0.0');
+}
+
+void bootstrap();

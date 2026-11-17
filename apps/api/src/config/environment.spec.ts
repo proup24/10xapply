@@ -38,5 +38,10 @@ describe('loadEnvironment', () => {
 
   it('the error message never contains the key value', () => {
     expect(messageOf({ API_KEY: 'k'.repeat(31) })).not.toContain('kkkk');
+    const padded = `${'k'.repeat(39)}\r`;
+    expect(padded).toHaveLength(40);
+    const message = messageOf({ API_KEY: padded });
+    expect(message).toContain('API_KEY');
+    expect(message).not.toContain('kkkk');
   });
 });
